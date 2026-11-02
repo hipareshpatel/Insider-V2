@@ -44,3 +44,14 @@ describe("canonical results (INFY Q3 FY25 standalone)", async () => {
     expect(r.checks.filter((c) => !c.ok)).toEqual([]);
   });
 });
+
+describe("canonical results from a SEBI Integrated Filing (in-capmkt, INFY Q2 FY27, trimmed real file)", async () => {
+  const { canonicalResult } = await import("../src/index.js");
+  const r = canonicalResult(parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_INFY_IF_Q2FY27_trim.xml"), "utf8")));
+  it("reads the same canonical lines under the in-capmkt prefix", () => {
+    expect(r).toMatchObject({ periodStart: "2026-07-01", periodEnd: "2026-09-30", label: "Q2 FY27", basis: "standalone" });
+    expect(r.lines.revenue).toBe("407190000000");
+    expect(r.lines.pat).toBe("78930000000");
+    expect(r.checks.filter((c) => !c.ok)).toEqual([]);
+  });
+});

@@ -4,7 +4,11 @@ import { type Dec, add, cmp, dec, sub, toText } from "./decimal.js";
 import { type PeriodKind, fiscalPeriod } from "./fy.js";
 import type { XbrlInstance } from "./xbrl.js";
 
-const P = "in-bse-fin:";
+/** Taxonomy prefix: in-bse-fin (results up to 2024) or in-capmkt (SEBI Integrated Filing, 2025+); same element names. */
+function prefixOf(inst: XbrlInstance): string {
+  const f = inst.facts.find((x) => /:DateOfEndOfReportingPeriod$/.test(x.tag));
+  return f ? f.tag.slice(0, f.tag.indexOf(":") + 1) : "in-bse-fin:";
+}
 /** canonical line -> in-bse-fin tag (industrial template). */
 export const PL_TAGS: Record<string, string> = {
   revenue: "RevenueFromOperations",
@@ -56,6 +60,7 @@ function months(a: string, b: string): number {
 }
 
 export function canonicalResult(inst: XbrlInstance): CanonicalResult {
+  const P = prefixOf(inst);
   const meta = (tag: string) => inst.facts.find((f) => f.tag === P + tag)?.value ?? null;
   const start = meta("DateOfStartOfReportingPeriod"), end = meta("DateOfEndOfReportingPeriod");
   if (!start || !end) throw new Error("results: reporting period not found");
