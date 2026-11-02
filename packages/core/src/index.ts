@@ -11,3 +11,4 @@ export * from "./nse/index.js";
 export * from "./corpActions.js";
 export * from "./sql.js";
 export * from "./xbrl.js";
+export * from "./results.js";
