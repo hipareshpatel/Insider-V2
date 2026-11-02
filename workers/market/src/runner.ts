@@ -45,7 +45,8 @@ export async function runPending(deps: Deps, opt: RunOptions): Promise<DayReport
 export async function maybeSnapshot(deps: Deps): Promise<string> {
   const now = deps.now();
   const n = istNow(now);
-  if (n.minutes < 22 * 60) return "before 22:00 IST";
+  const ever = await deps.market.all("SELECT 1 FROM pipeline_run WHERE pipeline='market.snapshot' AND status='ok' LIMIT 1");
+  if (n.minutes < 22 * 60 && ever.length) return "before 22:00 IST"; // the first snapshot runs as soon as prices are caught up
   const [last] = await deps.market.all<{ d: string | null }>("SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session=1");
   if (!last?.d || last.d < addDays(n.date, -5)) return "prices not caught up";
   const done = await deps.market.all("SELECT 1 FROM pipeline_run WHERE pipeline='market.snapshot' AND run_key=? AND status='ok'", [n.date]);
