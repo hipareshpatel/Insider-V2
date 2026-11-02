@@ -20,6 +20,8 @@ If the design text and Appendix A ever disagree, Appendix A wins and the design 
 - **Structured filings:** financial statements (XBRL), shareholding, insider/takeover disclosures, BRSR, governance, credit ratings.
 - **Research tools:** dashboard, sector/industry pages, query builder, trackers, relationship graph, plant registry, forensic and timeliness panels.
 
+**Platform & design:** web only, mobile-first, light theme, English only (D100, D101, D103); accessibility formal target later (D102); usage analytics (D98); name pending (D99).
+
 **Bar:** best in class and a benchmark for others (D95), measured by the quality gate and performance targets (§14) and UX standards (§16).
 
 **Who:** retail investors **and** institutions/family offices (D25). Layered depth: quick summary first, full sources one click away.
@@ -293,7 +295,7 @@ relation      kind: supplier_of | customer_of | subsidiary_of | competitor_of | 
   - Plant revenue share is factual only for single-plant companies or plant-wise disclosure; otherwise capacity share labelled "estimate".
 
 ### 5.7 `app`
-Users (Google sign-in), watchlists, saved queries/trackers/baskets, on-site alerts, error reports, owner corrections log (D35), audit log, query cache, cost ledger.
+Users (Google sign-in; deletion/export on request, D107), watchlists, saved queries/trackers/baskets, on-site alerts, error reports, owner corrections log (D35), audit log, query cache, cost ledger.
 
 ### 5.8 Feature table
 One row per stock, hundreds of precomputed fields + compact quarterly series (≤ 12 quarters), rebuilt nightly and after events. It powers the query builder, trackers, dashboard and sector pages.
@@ -406,6 +408,7 @@ confidence_gate    published | published_unverified (badge, never hidden)
 - **Trackers** (D78): sector KPI trackers (company-reported vs computed), segment-margin trackers (where disclosed), export share vs margin, repeat orders (named customers, disclosed orders only).
 - **Other tools:** keyword scans over announcement text (D67); bulk/block deals and tracked investors; custom baskets, returns vs indices, peer comparison; niche sector indices (e.g. NIC-based castings) (D75); exposure queries over the graph; unexplained-move panel (D69); "what changed since your last visit" (signed-in).
 - **Data-health page:** last runs, review-queue sizes, freshness.
+- **Search** across companies, people, investors, products, plants and **full text of filings** (D104). **Charts** via Lightweight Charts (D105). **Exports** owner-only until licence (D106).
 
 ### 8.2 Owner-only (Cloudflare Access; never cached publicly or exposed via public API routes)
 - Upcoming-results signals (incl. headcount growth as an expansion indicator) + outcome ledger; predictions only after a backtest beats the naive baseline (D53).
@@ -467,6 +470,9 @@ Not built now. Designed in: accounts, API keys, exports, per-plan limits. The we
 - **Backups:** D1 Time Travel (30 days) + weekly export to R2 kept 12 weeks; full rebuild from raw tested before launch (D44).
 - **Alerts to owner (email):** pipeline stalled > 1 h, Gemini spend > 80% of daily cap, any dead-letter item, NSE error spike (D45).
 - **Secrets:** in Cloudflare/GitHub secrets and local `.dev.vars` (git-ignored). The repo is public: **no data or secrets in git** (D11, D14).
+- **Owner review budget:** 30 min/day; queues ranked by impact, safe auto-resolution, backlog visible (D96).
+- **Repo:** public, no description/README, documents only in `docs/` (D97).
+- **User data:** deletion/export on request; error reports kept 2 years (D107).
 - **Access control:** owner routes behind Cloudflare Access. Public API routes rate-limited, read-only, bot protection. Owner-only data never edge-cached publicly.
 - **Prompt-injection defence:** §7.3.
 
@@ -535,7 +541,7 @@ Not built now. Designed in: accounts, API keys, exports, per-plan limits. The we
 
 ## 14. Milestones (approved by owner, D94)
 
-**Definition of done for every milestone:** tests pass in CI on real-file fixtures; staging runs clean; gold set (once it exists) shows no regression; `PLAN.md` + `docs/discussion-log.md` updated and the consistency check passes; owner sign-off.
+**Definition of done for every milestone:** tests pass in CI on real-file fixtures; staging runs clean; gold set (once it exists) shows no regression; `docs/PLAN.md` + `docs/discussion-log.md` updated and the consistency check passes; owner sign-off.
 
 | # | Milestone | Done when |
 |---|---|---|
@@ -738,6 +744,18 @@ probe/                throwaway reachability check
 | D93 | API design | **Delegated to Claude by the owner.** (1) **One API for everything:** the website uses the same versioned REST API (`/api/v1`, JSON) that paid clients would later get, so it is tested by daily use. (2) **Three route families:** public read (`/api/v1/...`), signed-in (`/api/v1/me/...`: watchlists, saved queries, alerts), owner-only (`/api/owner/...`, behind Access, never cached, never in public docs). (3) **Every response carries provenance** (source filing/page or XBRL tag, `period`, `disclosed_at`, `basis`, `version`, `origin`) and supports `as_of=` (time machine), `basis=`, `adjusted=`, `restated=`. (4) Cursor pagination; stable `security_id` in all payloads; symbols accepted as lookup only. (5) **Rate limits per tier:** anonymous < signed-in < (future) API key. (6) **External API keys and bulk exports are not offered until the data licence and legal consult are done** (D88, §12 #7): redistributing NSE data to third parties is the clearest licence trigger. (7) OpenAPI spec generated from code; breaking changes only in a new version (`/api/v2`). |
 | D94 | Milestones | **Approved** as in §14 (M0–M11, definition of done, gold-set thresholds, quality gate, performance targets). Building starts only when the owner says so; discussion continues for now. Claude leads the design and asks the owner for inputs. |
 | D95 | Product bar | **"Best in class; a benchmark for all"** (owner). Made measurable through §14 (quality gate, performance targets) and the UX standards still to be agreed (§16: design system, accessibility, mobile, search, charts). |
+| D96 | Owner review time | **30 minutes per day.** Review work is sized to fit: queues are ranked by impact (critical first), routine items auto-resolve by rule where safe, and the daily review list targets ≤ ~30 items. If the backlog grows beyond what 30 min clears, the data-health page shows it and automation thresholds are tightened. Nothing silently waits. |
+| D97 | Repo visibility & docs | **Repo stays public** (owner). No repo description, no README at the root; all `.md` documents live in `docs/` only. *Claude's note:* this reduces casual discoverability only; code and `docs/` remain readable by anyone who opens the repo, and private repos are free on GitHub (CI minutes sufficient). Recommendation stands: consider private. |
+| D98 | Usage analytics | **Cloudflare Web Analytics** (free, cookie-less) from day 1; usage numbers support pitching. |
+| D99 | Name & domain | *Proposed by Claude (owner asked):* **Saarnama** (सारनामा, "the record of what matters"). RDAP check 2026-11-02: `saarnama.com` and `saarnama.in` unregistered. Alternative: **Paarkhi** ("the assessor", one who tests gold): `paarkhi.in` unregistered, `.com` taken. Trademark search (IP India) still needed before buying. *Pending owner choice.* |
+| D100 | Visual design | **Light theme only.** Mobile-first web (D101). |
+| D101 | Platforms | **Web only, mobile-first.** No app (an app would also be a separate NSE licence medium). |
+| D102 | Accessibility | Formal WCAG target **later** (owner). Basic good practice from day 1 at no extra cost: readable contrast, keyboard-usable controls, alt text. |
+| D103 | Language | **English only.** |
+| D104 | Search scope | **Everything:** companies, symbols, aliases, people, investors, products (NIC), plants/locations, and **full-text search inside filings** (per-page text, D17). Full-text uses SQLite FTS5 in D1, sharded by period as volume grows (Nifty 50 page text is ~tens of MB/month); results link to filing + page. |
+| D105 | Charts | TradingView **Lightweight Charts** (Apache-2.0). On-chart logo turned off (`attributionLogo: false`); the licence's required notice + link to tradingview.com is placed on a credits/about page, which is the allowed way to satisfy it. *Removing attribution entirely is not done (licence violation).* |
+| D106 | Exports | Built **from day 1**. **Owner-only until the licence is in place** (testing needs, D88/D93); then enabled for signed-in users. |
+| D107 | User data | Account deletion and data export on request (DPDP). **Error reports kept 2 years.** |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |

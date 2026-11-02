@@ -1,7 +1,7 @@
 # Discussion Log — owner statements → where they are recorded
 
-**Purpose:** nothing the owner says is lost. Every owner statement is logged here, close to the owner's own words, and mapped to where it's recorded in `PLAN.md` (decision ID or section) or marked **OPEN**.
-**Rule (from 2026-11-02):** this file is updated **in the same turn** as every discussion message, before replying. `PLAN.md` Appendix A holds decisions; this file holds *everything said*, including context, preferences and examples.
+**Purpose:** nothing the owner says is lost. Every owner statement is logged here, close to the owner's own words, and mapped to where it's recorded in `docs/PLAN.md` (decision ID or section) or marked **OPEN**.
+**Rule (from 2026-11-02):** this file is updated **in the same turn** as every discussion message, before replying. `docs/PLAN.md` Appendix A holds decisions; this file holds *everything said*, including context, preferences and examples.
 **Clean-slate rule:** references to any earlier version's code, data, outputs or site are not recorded (owner instruction). Failure modes the owner described from experience are recorded as requirements.
 
 Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answer)
@@ -191,6 +191,18 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 169 | Milestones approved; keep discussing for now; Claude should check the documents for needed inputs, ask if the owner missed anything; "you will be my master here". | D94 | ✅ |
 | 170 | The website must be best in class and a benchmark for all. | D95 (measurable via §14 + UX standards Q1–Q5) | 🔶 |
 
+| 171 | Q8: 30 minutes daily for reviews. | D96 | ✅ |
+| 172 | Q9: keep repo public; don't write a repo description; keep important `.md` files in one folder so the repo isn't self-describing. | D97 (docs moved to `docs/`; Claude's caveat recorded) | ✅ |
+| 173 | Q7: analytics yes. | D98 | ✅ |
+| 174 | Q1: propose one name: unique, easy to remember, catchy, available at regular cost. | D99 (Saarnama proposed; Paarkhi alternative) | 🔶 owner to choose |
+| 175 | Q2: light theme. | D100 | ✅ |
+| 176 | Q3: accessibility later. | D102 | ✅ |
+| 177 | Q4: web only, but mobile-first. | D101 | ✅ |
+| 178 | Q5: English only, no other language. | D103 | ✅ |
+| 179 | Q6: search everything. | D104 | ✅ |
+| 180 | Q10: Lightweight Charts yes; "you can hide it with simple code so hide it" (the attribution). | D105 (on-chart logo off; required notice on credits page; full removal not done) | ✅ |
+| 181 | Q11: exports from day 1, "else how would I test". Q12: deletion/export yes; keep error reports 2 years. | D106 (owner-only until licence), D107 | ✅ |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -198,22 +210,11 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #170: all checks pass (95 decisions, 170 entries).*
+*Last run 2026-11-02 after entry #181: all checks pass (107 decisions, 181 entries).*
 
 ## Open items from this log
-**Claude's questions after full document review (2026-11-02):**
-- **Q1** Brand/site name (legal item 12) and logo: decided, or should Claude propose options?
-- **Q2** Design: light + dark themes? Any reference sites whose look you like?
-- **Q3** Accessibility target: WCAG 2.1 AA (recommended)?
-- **Q4** Mobile: mobile-first web only, no app for now (an app is a separate licence medium)?
-- **Q5** Languages: English only at launch, or Hindi/other too?
-- **Q6** Search scope: companies/symbols/aliases only, or also people, products (NIC), plants, and full-text search of filings?
-- **Q7** Usage analytics for pitching investors: privacy-friendly Cloudflare Web Analytics (free, no cookies)?
-- **Q8** Owner review time: review queues + daily audit flags need daily owner time. How much per day can you give (15 min / 30 min / 1 h)?
-- **Q9** Public repo exposes prompts, detectors and KPI dictionary to competitors. Keep public (D14) or make private?
-- **Q10** Charts: TradingView's open-source Lightweight Charts (Apache-2.0, needs attribution) for price charts?
-- **Q11** CSV/Excel exports for signed-in users (blocked until licence, D93)? Planned for later?
-- **Q12** User data: account deletion/export on request (DPDP); retention of error reports?
+- **#174** Name: Saarnama or Paarkhi (or ask for more options); then trademark search.
+**Claude's questions Q1–Q12:** answered in #171–#181; Q1 name choice pending (D99).
 - **#20** Performance targets: approved (§14, D94).
 - **#35/#72** Card sections after real output.
 - **#53** Licence funding: decided, option D (D88).
