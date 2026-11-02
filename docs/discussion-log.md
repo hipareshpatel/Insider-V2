@@ -152,6 +152,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 141 | Some websites track new facilities going live and warn before results: last quarter management said 30% utilisation next quarter; expect high depreciation because plant cost is ₹X cr, so margins may look compressed. | D82 (facts public; estimate owner-only) | 🔶 owner to confirm public/owner split |
 | 142 | Same can be analysed and highlighted using contextual memory: new capacity was the reason PAT decreased, or the block was capitalised now, and so on. | D82 (post-results evidence-based explanation, public) | ✅ |
 
+| 143 | Facilities etc. will come from presentations, transcripts and management discussion (MD&A) in annual reports. | D83 | ✅ (interpreted "transformation" as "transcripts"; "facilities" as plant/capacity facilities) |
+
 ## Open items from this log
 - **#141** Pre-results commissioning warning: confirm facts public, estimated depreciation/margin impact owner-only.
 - **#20** Performance targets (milestones discussion).
