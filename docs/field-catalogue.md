@@ -1,7 +1,8 @@
-# Field Catalogue — Draft v0 (for owner review)
+# Field Catalogue — Draft v1 (updated to decisions D1–D107)
 
 This lists the fields the query builder, dashboard and dossiers can use. Each field is precomputed nightly, or after each event, into the per-stock feature table (D64).
-Fields marked 🔒 are **owner-only** (D53) and never appear in public queries or APIs.
+Fields marked 🔒 are **owner-only** (D53) and never appear in public queries or APIs. Fields marked *est.* are labelled estimates (method shown).
+**History available to series functions:** up to 12 quarters + 5 years annual for financials (D90); market data from 2024-01-01 (D2).
 
 **Conventions (apply to every field):**
 - **Basis:** the company's primary basis (D50) unless the field name ends in `_sa` (standalone) or `_cons` (consolidated).
@@ -10,6 +11,7 @@ Fields marked 🔒 are **owner-only** (D53) and never appear in public queries o
 - **Prices:** corporate-action adjusted (D6) unless the name ends in `_raw`. Market cap is never adjusted.
 - **Restated figures:** latest restated is the default (D48).
 - **Missing data:** if a field can't be computed, it's `null` with a reason, never a sentinel value (D52). A `null` never matches a condition.
+- **Origin:** every value records whether it is reported, computed, extracted (LLM, verified), industry_default, or estimate (§2a schema rules).
 - **As-of date:** every field has one. Queries can require freshness, e.g. `as_of(pat_yoy_q) within 120d`.
 
 ---
@@ -52,7 +54,11 @@ The plain-English mode only translates into this language. Anything that can't b
 | `dma_50`, `dma_200`, `above_dma_200` | Moving averages / flag |
 | `rsi_14`, `volatility_1y` | Standard definitions, documented |
 | `avg_turnover_20d_cr`, `volume_vs_20d` | Liquidity |
-| `delivery_pct_20d` | Avg delivery % (needs `sec_bhavdata_full`, archive; to be added to D1 sources) |
+| `delivery_pct_20d` | Avg delivery % (`sec_bhavdata_full`, D65) |
+| `ema_20`, `ema_50`, `ema_100`, `ema_200`, `above_ema_*` | EMAs / flags (dashboard participation, D67) |
+| `in_asm`, `in_gsm`, `in_fo_ban`, `price_band` | Surveillance / F&O ban / price band (D76) |
+| `bulk_block_deals_90d` | Count + net value of bulk/block deals (D67) |
+| `unexplained_move_30d` | Moves beyond threshold with no disclosure in the window (D69) |
 
 ## 4. Valuation
 | Field | Definition |
@@ -88,6 +94,10 @@ The plain-English mode only translates into this language. Anything that can't b
 | `exceptional_items_ttm_cr` | Sum of exceptional items |
 | `effective_tax_rate_ttm` | Tax ÷ PBT |
 | `ocf_to_pat_ttm` | Operating cash flow ÷ PAT (half-yearly data) |
+| `margin_recovery`, `margin_erosion` | Flags: margin rising ≥ 2 quarters after a trailing-4Q low / ≥ X bps below trailing-8Q peak or consecutive contraction (D70) |
+| `employee_cost_per_employee_sa` | Standalone employee expense ÷ BRSR headcount, vs industry median (D71) |
+| `headcount`, `headcount_growth_yoy`, `contract_worker_share` | BRSR, standalone (D71) |
+| `energy_growth_vs_revenue`, `water_growth_vs_revenue` | BRSR activity proxies (D71) |
 | `fcf_ttm_cr` | OCF − capex |
 
 ## 7. Balance sheet & working capital (half-yearly)
@@ -98,6 +108,10 @@ The plain-English mode only translates into this language. Anything that can't b
 | `receivable_days`, `inventory_days`, `payable_days`, `working_capital_days`, `cash_conversion_cycle` | Standard, documented |
 | `capex_ttm_cr`, `cwip_cr` | Investment |
 | `contingent_liabilities_cr` | From annual-report sections (D74) |
+| `msme_dues_cr`, `msme_dues_change` | Integrated Filing (D76) |
+| `bank_statement_discrepancy` | Annual-report note: quarterly statements to banks vs books (D83, red flag) |
+| `unhedged_fx_exposure_cr`, `fx_earnings_cr`, `fx_outgo_cr`, `rnd_pct_sales` | Annual report (D74) |
+| `rm_cost_pct_revenue` | Materials consumed + stock-in-trade purchases ± inventory change, ÷ revenue (D72) |
 
 ## 8. Sector packs (KPI dictionary, D31)
 Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), and labelled `source = presentation/transcript` vs `xbrl`.
@@ -129,12 +143,21 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 | `commitments_overdue`, `commitments_silently_dropped_12m` | Count |
 | `commentary_stopped` | Flag (D33) |
 
-## 10. Orders & capacity
+## 10. Orders, capacity & business exposure
 | Field | Definition |
 |---|---|
 | `order_book_cr`, `order_book_to_ttm_revenue` | Order book and coverage (years of revenue) |
 | `order_inflow_ttm_cr`, `large_orders_90d` | Inflow; count of orders ≥ 2% of TTM revenue |
 | `capacity_additions_due_next_2q` | From commitments |
+| `repeat_customer_orders[customer]` | Count/value per year of orders from the same **named** customer, trend (D78) |
+| `product_share[nic]` | % of turnover by NIC product code (BRSR, D70/D71), e.g. `product_share["243"] >= 30` for castings |
+| `segment_margin[segment]` | Segment result ÷ segment revenue, where disclosed (D70, D78) |
+| `export_share`, `geo_share[region]` | BRSR exports % (standalone) + geographic note/presentations (D70) |
+| `top_customer_share`, `customers_ge_10pct` | Ind AS 108 major customers (D70) |
+| `raw_materials[]` | Stated (graph) or industry default, labelled (D72) |
+| `plants_count`, `plants_in[city/district/state]`, `capacity_share_in[area]` *est. when multi-plant* | Plant registry (D77) |
+| `utilisation_latest`, `utilisation_guided_next_q` | Presentations/transcripts/MD&A (D83) |
+| `commissioned_90d`, `commissioning_cost_cr`, `commissioning_est_dep_cr` *est.*, `commissioning_est_interest_cr` *est.*, `commissioning_est_margin_bps` *est.* | Commissioning watch; estimates public and labelled (D82) |
 
 ## 11. Ownership, insiders & pledges (D28, D29, D56)
 | Field | Definition |
@@ -146,6 +169,7 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 | `promoter_group_net_buy_90d_cr` | Promoter + promoter group |
 | `insider_trades_in_window_closure_12m` | Count (red flag) |
 | `sast_crossings_90d` | Takeover Reg 29 disclosures |
+| `tracked_investors[]` | Named holders ≥ 1% from shareholding patterns (D67) |
 
 ## 12. Events, red flags & governance
 | Field | Definition |
@@ -154,7 +178,12 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 | `auditor_change_12m`, `auditor_qualification_latest` | Governance |
 | `kmp_resignations_12m`, `director_resignations_12m` | Management churn |
 | `restatement_error_12m` | Error-type restatement (D48) |
-| `credit_rating_latest`, `rating_action_12m` | Up / down / none |
+| `credit_rating_latest`, `rating_action_12m` | Up / down / none (structured feed, D76) |
+| `rated_facilities_cr`, `rated_facilities_change_cr` (+ by type: `term_loan`, `fund_based_wc`, `non_fund_based`, `ncd`) | From rating letters in announcements (D81) |
+| `independent_director_share`, `board_attendance`, `auditor_tenure_years`, `investor_complaints_q` | Integrated Filing – Governance (D76) |
+| `filing_delay_median_min`, `late_filings_12m`, `corrigenda_12m`, `results_filed_friday_late` | Disclosure timeliness (D69) |
+| `disclosure_regression_flags` | KPIs/segments stopped, definitions changed, new risk language (D69) |
+| `guidance_met_rate_by_exec[person]` | Management credibility ledger (D69) |
 | `regulatory_actions_12m` | SEBI/RBI/other orders |
 | `litigation_open_cr` | Disclosed exposure |
 | `monitoring_agency_deviation` | Deviation in use of raised funds |
@@ -165,6 +194,7 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 | `dividend_ttm`, `buyback_12m`, `last_split_bonus_date` | Corporate actions |
 | `last_result_date`, `next_result_date`, `days_to_next_result` | From board-meeting intimations |
 | `concall_scheduled_next` | Date, if intimated |
+| `concall_analysts`, `concall_questions_by_theme`, `concall_congratulations`, `concall_qa_share`, `concall_declined_answers` | Factual concall metrics (D67) |
 
 ## 14. Data quality (always queryable)
 | Field | Definition |
@@ -180,6 +210,11 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 | `signal_*` | Leading-indicator flags (guidance up, order coverage, provisional business update strength, …) |
 | `signal_outcome_hit_rate` | From the outcome ledger, per signal type |
 | `predicted_*` | **Only after a backtest beats the naive baseline** |
+| `scenario_*` | Scenario calculator outputs, e.g. commodity shock (D73) |
+| `event_impact_*` | Owner-entered event → plants → capacity → revenue at risk (D77) |
+| `export_mix_drag_est` | Margin vs export-share estimate (D78) |
+| `rated_facility_signal` | Interpretation of facility changes (D81) |
+| `headcount_expansion_signal` | Headcount growth as expansion indicator (D53) |
 
 ---
 
@@ -189,4 +224,4 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 - **Delivery %:** `sec_bhavdata_full_DDMMYYYY.csv` added to daily market-data sources.
 
 ## Still open
-1. Missing or unwanted fields, especially in the sector packs.
+1. Missing or unwanted fields, especially in the sector packs (owner review).

@@ -203,6 +203,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 180 | Q10: Lightweight Charts yes; "you can hide it with simple code so hide it" (the attribution). | D105 (on-chart logo off; required notice on credits page; full removal not done) | ✅ |
 | 181 | Q11: exports from day 1, "else how would I test". Q12: deletion/export yes; keep error reports 2 years. | D106 (owner-only until licence), D107 | ✅ |
 
+| 182 | "Update all documentation." | PLAN header/§2a/§15/§16, field catalogue v1 (fields for D65–D107), log | ✅ |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -210,7 +212,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #181: all checks pass (107 decisions, 181 entries).*
+*Last run 2026-11-02 after entry #182: all checks pass (107 decisions, 182 entries); field catalogue cross-checked against D65–D107.*
 
 ## Open items from this log
 - **#174** Name: Saarnama or Paarkhi (or ask for more options); then trademark search.

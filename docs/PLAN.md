@@ -1,6 +1,6 @@
 # Insider V2 — Plan (consolidated)
 
-**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D86** (Appendix A).
+**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D107** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`.
 No production code exists yet. The only code is `probe/`, a throwaway Worker for testing NSE reachability from Cloudflare.
 
 **Working agreement:** this is a discussion phase. No production code is written until the owner says so. Claude asks for the owner's input wherever a decision is theirs, records every decision here, and flags anything it can't verify.
@@ -96,9 +96,9 @@ If the design text and Appendix A ever disagree, Appendix A wins and the design 
 | **G5 Memory & credibility** | Dossier, guidance/commitments, credibility ledger, commentary map, disclosure regression, concall metrics | B2, B6, B9, B10, B13 |
 | **G6 Business exposure** | NIC product mix, exports/geography, customers, raw materials, plants & capacity, location filters, commissioning watch (D82) | B9, B10, B11 |
 | **G7 Governance & forensics** | Governance fields, disclosure timeliness, forensic panel, BRSR forensics, unexplained moves, ASM/GSM, red flags, bank-statement discrepancies (D83) | B2, B4, B11, B13 |
-| **G8 Discovery tools** | Query builder, trackers, sector pages, dashboard, niche indices, baskets, peer comparison, returns vs indices, keyword scans, alerts, X-ray | B11, B12, B13, B14 |
+| **G8 Discovery tools** | Query builder, trackers, sector pages, dashboard, niche indices, baskets, peer comparison, returns vs indices, keyword scans, alerts, X-ray, **search incl. full-text of filings (D104)**, stock page (D91, D92) | B11, B12, B13, B14 |
 | **G9 Owner-only analytics** | Signals, outcome ledger, predictions, scenarios, event impact, mix-drag, pre-announcement trading, research chat | B12, B14, B15, B16 |
-| **G10 Platform & ops** | Accounts, staging, backups, alerts, freshness, correction screen, data health, cost dashboard, error detectors (D85), daily card audit (D86), launch gate (D84), availability policy (D79) | B5, B7, B14, B17 |
+| **G10 Platform & ops** | Accounts, staging, backups, alerts, freshness, correction screen, data health, cost dashboard, error detectors (D85), daily card audit (D86), launch gate (D84), availability policy (D79), analytics (D98), exports (D106), user-data requests (D107), owner review budget (D96) | B5, B7, B14, B17 |
 
 ### Schema rules fixed on day 1 (expensive to add later)
 Every stored value carries: `security_id`/`entity_id` · `period` · `disclosed_at` · `basis` (where applicable) · `version` + `supersedes` · `source` (filing id, page, quote or XBRL tag) · `origin` (reported / computed / extracted / industry_default / estimate) · `access` (public / signed_in / owner) · `extractor_version` / `model`.
@@ -604,7 +604,7 @@ tools/classify/       owner-machine CLI (sector job)
 tools/relay/          fallback fetch relay (only if needed)
 db/migrations/{market,filings,announce,memory,graph,app}/
 eval/gold/            gold set (metadata + expected outputs; no NSE PDFs committed)
-docs/                 field catalogue (incl. KPI dictionary draft), this plan's companions
+docs/                 ALL .md documents (plan, discussion log, field catalogue, probe usage); no README/description at the root (D97)
 probe/                throwaway reachability check
 .github/workflows/    ci.yml only
 ```
@@ -640,6 +640,8 @@ probe/                throwaway reachability check
 
 **Resolved (D80):** ~~Open question from the owner's original brief:~~ Gemini was described as being used for **stock analysis of different types (technical, fundamental, stock research)**, not only announcement processing. The plan currently covers this as computed technical/fundamental data + cards + owner-only research chat. Is a **per-stock AI analysis write-up** (fundamental/technical) wanted, and if so public (factual) or owner-only?
 **Resolved (D81):** "credit increases" = rated bank-facility amount increases.
+
+**Name:** choose Saarnama / Paarkhi / more options (D99), then an IP India trademark search before buying the domain.
 
 **Provisional decisions to confirm:** D38 (linked-company card threshold), D39 (unlisted counterparties).
 
