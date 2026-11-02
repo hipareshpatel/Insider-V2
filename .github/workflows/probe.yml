@@ -93,3 +93,52 @@ jobs:
           python3 -c "import json;d=json.load(open('q.json'));print(json.dumps({'symbol':d.get('info',{}).get('symbol'),'industryInfo':d.get('industryInfo'),'issuedSize':d.get('securityInfo',{}).get('issuedSize')},indent=1))" 2>/dev/null || head -c 400 q.json
           echo "=== END QUOTE-EQUITY RESULT ==="
 
+
+  # Replication test (owner OK, log #230): the method recorded in PLAN Appendix B (#228).
+  # Python httpx over HTTP/1.1 with JSON Accept + root Referer; curl --http1.1 with the same headers as a control.
+  quote-equity-httpx:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q httpx
+      - name: Runner location
+        run: curl -s --max-time 10 https://ipinfo.io/json | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('ip'),d.get('city'),d.get('country'),d.get('org'))" || true
+      - name: quote-equity via httpx (HTTP/1.1)
+        shell: python
+        run: |
+          import json, random, time, httpx
+          site = "https://www.nseindia.com"
+          headers = {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "Accept": "application/json, text/plain, */*",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Referer": site + "/",
+          }
+          print("=== QUOTE-EQUITY HTTPX RESULT ===")
+          with httpx.Client(headers=headers, follow_redirects=True, timeout=30) as c:
+              try:
+                  r = c.get(site + "/", headers={"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"})
+                  print("homepage:", r.status_code, r.http_version, "cookies:", sorted(c.cookies.keys()))
+              except httpx.HTTPError as e:
+                  print("homepage error:", e)
+              for sym in ("ITC", "INFY"):
+                  time.sleep(random.uniform(3, 5))
+                  try:
+                      r = c.get(site + "/api/quote-equity", params={"symbol": sym})
+                  except httpx.HTTPError as e:
+                      print(sym, "error:", e); continue
+                  line = f"{sym}: {r.status_code} {r.http_version} {len(r.content)} bytes"
+                  try:
+                      print(line, json.dumps(r.json().get("industryInfo")))
+                  except Exception:
+                      print(line, r.text[:150].replace("\n", " "))
+          print("=== END ===")
+      - name: Control - curl HTTP/1.1, same headers
+        run: |
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          echo "homepage: $(curl --http1.1 -s -o /dev/null -w '%{http_code}' -c j.txt -A "$UA" -H 'Accept: text/html' https://www.nseindia.com/)"
+          sleep 4
+          echo "quote-equity ITC: $(curl --http1.1 -s -o q.json -w '%{http_code}' -b j.txt -A "$UA" -H 'Accept: application/json, text/plain, */*' -H 'Accept-Language: en-US,en;q=0.9' -H 'Referer: https://www.nseindia.com/' 'https://www.nseindia.com/api/quote-equity?symbol=ITC') ($(wc -c < q.json) bytes)"
