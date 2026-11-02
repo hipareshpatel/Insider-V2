@@ -253,6 +253,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 211 | Cloudflare confirmation email: `disclo.in` is active (Free plan). | Setup Parts A–B complete. Next: remove GoDaddy leftover DNS records, Parts C (email routing), D (Workers), E (probe secrets). | ✅ |
 
+| 212 | Screenshots: "domain protected by Cloudflare" overview with one-click Security/Performance toggles. | Setup guide: leave toggles off until launch (reasons recorded); next = DNS cleanup, Email Routing, probe | ✅ |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -260,7 +262,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #211: all checks pass (119 decisions, 211 entries).*
+*Last run 2026-11-02 after entry #212: all checks pass (119 decisions, 212 entries).*
 
 ## Open items from this log
 - **#204** Launch name to be decided by owner (trademark work paused); `disclo.in` stays the working domain. Owner actions: add `disclo.in` to Cloudflare; enable Email Routing.

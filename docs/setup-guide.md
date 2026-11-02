@@ -40,6 +40,12 @@ Working domain: `disclo.in` (bought at GoDaddy).
 
 ---
 
+## After activation: one-click toggles on the overview page
+Cloudflare's overview shows optional switches (Client-side security, Bot Fight Mode, Leaked credentials mitigation, Speed optimizations). **Leave them all off for now.** There's no site yet, and turning features on before there is one makes later problems harder to trace. They're decided when the site goes live:
+- **Bot Fight Mode:** decide at launch together with rate limiting (D108/D117); on the Free plan it can't be fine-tuned and can block legitimate API callers.
+- **Leaked credentials mitigation:** not needed; login is Google sign-in only, with no passwords (D63).
+- **Client-side security** and **Speed optimizations:** review at launch.
+
 ## Part C — Free email forwarding: `info@disclo.in` → your inbox (10 minutes, after Part B is Active)
 
 1. Cloudflare dashboard → click `disclo.in` → left menu **Email** → **Email Routing** → **Get started** / **Enable**.
