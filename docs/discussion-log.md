@@ -172,9 +172,11 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 157 | Pre-results commissioning: everything public, including the estimate (goes on the legal list). | D82, §12 #14 | ✅ |
 | 158 | On SEBI RA registration for paid opinion: "if needed we will get it". | D87 | ✅ |
-| 159 | "Understand my view first: without testing everything and a few beta testers, how am I going to pitch anything or get funding from anyone?" | D87 reasoning; closed-beta proposal (D89, pending) | 🔶 |
+| 159 | "Understand my view first: without testing everything and a few beta testers, how am I going to pitch anything or get funding from anyone?" | D87 reasoning; launch mode decided in #162 (D89) | ✅ |
 | 160 | "I am going to run my website as an Uber model: go there, start, and if the government asks, pay them." | D87 (with risks recorded) | ✅ |
 | 161 | Licence funding: option D. | D88 | ✅ |
+
+| 162 | "Keep it open public, as I'm not going to tell everyone or do marketing, promise." | D89 (open public, unlisted, noindex; quality gate assumed to still apply) | 🔶 confirm gate assumption |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -183,11 +185,10 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #161: all checks pass (88 decisions, 161 entries).*
+*Last run 2026-11-02 after entry #162: all checks pass (89 decisions, 162 entries).*
 
 ## Open items from this log
 - **#20** Performance targets (milestones discussion).
 - **#35/#72** Card sections after real output.
 - **#53** Licence funding: decided, option D (D88).
 - **#73** Failure cases: found via daily audits and the private period (D84, D86).
-- **#159** Closed beta for testers/pitching (D89 candidate): decide.

@@ -387,7 +387,7 @@ confidence_gate    published | published_unverified (badge, never hidden)
 
 ## 8. Product (website)
 
-**Public, readable without an account** (D60; public after legal consult, owner routes behind Access, D13). Accounts via Google sign-in add watchlists, saved queries/trackers/baskets and on-site alerts (no email/Telegram alerts to users). Owner-only routes sit behind Cloudflare Access.
+**Public, readable without an account** (D60; owner routes behind Access, D13). **Launch mode: open public, unlisted, no marketing, `noindex` until the owner decides (D89).** Accounts via Google sign-in add watchlists, saved queries/trackers/baskets and on-site alerts (no email/Telegram alerts to users). Owner-only routes sit behind Cloudflare Access.
 
 ### 8.1 Public
 - **Home = market & indices dashboard** (EOD, clearly labelled) (D59, D62, D67):
@@ -589,8 +589,6 @@ probe/                throwaway reachability check
 - Flex + cache discount stacking
 - employee-count fields in BRSR XBRL tables
 
-**Proposed, awaiting owner decision: closed beta (D89 candidate).** To get testers and pitch material before open public launch: invite-only access via Cloudflare Access (free Zero Trust plan covers up to 50 users) for beta testers and prospective investors; free during beta; same product as public. Lower exposure than open public (limited, invited, unpaid), and it still gives real usage, feedback and a demo. Opens to the public when the launch gate (D84) passes.
-
 **Licence funding options** (explained 2026-11-02): A) owner funds the licence from public launch; B) launch public without NSE prices until revenue; C) ask licensed vendors (e.g. CMOTS, Accord) for quotes; D) keep the calculated risk until the paid tier and license before charging. **Owner chose D** (D88): keep the calculated risk until the paid tier; license before charging. *Claude's recommendation remains:* also ask vendors for quotes (C) since it costs nothing; never charge users before a licence is in place.
 
 **Unresolved:** funding for the NSE licence (EOD Capital Market ≈ ₹1,00,000 per display medium + GST ≈ $113/month for the website alone, above the $100 budget). No ads or sponsors (D22).
@@ -694,6 +692,7 @@ probe/                throwaway reachability check
 | D86 | Daily random card audit | Every day a random sample of published cards (and memory-only items) is audited: (a) automatically by a stronger Gemini model on **Batch**, checking every number, quote, unit, period, basis and company against the source pages; (b) the owner reviews flagged items, and Claude reviews samples whenever the owner opens a session (Claude does not run continuously). Errors → correction (D35), gold case, detector. Daily error rate tracked on the data-health page; it feeds the launch gate (D84). |
 | D87 | Regulatory posture | **Owner's decision ("Uber model"):** launch, then comply when required: register as a SEBI Research Analyst if needed; license data when required. Owner's reasoning: without real testing and beta testers there is nothing to pitch to users or investors. *Risks recorded (Claude):* NSE is a data owner, not a regulator; it can block access without asking for payment, which would stop the pipeline. SEBI enforcement against unregistered research can include fee disgorgement and market bans, not only fees. Investors' due diligence will check data rights and registration. Mitigations kept: licence-ready adapter (D24), legal consult list (§12), no charging before licence (D88). |
 | D88 | Licence funding | **Option D:** keep the calculated risk (D24) until the paid tier; obtain the NSE (and index) licence **before charging users**. Vendor quotes (option C) recommended in parallel. |
+| D89 | Launch mode | **Open public, unlisted** (owner): no closed beta, no marketing ("not going to tell everyone"). Because unlisted ≠ private, these apply from day 1: `noindex` + robots disallow + no sitemap (search engines don't list it until the owner decides); bot protection and rate limits on all routes; costly features (plain-English queries) signed-in only (D64); owner-only data behind Access (D53). *Assumed:* opening still waits for the quality gate (D84); legal consult still recommended (§12). |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |
