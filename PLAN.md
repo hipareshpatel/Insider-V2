@@ -88,6 +88,12 @@ Links are **populated** only once the layer below them is accurate.
 | D28 | Insider & pledge data | **In scope:** insider-trading disclosures (SEBI PIT), takeover disclosures (SAST Reg 29), promoter pledges/encumbrance. These are structured feeds, parsed in code with no LLM. |
 | D29 | Insider activity display | A **per-stock insider panel**, always current. A **card only past a threshold** (starting values, tuned in practice): promoter or promoter-group net buy/sell ≥ 0.25% of equity **or** ≥ ₹50 cr over 30 days; any increase in pledged shares; any insider trade during the company's trading-window closure; KMP/director open-market **buy** ≥ ₹1 cr. Pledge truth = quarterly shareholding pattern; events keep it current between quarters. Insider-feed completeness to be verified against the announcements feed. |
 | D30 | Triage audit | About **300 items/week** on the Batch API, weighted toward Lane C skips, against a written definition of "material". The owner spot-checks some "not material" verdicts monthly. |
+| D31 | KPI dictionary | Shared metrics + sector packs for the 15 Nifty 50 industries (financials supported from day 1). Unmatched items → `other` + review queue. **Claude drafts, owner approves.** |
+| D32 | Fact time model | Every fact has `period` (what it's about) and `disclosed_at` (when the market learned it). Restatements/corrections create a new version; the old one is kept and marked replaced. |
+| D33 | Commitment tracking | States: open → met / missed / revised up/down / delayed / withdrawn / silently dropped. Items with a due date resolve against reported results at the due date. **Silently dropped** = not mentioned in **2 consecutive commentary events** (concall, presentation, leadership commentary) where outlook was discussed. Bare results filings don't count. A company that stops giving commentary gets a separate "commentary stopped" flag, not drops. Claim types: reported · guidance · target · aspiration · analyst question · third-party; only reported + guidance count when comparing delivery against promises. |
+| D34 | Lifecycle | Demerger → memory copied to the new company only for the business it took over, linked back to the original, **human review every time**. Merger → linked, not merged. Rename/symbol change → no change (`security_id`). |
+| D35 | Owner correction screen | Yes. Private; every edit logged and shown publicly as "corrected". |
+| D36 | Scope exclusions | Consensus estimates: **out of scope**. Non-NSE sources (news, rating rationales, BSE-only filings): **later**. |
 
 ---
 
@@ -360,16 +366,6 @@ probe/                throwaway Cloudflare reachability check
 2. **Run `probe/`** (see `probe/README.md`) 3–4 times, including once after 22:00 IST, and share the JSON output.
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
-
-## 9b. Proposed, awaiting owner decision — Memory schema (discussion 2026-11-02)
-Context: 12 of the current Nifty 50 are financials (banks, NBFCs, insurers, BSE), with different KPIs and XBRL formats, so they're supported from day 1. TMPV is the result of the 2025 Tata Motors demerger, so lifecycle rules are needed.
-1. **KPI dictionary:** shared metrics + sector packs for the 15 Nifty 50 industries. Anything unmatched → `other` + review queue. *Proposal: Claude drafts, owner approves.*
-2. **Two dates per fact:** `period` (what it's about) and `disclosed_at` (when the market learned it). Restatements create a new version; the old one is kept and marked replaced.
-3. **Commitment states:** open → met | missed | revised up/down | delayed | withdrawn | silently dropped. *Proposal: "silently dropped" = not mentioned in N = 2 consecutive results/concalls.*
-4. **Claim types:** reported · guidance · target · aspiration · analyst question · third-party. Only reported + guidance count when comparing delivery against what was promised.
-5. **Lifecycle:** demerger → memory copied to the new company only for the business it took over, linked back to the original, **human review** each time. Merger → linked, not merged. Rename/symbol change → no change (`security_id`).
-6. **Dossier:** a computed current-state view, rebuilt after each event. Analysis gets the dossier + an event-type pre-fetch, not full history. Expected size ~300–800 facts per stock per year.
-7. *Open:* owner correction screen (logged and shown as "corrected") — recommended yes. Consensus estimates — proposed out of scope (no free source). Non-NSE sources (news, rating rationales, BSE-only filings) — later or never?
 
 ## 10. Open questions
 - **Funding gap:** NSE EOD licence ≈ ₹1.18 lakh/yr incl. GST per display medium (≈ $113/month for the website alone) > the $100/month budget. No ads or sponsors (D22).
