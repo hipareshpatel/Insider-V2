@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ccr-eb822347-c3zp4b]
-    paths: ["workers/market/**", "packages/core/src/**", "db/migrations/market/**", ".github/workflows/deploy-market.yml", "tools/d1.mjs"]
+    paths: ["workers/market/**", "workers/prefetch/**", "db/migrations/filings/**", "packages/core/src/**", "db/migrations/market/**", ".github/workflows/deploy-market.yml", "tools/d1.mjs"]
 
 permissions:
   contents: read
@@ -39,11 +39,19 @@ jobs:
             node tools/d1.mjs config . $env >/dev/null
             npx wrangler d1 migrations apply DB_MARKET --remote -c wrangler.migrate.json 2>&1 | mask | tail -6
           done
+      - name: Apply filings migrations (production)
+        run: |
+          set -o pipefail
+          node tools/d1.mjs config . production >/dev/null
+          npx wrangler d1 migrations apply DB_FILINGS --remote -c wrangler.migrate.json 2>&1 | mask | tail -6
       - name: Write wrangler.json
-        run: node tools/d1.mjs worker workers/market | mask
+        run: node tools/d1.mjs worker workers/market | mask && node tools/d1.mjs worker workers/prefetch | mask
       - name: Deploy staging
         working-directory: workers/market
         run: set -o pipefail; npx wrangler deploy --env staging 2>&1 | mask | tail -15
       - name: Deploy production
         working-directory: workers/market
         run: set -o pipefail; npx wrangler deploy --env="" 2>&1 | mask | tail -15
+      - name: Deploy prefetch (production)
+        working-directory: workers/prefetch
+        run: set -o pipefail; npx wrangler deploy 2>&1 | mask | tail -12

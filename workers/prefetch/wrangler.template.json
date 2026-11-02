@@ -1,0 +1,12 @@
+{
+  "name": "disclo-prefetch",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "limits": { "cpu_ms": 60000 },
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": { "ENVIRONMENT": "production", "PARALLEL": "6", "PER_RUN": "240" },
+  "d1_databases": [{ "binding": "DB_FILINGS", "database_name": "disclo-filings", "database_id": "${filings}" }],
+  "r2_buckets": [{ "binding": "RAW", "bucket_name": "disclo-raw" }]
+}

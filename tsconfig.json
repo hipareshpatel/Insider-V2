@@ -6,6 +6,9 @@
     },
     {
       "path": "workers/market"
+    },
+    {
+      "path": "workers/prefetch"
     }
   ]
 }
