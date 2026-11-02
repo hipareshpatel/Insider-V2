@@ -133,6 +133,7 @@ Links are **populated** only once the layer below them is accurate.
 | D73 | Scenario calculator | **Owner-only.** User-entered shocks (e.g. steel +40%) → estimated cost impact and inventory gain/loss, labelled as a scenario. |
 | D74 | Annual-report extraction scope (adds to §4.9) | Segment note (geography + major customers), revenue disaggregation (Ind AS 115), FX earnings & outgo, R&D expenditure, unhedged foreign-currency exposure, raw materials consumed. |
 | D75 | Niche indices & portfolio X-ray | **Adopted.** Niche sector indices computed from our own data (e.g. NIC-based "castings" index). Portfolio/watchlist X-ray: aggregated geographic, raw-material, customer and pledge exposure. |
+| D76 | More structured NSE sources | **Adopted.** (1) **Integrated Filing – Financials XBRL** (consolidated + standalone) as the primary quarterly financial source, falling back to results XBRL. (2) **Structured credit-rating feed** (`/api/corporate-credit-rating`) instead of LLM extraction. (3) **Market-structure data** (daily archive): F&O participant-wise OI, F&O ban list, **ASM/GSM surveillance lists** (red flag on entry), short-selling disclosures, price-band changes. (4) **Governance fields** from Integrated Filing – Governance XBRL: independent-director share, attendance, committee meetings, auditor tenure/changes, investor complaints trend, MSME dues ageing. Also used: shareholding-pattern master, board meetings (results calendar), corporate actions API, annual-report list. *To find/verify:* SAST Reg 31 pledge endpoint; RPT data (possibly in half-yearly integrated filing). **Later (non-NSE):** MCA charges, AMFI monthly MF holdings, RBI sector data. |
 
 ---
 
@@ -406,22 +407,27 @@ probe/                throwaway Cloudflare reachability check
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
 
-## 9b. Proposed, awaiting owner decision — more structured sources (2026-11-02)
-*Verified reachable from cloud (NSE API), per-company:*
-- **Integrated Filing – Financials** (`/api/integrated-filing-results`): SEBI's integrated quarterly filing, consolidated + standalone, **XBRL + iXBRL**. Sun Pharma Q2 FY27: 220 tags incl. balance sheet and cash flow, MSME dues, borrowings, segment flag.
-- **Integrated Filing – Governance** (same list, quarterly XBRL): 104 tags. Board/committee composition & meetings, independent directors, remuneration, auditors, **investor complaints received/disposed**.
-- **Shareholding pattern master** (`/api/corporate-share-holdings-master`): quarterly, promoter vs public %, notes.
-- **Credit ratings** (`/api/corporate-credit-rating`): structured. Agency, rating, action (new/upgrade/downgrade/reaffirm), outlook, date.
-- **Board meetings** (`/api/corporate-board-meetings`) → results calendar.
-- **Corporate actions** (`/api/corporates-corporateActions`), complementing `Bc*.csv`.
-- **Annual reports list** (`/api/annual-reports`): PDF links for D74 extraction.
-*Not yet found:* SAST Reg 31 (pledge/encumbrance) and related-party-transaction endpoints. RPT may sit in the half-yearly integrated filing (to verify on a Q2/Q4 filing with RPTs).
-Proposed additions:
-1. Use **Integrated Filing XBRL as the primary quarterly financial source** (falling back to results XBRL); governance XBRL for board/committee/complaints fields.
-2. **Structured credit-rating feed** instead of LLM extraction from announcements.
-3. **Market structure data (archive, daily):** F&O participant-wise open interest (FII/DII/Pro/Client), securities in F&O ban, **ASM/GSM surveillance lists** (red flag when a stock enters), short-selling disclosures, price-band changes.
-4. **Governance fields:** independent-director share, attendance, committee meetings, auditor tenure/changes, investor complaints trend, MSME dues ageing (supplier stress signal).
-5. **Later (non-NSE):** MCA charges (secured borrowings), AMFI monthly MF scheme holdings, RBI sector data.
+## 9b. Proposed, awaiting owner decision — plants, capacity & location-based impact (2026-11-02)
+1. **Plant registry** (graph entity `plant`):
+   - Fields: company, name, address, PIN, district, state, country, products (NIC), capacity (value, unit, as-of, source), utilisation (value, period, source), status (operational / under construction / shut / divested), commissioning dates (linked to commitments, D33), regulatory status (e.g. USFDA inspection outcomes), and dates on every value (D32).
+2. **Sources:**
+   - Annual report **"plant locations"** (a required item in the corporate-governance section, LODR Schedule V).
+   - BRSR plant counts (cross-check: number of extracted plants must match).
+   - Presentations/concalls (capacity, utilisation).
+   - Announcements: commissioning, expansion, shutdowns, and **disruption of operations due to natural calamity, fire, strike, force majeure** (a required LODR Reg 30 disclosure → triage Lane A, linked to the plant).
+3. **Location mapping:**
+   - PIN code → district/state via the government's open PIN directory (deterministic, free).
+   - Optional lat/long via OpenStreetMap geocoding (cached, within their usage policy).
+4. **Revenue/capacity share per plant:**
+   - Factual only when the company has **one plant** (100%) or discloses plant-wise figures.
+   - Otherwise **capacity share as a proxy**, labelled "estimate".
+5. **Impact queries:**
+   - "Plants in district X / state Y" → companies → % of capacity in the area → estimated revenue at risk (scenario, owner-only per D73).
+   - Company disruption disclosures are shown as facts (public).
+6. **Regulator data for plants:**
+   - USFDA inspection outcomes are disclosed by companies in announcements (facility name → plant).
+   - Optional later: FDA public databases (warning letters, import alerts, inspection classifications). Official and free, but non-NSE.
+7. *Open:* event input (owner-entered events now, news later?); map view on the site (MapLibre + open tiles).
 
 ## 9c. Legal consult checklist (before going public)
 1. **SEBI RA Regulations:** do cards (facts, comparisons with the company's own past, guidance tracking, red flags) count as a "research report" / research-analyst activity? Does the "statistical summaries of financial data" exclusion cover them?
