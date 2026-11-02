@@ -161,9 +161,15 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 148 | #53 licence funding: listed, no answer yet. | §16 | ❓ |
 | 149 | #73 failure cases: run the site and find them. There will be many from code errors, prompt errors, AI delusional answers, wrong data saving, wrong units, data mix-ups and so on. | D84 (shadow run), D85 (detectors) | ✅ |
 
+| 150 | Pre-results commissioning: "Public: the facts, without the computed impact. Owner-only: estimated extra depreciation, interest and margin effect. OK." | D82 | ⚠ conflicts with #153 |
+| 151 | Public AI write-up with judgement: "Keep it, else why will people pay for the website?" | D80 (public incl. judgement; blocking legal item §12 #13) | ✅ |
+| 152 | Shadow run not required: expanding the universe will bring more feedback, and there'll be daily random card audits with Claude's help, which may be more useful ("or is my understanding wrong?"). | D84 (no fixed shadow; launch gate by measured quality), D86 (daily audit) | ✅ |
+| 153 | Pre-results commissioning warning, facts-only vs everything public: "Public". | D82 | ⚠ conflicts with #150 → clarify |
+| 154 | #53 licence funding: "Explain". | Explained in reply; §16 | ❓ decision pending |
+| 155 | #20 performance targets and #35/#72 card sections: deferred as agreed. | §16, D25 | 🔶 |
+
 ## Open items from this log
-- **#141** Pre-results commissioning warning: facts public + estimate owner-only, or all public (→ legal list)?
-- **#144** Public AI write-up: factual only, or including judgement?
+- **#150/#153** Pre-results commissioning: answers conflict (facts-only public vs everything public).
 - **#20** Performance targets (milestones discussion).
 - **#35/#72** Card sections after real output.
 - **#53** Licence funding.
