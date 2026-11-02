@@ -3,6 +3,8 @@
 **Status:** Draft for owner review. Consolidated on 2026-11-02 from decisions D1–D78 (Appendix A).
 No production code exists yet. The only code is `probe/`, a throwaway Worker for testing NSE reachability from Cloudflare.
 
+**Working agreement:** this is a discussion phase. No production code is written until the owner says so. Claude asks for the owner's input wherever a decision is theirs, records every decision here, and flags anything it can't verify.
+
 **How to read this:** §1–§15 describe the design as it stands. Appendix A is the decision log (each decision with its ID). Appendix B is the evidence from live NSE checks.
 If the design text and Appendix A ever disagree, Appendix A wins and the design text gets fixed.
 
@@ -31,7 +33,8 @@ If the design text and Appendix A ever disagree, Appendix A wins and the design 
 - **Clean-slate rule:** V2 is designed from first principles. No code, data, outputs, schemas or designs from any earlier version are used or referenced.
 
 **Not in scope:** consensus estimates (D36), intraday/live data, buy/sell recommendations, public predictions.
-**Later:** commodity prices (D19), news, rating rationales, BSE-only filings (D36), MCA charges, AMFI MF holdings, RBI data (D76), FDA databases, news-driven events (D77).
+**Later:** commodity prices / raw-material price tracking (D19), news, rating rationales, BSE-only filings (D36), MCA charges, AMFI MF holdings, RBI data (D76), FDA databases (warning letters, import alerts), news-driven events (D77), macro indicators, social-media trends, CEO/media interview tracking, **Nifty 50 history before go-live rebuilt from NSE index-change announcements** (optional; until then, index analysis before go-live has survivorship bias).
+**Rejected for now:** "result quality" / "management sentiment" scores (conflict with D21).
 
 ---
 
@@ -42,11 +45,58 @@ If the design text and Appendix A ever disagree, Appendix A wins and the design 
 3. **Numbers come from code, never from the LLM's arithmetic.** XBRL is the primary numeric source. PDF tables pass accounting-identity checks (D48). Growth, margins and ratios are computed in code.
 4. **Facts and opinions are stored separately.** LLM analysis is never an input to fact extraction (§7.3).
 5. **Every fact quotes its source** (verbatim quote + page). Code verifies that the quote exists, or the fact is rejected.
-6. **Basis discipline:** consolidated/standalone is part of every value's identity. Mixing bases in a comparison is rejected by code (D50, D51).
-7. **Never guess:** unnamed counterparties stay as text (D39); undefined ratios are null with a reason, never sentinel values (D52); estimates are labelled "estimate" (D72, D77).
-8. **Explicit links only** in the relationship graph (D37). The single exception is labelled industry-default raw materials (D72).
-9. **Public content is factual.** Scores, predictions, scenarios and pre-announcement trading timing are **owner-only** (D53, D68, D73, D69).
-10. **Nothing is lost silently.** Every announcement gets a timeline row. Triage misses are measured (D26, D27, D30).
+6. **Period & unit discipline:** fiscal year is per company (most are Apr–Mar, but not all), quarters are normalised to Indian FY labels (Q1 FY26 = Apr–Jun 2025), and units (₹ crore/lakh/million) are normalised to ₹.
+7. **Basis discipline:** consolidated/standalone is part of every value's identity. Mixing bases in a comparison is rejected by code (D50, D51).
+8. **Never guess:** unnamed counterparties stay as text (D39); undefined ratios are null with a reason, never sentinel values (D52); estimates are labelled "estimate" (D72, D77).
+9. **Explicit links only** in the relationship graph (D37). The single exception is labelled industry-default raw materials (D72).
+10. **Public content is factual.** Scores, predictions, scenarios and pre-announcement trading timing are **owner-only** (D53, D68, D73, D69).
+11. **Nothing is lost silently.** Every announcement gets a timeline row. Triage misses are measured (D26, D27, D30).
+
+---
+
+## 2a. Building blocks & feature groups
+
+**Purpose:** many features share the same machinery. Each building block below is built **once**, and every feature uses it, so nothing gets re-done when a feature is added.
+**Rule for the build:** a feature may only be started once the blocks it depends on exist. New features should need *configuration* (fields, rules, templates), not new plumbing.
+
+### Building blocks
+| ID | Block | What it provides | Decisions |
+|---|---|---|---|
+| **B1** | **Identity & lifecycle** | `security_id`, identifier history (symbol/ISIN), graph entity per security, demerger/merger/rename handling | D34, §5.1 |
+| **B2** | **Provenance & time** | Every value: source filing, page, quote, `period`, `disclosed_at`, version (original/restated/corrected), extractor/model version | D32, D35, D48 |
+| **B3** | **Normalisers** | Fiscal year per company, Indian FY quarter labels, units, **basis** (consolidated/standalone) tagging | D50, D51, §2 |
+| **B4** | **Ingestion framework** | Fetch → raw to R2 → hash → schema check → parse → validate → idempotent load → run log → retry/catch-up → revised-file detection. One framework for **every** NSE source | D10, D17, §6 |
+| **B5** | **Review-queue framework** | One generic queue + owner screen for: corporate actions, entity resolution, demergers, triage audit, BRSR plant-count mismatch, unmatched KPIs, Bc unparsed text, public error reports, owner corrections | D6, D27, D35, D42, D77 |
+| **B6** | **Event & timeline model** | Announcement → event grouping (intimation → outcome → results → presentation → concall); timeline row for every item | D26, §5.4 |
+| **B7** | **LLM gateway** | Gemini tiers (Standard/Flex/Batch), pinned models, prompt caching, cost ledger + daily caps, strict output schemas, injection defence | D15, D18, D41 |
+| **B8** | **Verification library** | Quote check, accounting identities, XBRL cross-check, basis-mix rejection, restatement detection | D41, D48, D51 |
+| **B9** | **Canonical models & taxonomies** | Canonical financial line items (4 templates), KPI dictionary + sector packs, **NIC** products, business-line taxonomy, region/country list, industry-default inputs (labelled), claim types, commitment states | D31, D33, D47, D70, D72 |
+| **B10** | **Graph** | Entities (companies, persons, investors, promoter groups, plants, products, commodities, govt bodies), aliases, explicit relations with origin | D37–D40, D67, D77 |
+| **B11** | **Derived-metrics engine** | TTM, adjusted vs reported, ratios, series functions, trend, margin recovery/erosion, per-employee and per-tonne metrics, adjusted prices | D49, D52, D66 |
+| **B12** | **Feature table + query language** | One row per stock + compact series; one validated query language; parameterised SQL | D64, `docs/field-catalogue.md` |
+| **B13** | **Diff engine** | Compare a thing with its previous version: filing vs prior equivalent, dossier vs last visit, screen vs last run, comparatives vs originals | D48, D64, D69 |
+| **B14** | **Access tiers & caching** | Public / signed-in / owner-only routes; caching rules (owner data never cached publicly); rate limits | D53, D60, D63 |
+| **B15** | **Estimate & scenario engine** | Owner-only, always labelled: scenario calculator, event impact, mix-drag, plant revenue share estimates, predictions | D53, D73, D77, D78 |
+| **B16** | **Outcome ledger & backtest harness** | Point-in-time evaluation of signals vs actual results; naive-baseline comparison | D53 |
+| **B17** | **Gold set & evaluation harness** | Labelled cases, metrics, staging regression gate | D20, D43 |
+
+### Feature groups → blocks they depend on
+| Group | Features | Depends on |
+|---|---|---|
+| **G1 Market data** | Prices, CA adjustment, market cap, delivery, indices, breadth, market structure, bulk/block deals, FII/DII | B1, B2, B4, B5, B11 |
+| **G2 Financial statements** | Canonical P&L/BS/CF, restatements, basis, ratios, segments, geography, customers | B1–B5, B8, B9, B11 |
+| **G3 Ownership & insiders** | Shareholding, pledges, PIT, SAST, tracked investors, promoter groups, trading-window flags | B1, B2, B4, B10, B11 |
+| **G4 Announcements → cards** | Triage, extraction, verification, context, cards, memory-only items, concall audio | B2–B8, B9, B10 |
+| **G5 Memory & credibility** | Dossier, guidance/commitments, credibility ledger, commentary map, disclosure regression, concall metrics | B2, B6, B9, B10, B13 |
+| **G6 Business exposure** | NIC product mix, exports/geography, customers, raw materials, plants & capacity, location filters | B9, B10, B11 |
+| **G7 Governance & forensics** | Governance fields, disclosure timeliness, forensic panel, BRSR forensics, unexplained moves, ASM/GSM, red flags | B2, B4, B11, B13 |
+| **G8 Discovery tools** | Query builder, trackers, sector pages, dashboard, niche indices, baskets, peer comparison, returns vs indices, keyword scans, alerts, X-ray | B11, B12, B13, B14 |
+| **G9 Owner-only analytics** | Signals, outcome ledger, predictions, scenarios, event impact, mix-drag, pre-announcement trading, research chat | B12, B14, B15, B16 |
+| **G10 Platform & ops** | Accounts, staging, backups, alerts, freshness, correction screen, data health, cost dashboard | B5, B7, B14, B17 |
+
+### Schema rules fixed on day 1 (expensive to add later)
+Every stored value carries: `security_id`/`entity_id` · `period` · `disclosed_at` · `basis` (where applicable) · `version` + `supersedes` · `source` (filing id, page, quote or XBRL tag) · `origin` (reported / computed / extracted / industry_default / estimate) · `access` (public / signed_in / owner) · `extractor_version` / `model`.
+Features built later should only *read* these fields, never require them to be added.
 
 ---
 
@@ -171,6 +221,10 @@ latest_snapshot  precomputed for the site
   - Demerger / capital reduction: price-ratio estimate, always reviewed.
   - January 2024: Bc ratio only. Market cap derived from February's share count (`derived`).
 - **Dividends** are recorded but not adjusted (D7).
+- **`Bc*.csv` handling:** the same action appears once per series (EQ, BE…), so rows are deduped on (security, ex-date, purpose). Purpose text varies ("FVSPLT", "FV SPLT", "INT DIV", "RS"/"RE"…), so parsing uses tolerant patterns, and anything unparsed goes to the review queue; nothing is guessed.
+- **Revised files:** NSE occasionally revises a day's files. The next run re-fetches the previous 5 sessions' files, compares SHA-256, and reprocesses a date if its file changed.
+- **Classification history** exists only from our first fetch onward (NSE shows current classification only).
+- **Market cap display:** ₹ crore, no decimals; stored exact in ₹ (D5).
 
 ### 5.3 `filings` (financial statements & structured disclosures)
 - **Three layers (D47):**
@@ -309,6 +363,7 @@ technical_context  computed from prices
 provenance         model, prompt version, tool calls, cost, latency
 confidence_gate    published | published_unverified (badge, never hidden)
 ```
+- **Writing rules:** neutral, factual language (no hype words such as "fantastic" or "strongly positive"); reported and adjusted figures side by side; explain *why* (e.g. profit bridge when PAT and EBITDA diverge); label claim strength (guidance vs aspiration); one card per event, updated as filings arrive; a disclaimer on every card.
 - **Card sections and their order are decided after seeing real output** (D25). A shareable image is generated from the web card.
 - Insider activity gets cards only past thresholds (D29); otherwise it appears in the insider panel.
 
@@ -316,7 +371,7 @@ confidence_gate    published | published_unverified (badge, never hidden)
 | Use | Tier | Access |
 |---|---|---|
 | Plain-English → query language (never SQL) | Standard (cheap model), cached | Signed-in users, daily cap (D64) |
-| Concall **audio** → provisional same-day summary, validated when the transcript arrives | Flex | Public (marked provisional) (D69) |
+| Concall **audio** → provisional same-day summary, validated when the transcript arrives (speaker attribution from audio is weaker, so analyst-vs-management separation is provisional until the transcript) | Flex | Public (marked provisional) (D69) |
 | Annual-report sections | Flex | — |
 | Research chat | Standard/Flex | **Owner-only** (D68) |
 | Upcoming-results signals, predictions (after backtest), scenarios, mix-drag estimate | — / Batch | **Owner-only** (D53, D73, D78) |
@@ -502,6 +557,7 @@ probe/                throwaway reachability check
 4. Before backfill/go-live: Workers Paid, a paid Gemini API key, a Cloudflare API token for CI.
 
 **Still to discuss:**
+- performance targets (page-load and API latency) as part of milestones; the website must be fast, modern and expandable
 - stock page layout
 - API design for the future paid tier
 - milestones and definition of done
@@ -530,7 +586,7 @@ probe/                throwaway reachability check
 | D2 | History start | **2024-01-01** (first UDiFF bhavcopy). |
 | D3 | Bhavcopy format | UDiFF only. |
 | D4 | Universe | Series EQ, BE, BZ. No SME. AI processing starts with **Nifty 50**, then other indices, then the full universe. |
-| D5 | Market cap | Full market cap as published by NSE (`MCAP*.csv` in the PR bundle). Never adjusted. Stored exact in ₹, displayed in ₹ crore. |
+| D5 | Market cap | Full market cap as published by NSE (`MCAP*.csv` in the PR bundle). Never adjusted. Stored exact in ₹, displayed in ₹ crore with no decimals. |
 | D6 | Corporate actions | Source: `Bc*.csv`. Split/bonus factor = **share-count ratio** from MCAP, cross-checked with the Bc text. Rights use TERP. Demergers and capital reductions use a price-ratio estimate, flagged for review. |
 | D7 | Dividends | Not adjusted (price-only), but recorded. |
 | D8 | Sector classification | NSE 4-level, from `quote-equity`, run **on the owner's machine** (blocked from cloud). Quarterly for all, monthly for new listings only. |
@@ -547,7 +603,7 @@ probe/                throwaway reachability check
 | D19 | Commodity prices | Later phase. |
 | D20 | Evaluation | Gold test set: drafted by Claude, **ground truth set by the owner**. |
 | D21 | Score | **No score, rating or positive/negative label on cards.** Facts, comparisons with the company's own past, and context. |
-| D22 | Monetisation | No ads, no sponsors. Target: investors, family offices, institutions. **Licence funding open** (§16). |
+| D22 | Monetisation | No ads, no sponsors; a clean site. Expected to stay **free for roughly the first 5 years** (competition). Target: investors, family offices, institutions. **Licence funding open** (§16). |
 | D23 | Paid tier | Possible later (institutions). Not built now; accounts, API keys and exports designed in. Robustness first. |
 | D24 | Prices on public site | Bhavcopy-derived prices shown publicly before a licence: **owner's calculated risk**. Licence-ready source adapter. |
 | D25 | Audience | Retail **and** institutions; layered card; shareable image generated from the web card. Card sections decided after real output. |
@@ -577,7 +633,7 @@ probe/                throwaway reachability check
 | D49 | EBITDA definition | Excludes other income. Company-reported EBITDA stored and shown alongside. |
 | D50 | Consolidated vs standalone | Both stored; basis in every key. Primary basis per company: consolidated (most), standalone (banks), both (holding cos). Basis switch → series break. Profit split owners vs NCI; EPS/valuation use attributable. |
 | D51 | Basis in AI inputs | Basis-tagged numbers; primary basis only unless relevant; basis per PDF table; code rejects mixed comparisons; unclear commentary basis → unknown, not used numerically. |
-| D52 | Ratio conventions | Adjusted excludes exceptional items (reported alongside). TTM. ROE/ROCE on average capital; capital employed documented. No sentinel values. |
+| D52 | Ratio conventions | Adjusted excludes exceptional items (reported alongside). TTM. ROE/ROCE on average capital; capital employed documented. No sentinel values. (Screener's "net of excise duty" adjustment is not needed: our history starts in the GST era.) |
 | D53 | Upcoming-results signals | Factual leading indicators + outcome ledger. "Good results" = growth above own 8-quarter trend **and** guidance met. Ranking/prediction only after a point-in-time backtest beats a naive baseline, **owner-only**, never cached publicly. |
 | D54 | NSE-block fallback | Decide if it happens (owner-machine relay vs small VPS). |
 | D55 | Phase 2 backfill | Last 4 quarters of Nifty 50 results, concalls, presentations; cost estimated first. |
@@ -626,4 +682,5 @@ probe/                throwaway reachability check
 | Index closes | `ind_close_all_DDMMYYYY.csv`: ~167 indices with OHLC, P/E, P/B, yield; 2024-01-01 available. |
 | FII/DII | `fiidiiTradeReact`: latest day only. |
 | Insider feed | 88 PIT rows for 27–31 Oct 2025 across all equities (completeness to verify). |
+| Nifty 50 composition | Current list: 12 financials (banks, NBFCs, insurers, BSE), 15 industries; **TMPV** = Tata Motors passenger-vehicle entity after the 2025 demerger. |
 | NSE EOD licence | Tariff (Apr 2026): Capital Market EOD ₹1,00,000 (domestic) per display medium; website and app are separate mediums. |
