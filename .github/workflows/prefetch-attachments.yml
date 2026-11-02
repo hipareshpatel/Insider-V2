@@ -1,0 +1,39 @@
+name: prefetch-attachments
+
+# D128: archive-hosted XBRL attachments (queued by disclo-prefetch) -> R2 via the Worker's /ingest.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes: { description: "run time in minutes", default: "330" }
+  push:
+    branches: [ccr-eb822347-c3zp4b]
+    paths: ["tools/prefetch_attachments.py", ".github/workflows/prefetch-attachments.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prefetch-attachments
+  cancel-in-progress: false
+
+jobs:
+  attachments:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm i -g wrangler@4.156.1 >/dev/null 2>&1
+      - name: D1 config
+        run: node tools/d1.mjs config . production > /dev/null
+      - name: Set a fresh ingest token on the Worker
+        run: |
+          T=$(openssl rand -hex 32); echo "::add-mask::$T"; echo "INGEST_TOKEN=$T" >> "$GITHUB_ENV"
+          printf '%s' "$T" | npx wrangler secret put INGEST_TOKEN --name disclo-prefetch 2>&1 | grep -iE "success|error" | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email hidden>/g'
+          sleep 20
+      - name: Download attachments
+        run: python3 tools/prefetch_attachments.py https://disclo-prefetch.financialengineer-in.workers.dev "${{ github.event.inputs.minutes || '330' }}"
