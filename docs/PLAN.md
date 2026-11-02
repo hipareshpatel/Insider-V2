@@ -1,6 +1,6 @@
 # Insider V2 — Plan (consolidated)
 
-**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D107** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`.
+**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D108** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`.
 No production code exists yet. The only code is `probe/`, a throwaway Worker for testing NSE reachability from Cloudflare.
 
 **Working agreement:** this is a discussion phase. No production code is written until the owner says so. Claude asks for the owner's input wherever a decision is theirs, records every decision here, and flags anything it can't verify.
@@ -473,6 +473,7 @@ Not built now. Designed in: accounts, API keys, exports, per-plan limits. The we
 - **Owner review budget:** 30 min/day; queues ranked by impact, safe auto-resolution, backlog visible (D96).
 - **Repo:** public, no description/README, documents only in `docs/` (D97).
 - **User data:** deletion/export on request; error reports kept 2 years (D107).
+- **Scale design:** aggregated page endpoints, CDN-cached responses on a custom domain, < 50 ms public queries, separate feature-table database (D108).
 - **Access control:** owner routes behind Cloudflare Access. Public API routes rate-limited, read-only, bot protection. Owner-only data never edge-cached publicly.
 - **Prompt-injection defence:** §7.3.
 
@@ -488,6 +489,12 @@ Not built now. Designed in: accounts, API keys, exports, per-plan limits. The we
 - At 80% of the daily cap, only Lane A is processed. At 100%, items queue for the next day, and the data-health page says so.
 - The Phase 2 backfill is a **one-off** on Batch, estimated before running (D55).
 - **Not covered:** NSE EOD licence (≈ $113/month for the website alone, §16), a domain (~₹1,000/yr, not needed yet, D58), the legal consult.
+- **Scale scenario (owner question, 2026-11-02): full universe, 1 lakh visitors/day × 5 pages = 15M page views/month** (prices checked 2026-11-02: Workers Paid $5 incl. 10M requests then $0.30/M; 30M CPU-ms then $0.02/M; D1 25B rows read included then $0.001/M; static assets reported free; no egress fees).
+  | Design | Worker requests/month | Cloudflare cost/month |
+  |---|---|---|
+  | Naive (each page makes ~8 API calls, every call invokes a Worker) | ~120M | ≈ $5 + $33 requests + ~$7 CPU ≈ **$45** |
+  | **Chosen (D108):** one aggregated API call per page section group, responses cached at Cloudflare's CDN so most hits never invoke a Worker | ~15–25M | ≈ **$8–15** |
+  Hosting traffic is cheap on Cloudflare at this scale. **The expensive part is AI coverage, not visitors** (below). Plain-English queries (D64) scale with signed-in users, so the per-user daily cap matters at this traffic.
 - **Full universe ≈ 46× the announcement volume of Nifty 50; it doesn't fit in $100.** Expansion beyond Nifty 100 is a budget decision based on measured cost.
 
 ---
@@ -758,6 +765,7 @@ probe/                throwaway reachability check
 | D105 | Charts | TradingView **Lightweight Charts** (Apache-2.0). On-chart logo turned off (`attributionLogo: false`); the licence's required notice + link to tradingview.com is placed on a credits/about page, which is the allowed way to satisfy it. *Removing attribution entirely is not done (licence violation).* |
 | D106 | Exports | Built **from day 1**. **Owner-only until the licence is in place** (testing needs, D88/D93); then enabled for signed-in users. |
 | D107 | User data | Account deletion and data export on request (DPDP). **Error reports kept 2 years.** |
+| D108 | Scale & hosting design | **Stay on Cloudflare** (no egress fees; cheapest at 15M page views/month). Designed for scale from day 1: (1) **page-level aggregated endpoints** (a stock page loads in 1–3 API calls, not ~10); (2) **responses cacheable at the CDN** with long TTLs, purged by the pipeline after each update, so cached hits don't invoke a Worker. This needs a **custom domain** with cache rules (`workers.dev` can't do this), so buying the domain (D99) becomes necessary before high traffic; (3) **D1 query-time budget:** every public query < 50 ms; D1 executes queries one at a time per database, so heavy query-builder work runs on a **separate feature-table database** (and D1 read replicas if needed), never on the ingestion databases; (4) static assets served free from Workers static assets. Cost estimate: ≈ $8–15/month for hosting at that traffic (§11). |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |

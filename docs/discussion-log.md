@@ -205,6 +205,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 182 | "Update all documentation." | PLAN header/§2a/§15/§16, field catalogue v1 (fields for D65–D107), log | ✅ |
 
+| 183 | Which hosting? Example: full site working, entire universe, 1 lakh visitors/day, 5 pages per visitor. Is the $5 plan sufficient? | §11 scale scenario, D108 | ✅ |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -212,7 +214,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #182: all checks pass (107 decisions, 182 entries); field catalogue cross-checked against D65–D107.*
+*Last run 2026-11-02 after entry #183: all checks pass (108 decisions, 183 entries).*
 
 ## Open items from this log
 - **#174** Name: Saarnama or Paarkhi (or ask for more options); then trademark search.
