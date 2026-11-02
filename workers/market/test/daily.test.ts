@@ -110,8 +110,8 @@ describe("market daily job on real file samples", () => {
   });
 });
 
-describe("universe filter (D4)", () => {
-  it("drops fund units (INF ISINs) and keeps companies", async () => {
+describe("universe filter (D4) + store everything (D127)", () => {
+  it("stores fund units typed 'etf' but keeps them out of the universe counts", async () => {
     const { market, deps } = setup();
     // add an ETF row to the 2025-06-13 bhavcopy sample
     const { readFileSync: rf } = await import("node:fs");
@@ -119,7 +119,11 @@ describe("universe filter (D4)", () => {
     const { zipSync } = await import("./zip.js");
     const r = await runDay("2025-06-13", { ...deps, fetch: fakeFetch({ "BhavCopy_NSE_CM_0_0_0_20250613_F_0000.csv.zip": zipSync("BhavCopy_NSE_CM_0_0_0_20250613_F_0000.csv", csv) }) });
     expect(r.status).toBe("loaded");
-    expect(await market.all("SELECT 1 FROM security_identifier WHERE value='NIFTYBEES'")).toEqual([]);
+    expect(await market.all("SELECT s.kind FROM security s JOIN security_identifier i ON i.security_id=s.security_id WHERE i.value='NIFTYBEES'")).toEqual([{ kind: "etf" }]);
+    expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM price_daily p JOIN security_identifier i ON i.security_id=p.security_id AND i.value='NIFTYBEES'"))[0]!.n).toBe(1);
+    // universe count excludes it; the BL-series BAJFINANCE row and the gold bond are stored too
+    expect(r.counts!.stored_all!).toBeGreaterThan(r.counts!.prices!);
+    expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM price_daily WHERE series='BL'"))[0]!.n).toBe(1);
     expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM security_identifier WHERE value='INFY'"))[0]!.n).toBe(1);
   });
 });

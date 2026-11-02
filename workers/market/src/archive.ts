@@ -40,3 +40,17 @@ export function archiveFetcher(base: typeof fetch = fetch, sleep = (ms: number) 
   );
   return f;
 }
+
+/** D128: read prefetched archive files from R2 (cache/<url path>) first; go to NSE only when missing. */
+export function r2FirstFetcher(bucket: R2Bucket, fallback: Fetcher): Fetcher & { hits: number; misses: number } {
+  const f = Object.assign(async (url: string): Promise<FetchResult> => {
+    const u = new URL(url);
+    if (u.hostname === "nsearchives.nseindia.com") {
+      const obj = await bucket.get(`cache${u.pathname}`);
+      if (obj) { f.hits++; return { status: 200, bytes: new Uint8Array(await obj.arrayBuffer()), contentType: null }; }
+    }
+    f.misses++;
+    return fallback(url);
+  }, { hits: 0, misses: 0 });
+  return f;
+}

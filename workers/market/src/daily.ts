@@ -92,8 +92,9 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
 
   const wrongDate = bhavAll.filter((r) => r.tradeDate !== date).length;
   if (wrongDate) return { date, status: "rejected", reasons: [`${wrongDate} bhavcopy rows dated other than ${date}`] };
-  // Universe (D4): equity series only, and no fund units — ETFs trade in EQ but carry INF ISINs and have no MCAP row.
-  const equity = bhavAll.filter((r) => EQUITY_SERIES.has(r.series) && !r.isin.startsWith("INF"));
+  // Store everything (D127); the universe (D4, D126: EQ/BE/BZ, no INF fund units) is what the gates judge and what is analysed.
+  const inUniverse = (r: BhavRow) => EQUITY_SERIES.has(r.series) && !r.isin.startsWith("INF");
+  const equity = bhavAll.filter(inUniverse);
   const reviews: ReviewItem[] = [];
   const reasons: string[] = [];
 
@@ -102,6 +103,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   if (bad.length > Math.max(0, Math.floor(equity.length * 0.001))) reasons.push(`${bad.length} rows fail low<=open,close<=high or >0`);
   for (const r of bad) reviews.push({ kind: "bc_unparsed", subjectDb: "market", subjectRef: `price|${r.symbol}|${r.series}|${date}`, summary: `Bad OHLC row ${r.symbol} ${r.series} ${date}`, evidence: r });
   const good = equity.filter(saneRow);
+  const goodAll = bhavAll.filter(saneRow); // every instrument, stored (D127)
 
   // Gate: MCAP join (from 2024-02-01) and market-cap consistency.
   const mcapBy = new Map<string, McapRow>();
@@ -125,7 +127,8 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
 
   // Gate: row count within ±5% of the 20-session median (needs 20 sessions of history).
   const counts = await deps.market.all<{ n: number }>(
-    `SELECT n FROM (SELECT trade_date, count(*) AS n FROM price_daily WHERE trade_date < ? GROUP BY trade_date ORDER BY trade_date DESC LIMIT 20)`, [date]);
+    `SELECT n FROM (SELECT p.trade_date, count(*) AS n FROM price_daily p JOIN security s ON s.security_id = p.security_id
+       WHERE p.trade_date < ? AND s.kind = 'equity' AND p.series IN ('EQ','BE','BZ') GROUP BY p.trade_date ORDER BY p.trade_date DESC LIMIT 20)`, [date]);
   if (counts.length >= 20) {
     const sorted = counts.map((c) => c.n).sort((a, b) => a - b);
     const median = (sorted[9]! + sorted[10]!) / 2;
@@ -154,7 +157,8 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   const idRows = await deps.market.all<{ security_id: number; id_type: string; value: string; valid_from: string; valid_to: string | null }>(
     "SELECT security_id, id_type, value, valid_from, valid_to FROM security_identifier WHERE id_type IN ('nse_symbol','isin')");
   const ids: IdentifierRow[] = idRows.map((r) => ({ securityId: r.security_id, idType: r.id_type as "nse_symbol" | "isin", value: r.value, validFrom: r.valid_from, validTo: r.valid_to }));
-  const observed = [...new Map(good.map((r) => [r.symbol, { symbol: r.symbol, isin: r.isin, date, name: r.name }])).values()];
+  // Identity for every instrument; prefer the universe row when a symbol trades in several series.
+  const observed = [...new Map([...goodAll.filter((r) => !inUniverse(r)), ...good].map((r) => [r.symbol, { symbol: r.symbol, isin: r.isin, date, name: r.name, kind: kindOf(r) }])).values()];
   const changes = diffIdentities(ids, observed);
   const conflictSyms = new Set<string>();
   // New securities in one batch (the first day creates ~2,000).
@@ -166,12 +170,13 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
     const idRowsNew: unknown[][] = [];
     for (const c of fresh) {
       const sid = next++;
-      secRows.push([sid, observed.find((o) => o.symbol === c.symbol)!.name]);
+      const ob = observed.find((o) => o.symbol === c.symbol)!;
+      secRows.push([sid, ob.name, ob.kind]);
       idRowsNew.push([sid, "nse_symbol", c.symbol, date, `udiff:${date}`], [sid, "isin", c.isin, date, `udiff:${date}`]);
       ids.push({ securityId: sid, idType: "nse_symbol", value: c.symbol, validFrom: date, validTo: null }, { securityId: sid, idType: "isin", value: c.isin, validFrom: date, validTo: null });
     }
     await batchAll(deps.market, [
-      ...insertRows("INSERT INTO security (security_id, name)", 2, secRows),
+      ...insertRows("INSERT INTO security (security_id, name, kind)", 3, secRows),
       ...insertRows("INSERT INTO security_identifier (security_id,id_type,value,valid_from,source)", 5, idRowsNew),
     ]);
   }
@@ -199,17 +204,18 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   }
   const secOf = new Map<string, number>();
   for (const r of ids) if (r.idType === "nse_symbol" && r.validFrom <= date && (r.validTo === null || date <= r.validTo)) secOf.set(r.value, r.securityId);
-  const rows = good.filter((r) => !conflictSyms.has(r.symbol) && secOf.has(r.symbol));
+  const rowsAll = goodAll.filter((r) => !conflictSyms.has(r.symbol) && secOf.has(r.symbol));
+  const rows = rowsAll.filter(inUniverse);
 
   // Prices, shares, delivery, index closes.
   const stmts: Stmt[] = [];
   stmts.push(...insertRows(
     "INSERT INTO price_daily (security_id,trade_date,series,open,high,low,close,last,prev_close,volume,turnover_rs,trades,isin,file_id)", 14,
-    rows.map((r) => [secOf.get(r.symbol), date, r.series, r.open, r.high, r.low, r.close, r.last, r.prevClose, r.volume, r.turnoverRs, r.trades, r.isin, fileIds.udiff_bhavcopy]),
+    rowsAll.map((r) => [secOf.get(r.symbol), date, r.series, r.open, r.high, r.low, r.close, r.last, r.prevClose, r.volume, r.turnoverRs, r.trades, r.isin, fileIds.udiff_bhavcopy]),
     "ON CONFLICT (security_id,trade_date,series) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,last=excluded.last,prev_close=excluded.prev_close,volume=excluded.volume,turnover_rs=excluded.turnover_rs,trades=excluded.trades,isin=excluded.isin,file_id=excluded.file_id"));
   // One shares row per security per day: prefer the EQ series' MCAP row.
   const bySec = new Map<number, unknown[]>();
-  for (const r of [...rows].sort((x, y) => (x.series === "EQ" ? 0 : 1) - (y.series === "EQ" ? 0 : 1))) {
+  for (const r of [...rowsAll].sort((x, y) => (x.series === "EQ" ? 0 : 1) - (y.series === "EQ" ? 0 : 1))) {
     const sid = secOf.get(r.symbol)!;
     const m = mcapBy.get(`${r.symbol}|${r.series}`);
     if (m && !bySec.has(sid)) bySec.set(sid, [sid, date, m.issueSize, m.faceValue, m.mcapRs, "nse", fileIds.pr_bundle]);
@@ -218,7 +224,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   stmts.push(...insertRows("INSERT INTO shares_daily (security_id,trade_date,issue_size,face_value,mcap_rs,mcap_source,file_id)", 7, shareRowsUnique,
     "ON CONFLICT (security_id,trade_date) DO UPDATE SET issue_size=excluded.issue_size,face_value=excluded.face_value,mcap_rs=excluded.mcap_rs,mcap_source=excluded.mcap_source,file_id=excluded.file_id"));
   if (fileIds.delivery) {
-    const dRows = delivery.filter((d) => EQUITY_SERIES.has(d.series) && secOf.has(d.symbol) && d.tradeDate === date)
+    const dRows = delivery.filter((d) => secOf.has(d.symbol) && d.tradeDate === date)
       .map((d) => [secOf.get(d.symbol), date, d.series, d.deliverableQty, d.deliveryPct, fileIds.delivery]);
     stmts.push(...insertRows("INSERT INTO delivery_daily (security_id,trade_date,series,deliverable_qty,delivery_pct,file_id)", 6, dRows,
       "ON CONFLICT (security_id,trade_date,series) DO UPDATE SET deliverable_qty=excluded.deliverable_qty,delivery_pct=excluded.delivery_pct,file_id=excluded.file_id"));
@@ -232,7 +238,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   await batchAll(deps.market, stmts);
 
   // Corporate actions (D6, D7): record every Bc row; decide factors for actions whose ex-date is today.
-  const bc = dedupeBc(pr.bc, EQUITY_SERIES);
+  const bc = dedupeBc(pr.bc, new Set(pr.bc.map((r) => r.series))); // every series (D127); one row per symbol/ex-date/purpose
   const caStmts: Stmt[] = [];
   const todays = new Map<number, { purposes: string[]; comps: ReturnType<typeof parsePurpose>["components"] }>();
   for (const r of bc) {
@@ -266,12 +272,12 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
       prevShares.set(r.security_id, r.issue_size);
       if (r.face_value) prevFv.set(r.security_id, r.face_value);
     }
-    for (const r of await deps.market.all<{ security_id: number; close: string }>("SELECT security_id, close FROM price_daily WHERE trade_date=? AND series='EQ'", [prevDate])) prevClose.set(r.security_id, r.close);
+    for (const r of await deps.market.all<{ security_id: number; close: string; series: string }>("SELECT security_id, close, series FROM price_daily WHERE trade_date=? ORDER BY series='EQ'", [prevDate])) prevClose.set(r.security_id, r.close);
   }
   const todayShares = new Map<number, number>(shareRowsUnique.map((r) => [r[0] as number, r[2] as number]));
   const factorStmts: Stmt[] = [];
   for (const [sid, t] of todays) {
-    const row = rows.find((r) => secOf.get(r.symbol) === sid && r.series === "EQ") ?? rows.find((r) => secOf.get(r.symbol) === sid);
+    const row = rowsAll.find((r) => secOf.get(r.symbol) === sid && r.series === "EQ") ?? rowsAll.find((r) => secOf.get(r.symbol) === sid);
     const d = decideFactor({
       exDate: date, components: t.comps, sharesBefore: prevShares.get(sid) ?? null, sharesOnEx: todayShares.get(sid) ?? null,
       prevClose: prevClose.get(sid) ?? row?.prevClose ?? null, faceValue: prevFv.get(sid) ?? null, openOnEx: row?.open ?? null,
@@ -287,7 +293,9 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
 
   // Review checks: unexplained share-count change > 2%, unexplained move > ±35% (§9.1).
   const factored = new Set(todays.keys());
+  const universeSids = new Set(rows.map((r) => secOf.get(r.symbol)!));
   for (const [sid, n] of todayShares) {
+    if (!universeSids.has(sid)) continue;
     const before = prevShares.get(sid);
     if (before && !factored.has(sid) && Math.abs(n - before) / before > 0.02) {
       reviews.push({ kind: "corp_action", subjectDb: "market", subjectRef: `shares|${sid}|${date}`, summary: `Share count changed ${before} → ${n} with no corporate action`, evidence: { before, after: n } });
@@ -305,7 +313,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
 
   return {
     date, status: "loaded",
-    counts: { prices: rows.length, shares: shareRowsUnique.length, delivery: fileIds.delivery ? delivery.length : 0, indices: fileIds.index_close ? indices.length : 0, corp_actions: caStmts.length, factors: factorStmts.length, new_securities: changes.filter((c) => c.kind === "new_security").length },
+    counts: { prices: rows.length, stored_all: rowsAll.length, shares: shareRowsUnique.length, delivery: fileIds.delivery ? delivery.length : 0, indices: fileIds.index_close ? indices.length : 0, corp_actions: caStmts.length, factors: factorStmts.length, new_securities: changes.filter((c) => c.kind === "new_security").length },
     reviews: reviews.length,
   };
 }
@@ -330,4 +338,13 @@ function typeOf(cs: readonly { type: string }[]): string {
 async function writeReviews(deps: Deps, items: ReviewItem[]) {
   const now = iso(deps.now());
   await batchAll(deps.app, items.map((i) => reviewUpsert(i, now)));
+}
+
+/** Instrument type for storage (D127). Universe = 'equity' in EQ/BE/BZ. */
+function kindOf(r: BhavRow): "equity" | "etf" | "reit" | "invit" | "other" {
+  if (r.isin.startsWith("INF")) return "etf";
+  if (r.series === "RR") return "reit";
+  if (r.series === "IV") return "invit";
+  if (r.isin.startsWith("INE") || r.isin.startsWith("IN9")) return "equity";
+  return "other"; // government securities, bonds, etc.
 }

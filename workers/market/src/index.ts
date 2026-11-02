@@ -1,5 +1,5 @@
 // disclo-market Worker: nightly market job + backfill, both driven by cron (§6, D10, D124).
-import { archiveFetcher } from "./archive.js";
+import { archiveFetcher, r2FirstFetcher } from "./archive.js";
 import { d1Sql, r2Raw } from "./d1.js";
 import { acceptance } from "./acceptance.js";
 import { runPending } from "./runner.js";
@@ -30,7 +30,7 @@ async function withLock<T>(db: D1Database, ttlMs: number, fn: () => Promise<T>):
 export default {
   async scheduled(_ev: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil((async () => {
-      const deps = { market: d1Sql(env.DB_MARKET), app: d1Sql(env.DB_APP), raw: r2Raw(env.RAW), fetch: archiveFetcher(), now: () => new Date() };
+      const deps = { market: d1Sql(env.DB_MARKET), app: d1Sql(env.DB_APP), raw: r2Raw(env.RAW), fetch: r2FirstFetcher(env.RAW, archiveFetcher()), now: () => new Date() };
       const out = await withLock(env.DB_MARKET, 14 * 60_000, () => runPending(deps, { maxDates: 40, budgetMs: 8 * 60_000, revisitSessions: 5, from: env.BACKFILL_FROM }));
       console.log(JSON.stringify({ env: env.ENVIRONMENT, ran: out?.map((r) => ({ d: r.date, s: r.status, c: r.counts, why: r.reasons?.slice(0, 3) })) ?? "locked" }));
     })());
