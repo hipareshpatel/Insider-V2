@@ -41,6 +41,7 @@ function fakeFetch(overrides: Record<string, Uint8Array> = {}) {
 
 function setup() {
   const market = sqlite("market"), app = sqlite("app");
+  market.raw.exec("DELETE FROM job_lock WHERE name='paused'"); // migrations include a maintenance pause
   const stored: string[] = [];
   const deps = { market, app, raw: { put: async (k: string) => { stored.push(k); } }, fetch: fakeFetch(), now: () => new Date("2026-11-03T00:00:00Z"), retryWaits: [0, 0] };
   return { market, app, deps, stored };
@@ -184,5 +185,19 @@ describe("acceptance checks (§9.2)", () => {
     const r = await acceptance(market, app);
     expect(r.find((c) => c.id === "1")).toMatchObject({ pass: true });
     expect(r.find((c) => c.id === "2")?.pass).toBeNull(); // no index snapshot in this test
+  });
+});
+
+describe("maintenance + missing-file rules", () => {
+  it("a settled PR-bundle 404 is no session even if the bhavcopy is refused (403)", async () => {
+    const { deps } = setup();
+    const f = async (u: string) => ({ status: u.includes("BhavCopy") ? 403 : 404, bytes: new Uint8Array(), contentType: null });
+    expect((await runDay("2024-01-27", { ...deps, fetch: f, now: () => new Date("2024-01-29T00:00:00Z") })).status).toBe("no_session");
+  });
+  it("paused: the runner loads nothing", async () => {
+    const { runPending } = await import("../src/runner.js");
+    const { market, deps } = setup();
+    await market.run("INSERT INTO job_lock (name, holder, expires_at) VALUES ('paused','t','9999')");
+    expect(await runPending({ ...deps, now: () => new Date("2025-06-17T01:00:00Z") }, { maxDates: 10, budgetMs: 60_000, revisitSessions: 5, from: "2025-06-13" })).toEqual([]);
   });
 });

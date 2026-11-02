@@ -47,6 +47,8 @@ export default {
     const q = async (sql: string) => (await db.prepare(sql).all()).results;
     const body = {
       environment: env.ENVIRONMENT,
+      paused: (await q("SELECT count(*) AS n FROM job_lock WHERE name='paused'"))[0],
+      running_lock: (await q("SELECT expires_at FROM job_lock WHERE name='market.daily'"))[0] ?? null,
       sessions_loaded: (await q("SELECT count(*) AS n, min(trade_date) AS first, max(trade_date) AS last FROM trading_calendar WHERE is_session=1"))[0],
       securities: (await q("SELECT count(*) AS n FROM security"))[0],
       price_rows: (await q("SELECT count(*) AS n FROM price_daily"))[0],

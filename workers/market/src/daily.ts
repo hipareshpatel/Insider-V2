@@ -75,6 +75,12 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
     await deps.market.run("INSERT OR REPLACE INTO trading_calendar (trade_date, is_session, note) VALUES (?, 0, 'no files')", [date]);
     return { date, status: "no_session" };
   }
+  // NSE's archive sometimes answers 403 (not 404) for a file that doesn't exist (seen 2024-01-27, a Saturday).
+  // Every session has a PR bundle, so a settled PR-bundle 404 means no session.
+  if (ps === 404 && settledNoSession(date, deps.now())) {
+    await deps.market.run("INSERT OR REPLACE INTO trading_calendar (trade_date, is_session, note) VALUES (?, 0, 'no PR bundle')", [date]);
+    return { date, status: "no_session", reasons: [`bhavcopy ${us}, PR bundle 404`] };
+  }
   if (us !== 200 || ps !== 200) return { date, status: "pending", reasons: [`bhavcopy ${us}, PR bundle ${ps}`] };
 
   // Idempotency (B4): unchanged bytes for both main files -> nothing to do.

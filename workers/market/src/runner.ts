@@ -28,12 +28,14 @@ export async function runPending(deps: Deps, opt: RunOptions): Promise<DayReport
   const out: DayReport[] = [];
   for (const d of (await pendingDates(deps.market, deps.now(), opt.revisitSessions, opt.from)).slice(0, opt.maxDates)) {
     if (Date.now() - t0 > opt.budgetMs) break;
+    if (await paused(deps.market)) break; // maintenance: a reset must not race a running load
     const r = await runDay(d, deps);
     out.push(r);
     // Strict date order: corporate-action factors compare with the previous session, so a date that didn't load
     // (refused, failed, rejected by a gate) stops this run; the next run retries it first.
     if (!["loaded", "unchanged", "no_session"].includes(r.status)) break;
   }
+  if (await paused(deps.market)) return out;
   await deriveJanuary2024(deps.market);
   await maybeSnapshot(deps);
   return out;
@@ -84,4 +86,9 @@ export async function deriveJanuary2024(db: Sql): Promise<number> {
   await batchAll(db, insertRows("INSERT INTO shares_daily (security_id,trade_date,issue_size,face_value,mcap_rs,mcap_source,file_id)", 7, rows,
     "ON CONFLICT (security_id,trade_date) DO NOTHING"));
   return rows.length;
+}
+
+/** Maintenance pause: a row 'paused' in job_lock stops runs before the next date. */
+export async function paused(db: Sql): Promise<boolean> {
+  return (await db.all("SELECT 1 FROM job_lock WHERE name='paused'")).length > 0;
 }
