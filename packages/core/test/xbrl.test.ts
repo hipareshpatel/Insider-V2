@@ -55,3 +55,15 @@ describe("canonical results from a SEBI Integrated Filing (in-capmkt, INFY Q2 FY
     expect(r.checks.filter((c) => !c.ok)).toEqual([]);
   });
 });
+
+describe("bank template (HDFCBANK Q2 FY27 consolidated, trimmed real file)", async () => {
+  const { canonicalResult } = await import("../src/index.js");
+  const r = canonicalResult(parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_HDFCBANK_IF_Q2FY27_trim.xml"), "utf8")));
+  it("detects the bank layout and every bank identity holds", () => {
+    expect(r.template).toBe("bank");
+    expect(r.lines.interest_earned).toBe("951316300000");
+    expect(r.lines.pat).toBe("207000300000");
+    expect(r.checks.length).toBe(7);
+    expect(r.checks.filter((c) => !c.ok)).toEqual([]);
+  });
+});

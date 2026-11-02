@@ -48,6 +48,40 @@ export const PL_TAGS: Record<string, string> = {
   eps_diluted: "DilutedEarningsLossPerShareFromContinuingAndDiscontinuedOperations",
 };
 
+/** Bank template (Banking Regulation Act format). */
+export const BANK_TAGS: Record<string, string> = {
+  interest_earned: "InterestEarned",
+  interest_on_advances: "InterestOrDiscountOnAdvancesOrBills",
+  income_on_investments: "RevenueOnInvestments",
+  interest_on_rbi_interbank: "InterestOnBalancesWithReserveBankOfIndiaAndOtherInterBankFunds",
+  other_interest: "OtherInterest",
+  other_income: "OtherIncome",
+  total_income: "Income",
+  interest_expended: "InterestExpended",
+  employee_cost: "EmployeesCost",
+  other_operating_expenses: "OtherOperatingExpenses",
+  operating_expenses: "OperatingExpenses",
+  expenditure_excl_provisions: "ExpenditureExcludingProvisionsAndContingencies",
+  operating_profit: "OperatingProfitBeforeProvisionAndContingencies",
+  provisions: "ProvisionsOtherThanTaxAndContingencies",
+  exceptional_items: "ExceptionalItems",
+  pbt: "ProfitLossFromOrdinaryActivitiesBeforeTax",
+  tax: "TaxExpense",
+  pat_ordinary: "ProfitLossFromOrdinaryActivitiesAfterTax",
+  extraordinary_items: "ExtraordinaryItems",
+  pat: "ProfitLossForThePeriod",
+  pat_after_minority: "ProfitLossAfterTaxesMinorityInterestAndShareOfProfitLossOfAssociates",
+  paid_up_capital: "PaidUpValueOfEquityShareCapital",
+  eps_basic: "BasicEarningsPerShareAfterExtraordinaryItems",
+  eps_diluted: "DilutedEarningsPerShareAfterExtraordinaryItems",
+  gross_npa: "GrossNonPerformingAssets",
+  net_npa: "NonPerformingAssets",
+  gnpa_pct: "PercentageOfGrossNpa",
+  nnpa_pct: "PercentageOfNpa",
+  cet1_ratio: "CET1Ratio",
+  roa: "ReturnOnAssets",
+};
+
 export interface CanonicalResult {
   symbol: string | null;
   periodStart: string;
@@ -55,6 +89,7 @@ export interface CanonicalResult {
   periodKind: PeriodKind;
   label: string;
   basis: "standalone" | "consolidated";
+  template: "industrial" | "bank";
   audited: string | null;
   lines: Record<string, string>;      // exact rupee text (EPS in rupees per share)
   missing: string[];                  // canonical lines not reported (null with reason, D52)
@@ -81,7 +116,10 @@ export function canonicalResult(inst: XbrlInstance): CanonicalResult {
   const nature = (meta("NatureOfReportStandaloneConsolidated") ?? "").toLowerCase();
   const lines: Record<string, string> = {};
   const missing: string[] = [];
-  for (const [line, tag] of Object.entries(PL_TAGS)) {
+  // Template by content: banks report InterestExpended; industrial and NBFC (Ind AS Div II/III) share the other layout.
+  const template: "industrial" | "bank" = inst.facts.some((f) => f.tag === P + "InterestExpended") ? "bank" : "industrial";
+  const tags = template === "bank" ? BANK_TAGS : PL_TAGS;
+  for (const [line, tag] of Object.entries(tags)) {
     const f = inst.facts.find((x) => x.tag === P + tag && x.contextRef === ctx.id && !x.nil);
     if (f?.value !== undefined && f.value !== null && f.value !== "") lines[line] = toText(dec(f.value));
     else missing.push(line);
@@ -90,8 +128,9 @@ export function canonicalResult(inst: XbrlInstance): CanonicalResult {
     symbol: meta("Symbol"), periodStart: start, periodEnd: end, periodKind: kind,
     label: fiscalPeriod(end, kind, fyEndMonth).label,
     basis: nature.startsWith("consol") ? "consolidated" : "standalone",
+    template,
     audited: meta("WhetherResultsAreAuditedOrUnaudited"),
-    lines, missing, checks: identityChecks(lines),
+    lines, missing, checks: template === "bank" ? bankChecks(lines) : identityChecks(lines),
   };
 }
 
@@ -114,5 +153,28 @@ export function identityChecks(l: Record<string, string>): { name: string; ok: b
   near("total income − total expenses = PBT before exceptional", v("total_income") && v("total_expenses") ? sub(v("total_income")!, v("total_expenses")!) : null, v("pbt_before_exceptional"));
   near("PBT before exceptional + exceptional = PBT", sum("pbt_before_exceptional", "exceptional_items"), v("pbt"));
   near("current + deferred tax = tax", sum("current_tax", "deferred_tax"), v("tax"));
+  return out;
+}
+
+/** Bank identities (B8), tolerance ₹1 lakh. */
+export function bankChecks(l: Record<string, string>): { name: string; ok: boolean; detail: string }[] {
+  const tol = dec("100000");
+  const v = (k: string): Dec | null => (l[k] !== undefined ? dec(l[k]!) : null);
+  const out: { name: string; ok: boolean; detail: string }[] = [];
+  const near = (name: string, lhs: Dec | null, rhs: Dec | null) => {
+    if (!lhs || !rhs) return;
+    const d = sub(lhs, rhs);
+    const abs = d.units < 0n ? { units: -d.units, scale: d.scale } : d;
+    out.push({ name, ok: cmp(abs, tol) <= 0, detail: `${toText(lhs)} vs ${toText(rhs)}` });
+  };
+  const sum = (...ks: string[]) => (ks.every((k) => v(k)) ? ks.map((k) => v(k)!).reduce((a, b) => add(a, b)) : null);
+  const diff = (a: string, b: string) => (v(a) && v(b) ? sub(v(a)!, v(b)!) : null);
+  near("interest components = interest earned", sum("interest_on_advances", "income_on_investments", "interest_on_rbi_interbank", "other_interest"), v("interest_earned"));
+  near("interest earned + other income = total income", sum("interest_earned", "other_income"), v("total_income"));
+  near("employee + other opex = operating expenses", sum("employee_cost", "other_operating_expenses"), v("operating_expenses"));
+  near("interest expended + opex = expenditure", sum("interest_expended", "operating_expenses"), v("expenditure_excl_provisions"));
+  near("total income − expenditure = operating profit", diff("total_income", "expenditure_excl_provisions"), v("operating_profit"));
+  near("operating profit − provisions + exceptional = PBT", v("operating_profit") && v("provisions") && v("exceptional_items") ? add(sub(v("operating_profit")!, v("provisions")!), v("exceptional_items")!) : null, v("pbt"));
+  near("PBT − tax = PAT (ordinary)", diff("pbt", "tax"), v("pat_ordinary"));
   return out;
 }
