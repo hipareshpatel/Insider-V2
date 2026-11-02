@@ -303,6 +303,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 245 | "Need help, I am on this page" (screenshot: API Tokens list: "Edit Cloudflare Workers", "Cloudflare Agent Token - 2026-11-02"). | Guided in chat: edit "Edit Cloudflare Workers" (the GitHub token, setup guide E1); leave the other one alone. | ✅ |
 | 246 | "At bottom it shows a warning; should I ignore it or is a new token required?" (no screenshot attached) | Asked for the warning text; guidance by case given in chat. Answered in #247. | ✅ |
 | 247 | Warning text: "Origin CA Key (Deprecated) … Please generate Account API Tokens or User API Tokens instead" (API Keys section). | Unrelated to our token (Global API Key / Origin CA Key section, not used by the project): ignore; no new token needed. | ✅ |
+| 248 | "Workers R2 Storage: only Read is selectable." | Likely because R2 isn't enabled on the account yet: enable R2 first, then re-edit the token. Fallback if Edit still missing: select Read and create buckets `disclo-raw` + `disclo-raw-staging` by hand (Worker bindings don't need R2 Edit). | 🔶 owner |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -311,7 +312,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #247: all checks pass (123 decisions, 247 entries); no open ⚠.*
+*Last run 2026-11-02 after entry #248: all checks pass (123 decisions, 248 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
