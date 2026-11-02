@@ -1,4 +1,4 @@
-# Field Catalogue — Draft v1 (updated to decisions D1–D107)
+# Field Catalogue — v1, approved by owner (D123)
 
 This lists the fields the query builder, dashboard and dossiers can use. Each field is precomputed nightly, or after each event, into the per-stock feature table (D64).
 Fields marked 🔒 are **owner-only** (D53) and never appear in public queries or APIs. Fields marked *est.* are labelled estimates (method shown).
@@ -224,5 +224,5 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 - **Large order:** ≥ 2% of TTM revenue (same as D38).
 - **Delivery %:** `sec_bhavdata_full_DDMMYYYY.csv` added to daily market-data sources.
 
-## Still open
-1. Missing or unwanted fields, especially in the sector packs (owner review).
+## Change list (additions after approval, D123)
+- 2026-11-03: `sector` (22 NSE sectors) and `industry_detail` replace the 4-level classification fields (D121).
