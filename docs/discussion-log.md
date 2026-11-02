@@ -263,6 +263,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 216 | Screenshot: Email Routing "Verify DNS records" (3 MX route1/2/3.mx.cloudflare.net + TXT DKIM cf2024-1._domainkey, SPF) → Activate. | Correct records; owner to tap Activate | ✅ |
 
+| 217 | Screenshot: Email Routing overview for disclo.in: routing Syncing, DNS records Locked, 0 rules, 0 destinations. | Enabled; next: add destination (Gmail, verify) then routing rules `info`, `alerts` | ✅ |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -270,7 +272,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #216: all checks pass (119 decisions, 216 entries).*
+*Last run 2026-11-02 after entry #217: all checks pass (119 decisions, 217 entries).*
 
 ## Open items from this log
 - **#204** Launch name to be decided by owner (trademark work paused); `disclo.in` stays the working domain. Owner actions: add `disclo.in` to Cloudflare; enable Email Routing.
