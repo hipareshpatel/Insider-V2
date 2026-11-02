@@ -142,3 +142,33 @@ jobs:
           echo "homepage: $(curl --http1.1 -s -o /dev/null -w '%{http_code}' -c j.txt -A "$UA" -H 'Accept: text/html' https://www.nseindia.com/)"
           sleep 4
           echo "quote-equity ITC: $(curl --http1.1 -s -o q.json -w '%{http_code}' -b j.txt -A "$UA" -H 'Accept: application/json, text/plain, */*' -H 'Accept-Language: en-US,en;q=0.9' -H 'Referer: https://www.nseindia.com/' 'https://www.nseindia.com/api/quote-equity?symbol=ITC') ($(wc -c < q.json) bytes)"
+
+  # BSE quote header from the GitHub runner (sector classification candidate, D120, log #231).
+  bse-header-from-github:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: BSE ComHeadernew for ITC, INFY, HIKAL
+        shell: python
+        run: |
+          import json, time, urllib.request
+          H = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+               "Accept": "application/json, text/plain, */*", "Referer": "https://www.bseindia.com/", "Origin": "https://www.bseindia.com"}
+          print("=== BSE HEADER RESULT ===")
+          for name, code in (("ITC", "500875"), ("INFY", "500209"), ("HIKAL", "524735")):
+              url = f"https://api.bseindia.com/BseIndiaAPI/api/ComHeadernew/w?quotetype=EQ&scripcode={code}&seriesid="
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(url, headers=H), timeout=30) as r:
+                      body = r.read(); status = r.status
+              except urllib.error.HTTPError as e:
+                  body = e.read(); status = e.code
+              except Exception as e:
+                  print(name, "error:", e); continue
+              try:
+                  d = json.loads(body)
+                  keep = {k: v for k, v in d.items() if any(t in k.lower() for t in ("sector", "industr", "group", "isin", "securityid", "scrip"))}
+                  print(name, status, json.dumps(keep))
+              except Exception:
+                  print(name, status, body[:200])
+              time.sleep(3)
+          print("=== END ===")

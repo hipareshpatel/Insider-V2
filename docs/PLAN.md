@@ -1,6 +1,6 @@
 # Insider V2 — Plan (consolidated)
 
-**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D119** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`, `setup-guide.md` (owner's step-by-step setup: Cloudflare, GoDaddy nameservers, email routing, probe). **Next chat starts with `docs/HANDOVER.md`.**
+**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D120** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`, `setup-guide.md` (owner's step-by-step setup: Cloudflare, GoDaddy nameservers, email routing, probe). **Next chat starts with `docs/HANDOVER.md`.**
 No production code exists yet. The only code is `probe/`, a throwaway Worker for testing NSE reachability from Cloudflare.
 
 **Working agreement:** this is a discussion phase. No production code is written until the owner says so. Claude asks for the owner's input wherever a decision is theirs, records every decision here, and flags anything it can't verify.
@@ -122,7 +122,7 @@ Features built later should only *read* these fields, never require them to be a
 | API | Hono Worker, `/api/v1` (versioned) |
 | Website | React + Vite on Workers static assets. Public pages, **Google sign-in** for accounts (D63), **owner-only routes behind Cloudflare Access** (D53) |
 | LLM | Gemini (paid tier) behind a provider interface (D15) |
-| Owner's machine | Sector classification job (D8) |
+| Owner's machine | Sector classification job (D8), **unless the BSE source (D120) runs from GitHub/Cloudflare** |
 
 **VPS vs Cloudflare (D109):** Cloudflare for site and pipeline; VPS/owner machine only as engine fallback, feeding R2 or a batched ingestion Worker.
 
@@ -183,7 +183,7 @@ All NSE. "Verified" = fetched successfully from a cloud IP on 2026-11-02 (Append
 | Corporate actions | `corporates-corporateActions` | As filed | Verified |
 | BRSR (XBRL) | `corporate-bussiness-sustainabilitiy` (NSE's spelling) | Annual | Verified (D71) |
 | Annual reports (PDF list) | `annual-reports` | Annual | Verified (D74) |
-| Sector classification (4-level) | `quote-equity` | Quarterly + monthly for new listings | **Blocked from cloud → owner's machine** (D8) |
+| Sector classification (4-level) | **BSE `ComHeadernew`** (D120, provisional); fallback NSE `quote-equity` | Quarterly + monthly for new listings | BSE reachability **being probed**; NSE `quote-equity` blocked from cloud and GitHub → owner's machine (D8) |
 
 ### 4.3 Announcements
 | Dataset | Endpoint | Status |
@@ -315,7 +315,7 @@ Full list: `docs/field-catalogue.md`.
 | **Structured filings** | Cron (frequency per source) | Integrated filings, shareholding, PIT/SAST, credit ratings, board meetings, corporate actions → parsed in code, **no LLM**. |
 | **Announcements (real time)** | Cron every 2–5 min + RSS backup | Queue stages: triage → extract → verify → context → analyse → commit (§7). Target ≤ 15 min (D16). |
 | **Annual** | On filing | BRSR XBRL (code). Annual-report sections (LLM, Flex): MD&A, segment note (geography + major customers), revenue disaggregation, capacity/capex, RPT, contingent liabilities, auditor qualifications, FX earnings & outgo, R&D, unhedged FX exposure, raw materials consumed, **plant locations** (D74, D77). Capacity/commissioning/utilisation facts from presentations, transcripts and MD&A (D83). Borrowings notes: sanctioned working-capital limits + whether quarterly statements filed with banks agree with the books (discrepancy = red flag, D83). |
-| **Classification** | Owner's machine CLI, quarterly + monthly (new listings) | `quote-equity` ~1 request per 2–3 s with jitter. Resumable. Writes to D1 via API token (D8). |
+| **Classification** | Where BSE answers (D120): GitHub/Cloudflare job; else owner's machine CLI (D8). Quarterly + monthly (new listings) | BSE `ComHeadernew` per scrip, ~1 request per 3 s with jitter, joined by ISIN. Resumable. Writes to D1 via API token. |
 | **Nightly derived** | After the market job | Adjusted series, feature table, dashboard snapshots, trackers, niche indices, outcome ledger. |
 | **Backfill** | One-off | Financial statements: **5 years** of quarterly + annual XBRL (D90). Market: ~700 dates × 2 files + Bc from 2022, ~1 req/s, on Workers Paid. Phase 2: last 4 quarters of Nifty 50 results, concalls and presentations on **Batch**, cost estimated first (D55). |
 
@@ -640,7 +640,8 @@ probe/                throwaway reachability check
 - card sections, after real output (D25)
 
 **Still to verify:**
-- `quote-equity` from a GitHub runner: learned method replicated → **403** (Appendix B). Scheduled runs (~2 days) check other runner IPs; if all 403, close and keep D8
+- `quote-equity` from a GitHub runner: **403** in our replication and in the V1 run of 22 Oct 2026 (Appendix B); never shown to work. Closed as a cloud option; stays the D8 fallback
+- **BSE `ComHeadernew` (D120) from GitHub and Cloudflare**: probe added; then owner decides taxonomy (BSE labels vs NSE levels) and the NSE-only-listing fallback
 - every source from Cloudflare: **core sources verified ✅ (probe run #3)**; structured-filing endpoints (integrated filings, PIT, SAST, ratings, BRSR, shareholding) not yet probed from Cloudflare
 - bulk/block, F&O, ASM/GSM archive paths
 - SAST Reg 31 endpoint
@@ -673,7 +674,7 @@ probe/                throwaway reachability check
 | D5 | Market cap | Full market cap as published by NSE (`MCAP*.csv` in the PR bundle). Never adjusted. Stored exact in ₹, displayed in ₹ crore with no decimals. |
 | D6 | Corporate actions | Source: `Bc*.csv`. Split/bonus factor = **share-count ratio** from MCAP, cross-checked with the Bc text. Rights use TERP. Demergers and capital reductions use a price-ratio estimate, flagged for review. |
 | D7 | Dividends | Not adjusted (price-only), but recorded. |
-| D8 | Sector classification | NSE 4-level, from `quote-equity`, run **on the owner's machine** (blocked from cloud). Quarterly for all, monthly for new listings only. |
+| D8 | Sector classification | NSE 4-level, from `quote-equity`, run **on the owner's machine** (blocked from cloud). Quarterly for all, monthly for new listings only. **Fallback only if D120 fails** (owner, #231). |
 | D9 | Index history | Daily snapshot + diff of constituent CSVs, from go-live onward. |
 | D10 | Market-data schedule | Every day at 22:00 IST. A 404 means "no session". Missed dates are retried. |
 | D11 | Storage | D1 + R2 + Vectorize. Git = code + migrations + docs only, **no data**. |
@@ -785,6 +786,7 @@ probe/                throwaway reachability check
 | D117 | Security headers | HTTPS only (HSTS), Content-Security-Policy, X-Frame-Options/frame-ancestors, Referrer-Policy, Permissions-Policy on every response; secure, HTTP-only, SameSite session cookies for Google sign-in. *(Gap found in document review.)* |
 | D118 | Domain timing | **Done: `disclo.in` bought by the owner (2026-11-02).** Optional: buy common misspellings as redirects (e.g. `disklo.in`, free when checked). Trademark search still pending. |
 | D119 | Trademark check "Disclo" (preliminary, 2026-11-02) | **Paused by owner** (a different launch name is being considered); findings kept for reference. **Official IP India search could not be run from Claude's environment** (public search behind captcha / unavailable). Web-indexed sources show **no Indian "Disclo" mark**. **Conflict found:** `disclo.com` is **Disclo, a US workplace-accommodations (HR) software company**, VC-backed (seed led by General Catalyst; Y Combinator S22), active since ~2022, says it holds a software patent; a US trademark is likely but not verified. **Assessment:** different industry (HR disability accommodations vs equity research), and trademark rights are territorial, so risk in India is **low–moderate**, mainly **class 42 (software/SaaS)** overlap; higher if Disclo ever expands to the US. Also expect search-engine confusion with their brand. **Owner actions:** (1) run IP India public search for wordmark DISCLO (and DISKLO), *phonetic* + *starts with*, classes **9, 36, 42**; (2) USPTO search for DISCLO; (3) if clear in India, **file our own trademark application** (classes 36 + 42; e-filing fee roughly ₹4,500 per class for individuals/startups/small enterprises, about double otherwise; confirm current fees). Final view belongs to the legal consult (§12 #12). |
+| D120 | Sector classification source: BSE (provisional) | **Owner (#231): use BSE for classification.** Source: BSE quote-header API `ComHeadernew` (public, per scrip code), 4 levels: Sector > Industry > Group > Sub-group. Same cadence as D8 (quarterly; monthly for new listings), ~1 request per 3 s. Join to NSE symbol by **ISIN**. **Amends D36** (non-NSE sources) for this one dataset. **Confirmed only when:** (a) the probe shows it answers from GitHub and/or Cloudflare (where it runs = the reachable one; owner's machine only if neither); (b) owner chooses the taxonomy question (BSE labels vs NSE's 4 levels; peer/industry medians and sector pages follow it); (c) NSE-only listings (no BSE scrip) get a defined fallback. Until then D8 stands. |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |
@@ -812,4 +814,5 @@ probe/                throwaway reachability check
 | `quote-equity` directly from a GitHub Actions runner (owner reported it works there; run 2026-11-02 17:45 UTC) | Homepage **403**, quote page 302, `quote-equity` **403** (Akamai "Access Denied") with a browser-like cookie flow. Not reproduced; owner asked how it was done (library/endpoint/headers). D8 unchanged until then. |
 | Method that reportedly worked from a GitHub runner (learned 2026-11-02 by reading only the owner-permitted quote-equity fetch code, #228) | Same endpoint `GET /api/quote-equity?symbol=X`, read `industryInfo`. **No special library:** Python `httpx` client, HTTP/1.1 (no HTTP/2), redirects followed. Session headers: Chrome-120 Windows User-Agent, `Accept: application/json, text/plain, */*`, `Accept-Language: en-US,en;q=0.9`, `Referer: https://www.nseindia.com/` (root, not the quote page). One best-effort homepage visit for cookies first (code comment: APIs answered even when that warm-up got 403). 3–5 s random pause between requests; 401/403/429 = stop the run, no retry. Plain GitHub `ubuntu-latest` runner, no proxy. **Differences from our failed curl test:** client/TLS stack (Python vs curl), HTTP/1.1 vs curl's HTTP/2, Accept header, Referer. **Not verified:** the code doesn't show whether its run succeeded, and that run predates ours (≈Oct 2026); runner IPs vary. Next: replicate this method from our runner (needs owner OK). D8 unchanged until a run returns `industryInfo`. |
 | **Replication test** (#230; GitHub runner, 2026-11-02 17:56 UTC, run 41495737305) | **All 403 (Akamai "Access Denied").** httpx HTTP/1.1 with the learned headers: homepage 403 (only `AKA_A2` cookie), `quote-equity` ITC 403, INFY 403. Control, curl HTTP/1.1 same headers: homepage 403, ITC 403. Old curl job in the same run: 403. **Reading:** the homepage itself is refused, so the block is on the runner's IP range, not on request shape; client, HTTP version and headers don't change it. One run / one IP so far; the 3×/day schedule repeats both jobs on other runner IPs. **D8 stands** (owner's machine) unless a scheduled run returns `industryInfo`. |
+| V1 evidence supplied by owner (#231) | V1's own GitHub probe (22 Oct 2026) also got **403** on `quote-equity`. So `quote-equity` was never shown to work from GitHub; the earlier recollection likely referred to BSE's quote header run from a home connection. |
 | NSE EOD licence | Tariff (Apr 2026): Capital Market EOD ₹1,00,000 (domestic) per display medium; website and app are separate mediums. |

@@ -1,4 +1,4 @@
-// One-off probe: which NSE endpoints answer from Cloudflare's egress IPs?
+// One-off probe: which NSE (and BSE quote-header) endpoints answer from Cloudflare's egress IPs?
 // Only response headers / a small prefix of each body are read, to stay
 // within the Free-plan CPU budget.
 
@@ -103,7 +103,14 @@ export default {
       .find(Boolean);
     const pdf = firstPdf ? [await probe("announcement_pdf", firstPdf)] : [];
 
-    const all = [...archive, ...noCookie, ...withCookie, ...pdf];
+    // BSE quote header (sector classification candidate, D120): ITC 500875, INFY 500209.
+    const bseH = { Accept: "application/json, text/plain, */*", Referer: "https://www.bseindia.com/", Origin: "https://www.bseindia.com" };
+    const bse = await Promise.all(
+      [["bse_header_itc", "500875"], ["bse_header_infy", "500209"]].map(([n, code]) =>
+        probe(n, `https://api.bseindia.com/BseIndiaAPI/api/ComHeadernew/w?quotetype=EQ&scripcode=${code}&seriesid=`, bseH, 1500)),
+    );
+
+    const all = [...archive, ...noCookie, ...withCookie, ...pdf, ...bse];
     const report = {
       probed_at_utc: new Date().toISOString(),
       cf_colo: (req as any).cf?.colo ?? null,

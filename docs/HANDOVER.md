@@ -3,7 +3,7 @@
 **Repo:** `hipareshpatel/Insider-V2`, branch **`ccr-eb822347-c3zp4b`** (only branch). All documents are in `docs/`.
 
 ## Read first, in this order
-1. `docs/PLAN.md`: the consolidated design. Decisions D1–D119 are in Appendix A; live NSE evidence is in Appendix B.
+1. `docs/PLAN.md`: the consolidated design. Decisions D1–D120 are in Appendix A; live NSE evidence is in Appendix B.
 2. `docs/discussion-log.md`: every owner statement (#1–#227), mapped to where it's recorded, plus open items.
 3. `docs/field-catalogue.md`: query fields (v1).
 4. `docs/setup-guide.md`: owner's Cloudflare/GoDaddy/GitHub setup steps.
@@ -23,7 +23,7 @@
 - **Probe result:** all pipeline NSE sources reachable from Cloudflare; only `quote-equity` (sector classification) is 403 → D8 (owner's machine) stands; the D54 relay isn't needed.
 
 ## Open items for next chat
-1. **quote-equity from GitHub:** the owner says it worked in repo **`hipareshpatel/Insiders`** (V1). **Owner permits reading ONLY the code that fetches NSE `quote-equity`/sector classification, to learn the method (library/endpoint/headers). Do not read, use or reference anything else in that repo.** If it works, D8 can move to a GitHub scheduled job. **Done 2026-11-02 (#228):** method recorded in PLAN Appendix B; replicated from our runner (#230): **403**, homepage too (IP-range block). D8 stands; scheduled probe runs re-test.
+1. **quote-equity from GitHub:** the owner says it worked in repo **`hipareshpatel/Insiders`** (V1). **Owner permits reading ONLY the code that fetches NSE `quote-equity`/sector classification, to learn the method (library/endpoint/headers). Do not read, use or reference anything else in that repo.** If it works, D8 can move to a GitHub scheduled job. **Done 2026-11-02 (#228):** method recorded in PLAN Appendix B; replicated from our runner (#230): **403**, homepage too (IP-range block). V1's own run was also 403 (#231). **Owner chose BSE `ComHeadernew` (D120, provisional)**; probe added; owner to choose taxonomy.
 2. Extend the probe to structured-filing endpoints from Cloudflare (integrated filings, PIT, SAST, ratings, BRSR, shareholding).
 3. Review scheduled probe runs; then remove the schedule.
 4. Owner: email test; field-catalogue review (sector packs); launch name.
