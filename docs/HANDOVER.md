@@ -13,6 +13,7 @@
 - **Clean-slate rule:** never use or reference V1 code, data, outputs or designs. *Single exception below.*
 - Log **every** owner statement in `docs/discussion-log.md` **in the same turn**; record decisions in `PLAN.md` Appendix A **and** the design sections.
 - Run the consistency check after every update (procedure at the end of the discussion log) and report the result.
+- **Public CI logs:** this repo is public, so Actions logs are public. Never print `wrangler whoami`/account names/emails unmasked (see `infra-check.yml` mask).
 - Ask the owner wherever a decision is theirs; stress-test ideas before agreeing; never put secrets or personal emails in the public repo.
 
 ## State of setup

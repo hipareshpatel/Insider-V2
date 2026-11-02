@@ -637,6 +637,8 @@ probe/                throwaway reachability check
 - ✅ GitHub secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` added.
 - ✅ Probe working from GitHub Actions → Cloudflare (`.github/workflows/probe.yml`); `quote-equity`/BSE checks removed (#240), Cloudflare reachability checks only. **Remove the 3×/day schedule after ~2 days** (≈ 4 Nov 2026) of consistent results.
 
+**Owner, needed to deploy (found 2026-11-03, #243):** (1) edit the Cloudflare API token → add **Account · D1 · Edit**, **Account · Workers R2 Storage · Edit**, **Account · Queues · Edit** (keep Workers Scripts Edit); (2) **enable R2** in the dashboard (R2 Object Storage → Purchase/Enable; Paid includes 10 GB free).
+
 **Upgrades needed before backfill/go-live:** ~~Workers Paid~~ done (#243); a paid Gemini API key (M5/M6; free AI Studio key for trials, D122). (At M0, check the existing Cloudflare API token's permissions cover D1/R2/Queues deploys; widen if not.)
 
 **Waiting on the owner:**

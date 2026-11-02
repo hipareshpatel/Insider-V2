@@ -1,10 +1,9 @@
 name: infra-check
 
 # Read-only: what can the CLOUDFLARE_API_TOKEN see/create? Lists D1, R2, Queues; changes nothing.
+# Logs of a public repo are public: every step pipes through `mask` (hides email addresses and account names).
 on:
   workflow_dispatch:
-  push:
-    paths: [".github/workflows/infra-check.yml"]
 
 permissions:
   contents: read
@@ -20,11 +19,14 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: npm i -g wrangler@4.156.1 >/dev/null 2>&1
+      - name: Install mask filter
+        run: |
+          printf '%s\n' '#!/bin/sh' "sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/<email hidden>/g; s/│ [^│]*Account[^│]*│/│ <account hidden> │/g'" > "$HOME/mask" && chmod +x "$HOME/mask" && mkdir -p "$HOME/bin" && mv "$HOME/mask" "$HOME/bin/mask" && echo "$HOME/bin" >> "$GITHUB_PATH"
       - name: Token
-        run: wrangler whoami 2>&1 | grep -v -i "email" || true
+        run: wrangler whoami 2>&1 | mask || true
       - name: D1
-        run: wrangler d1 list 2>&1 | tail -20 || true
+        run: wrangler d1 list 2>&1 | mask | tail -20 || true
       - name: R2
-        run: wrangler r2 bucket list 2>&1 | tail -20 || true
+        run: wrangler r2 bucket list 2>&1 | mask | tail -20 || true
       - name: Queues
-        run: wrangler queues list 2>&1 | tail -20 || true
+        run: wrangler queues list 2>&1 | mask | tail -20 || true
