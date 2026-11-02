@@ -589,6 +589,23 @@ probe/                throwaway reachability check
 - Flex + cache discount stacking
 - employee-count fields in BRSR XBRL tables
 
+**Proposed, awaiting owner decision: stock page layout (2026-11-02).** One long page with a sticky section menu (desktop) / collapsible sections (mobile); sections load lazily so the page stays fast. Global controls at the top: **time-machine date** (D69), **basis** (primary by default, D50), **reported/adjusted** (adjusted default, D52), **original/restated** (restated default, D48); every number shows its source on hover/tap.
+  0. **Header:** name, symbol, ISIN, 4-level sector, index memberships, promoter group, EOD price + change, market cap (₹ cr), 52-week range (adjusted), data as-of, watchlist button.
+  1. **What changed:** since your last visit (signed-in) or last 7 days: new cards, guidance changes, insider/pledge moves, rating actions, red flags.
+  2. **Key facts:** valuation (P/E TTM adjusted, P/B, EV/EBITDA, vs own median and industry), growth vs own trend, margins, ROCE/ROE, net debt, promoter holding and pledge.
+  3. **AI analysis write-up** (D80, labelled, dated, sourced).
+  4. **Cards & timeline** (latest events; full timeline including memory-only items).
+  5. **Financials:** quarterly (up to 12Q) and annual statements, profit bridge, segment results, ratios.
+  6. **Business:** segments & product mix (NIC), geography/exports, major customers, raw materials (stated vs industry default), plants/capacity/utilisation, commissioning watch (D82), repeat orders.
+  7. **Management & guidance:** guidance tracker, commitments, credibility ledger, concall metrics, analyst concerns, management changes.
+  8. **Ownership:** shareholding trend, pledges, insider panel, SAST, bulk/block deals, tracked investors, group companies.
+  9. **Credit, governance & forensics:** ratings + rated facilities (D81), governance, auditors, complaints, disclosure timeliness, disclosure-regression flags, forensic panel, red flags, ASM/GSM.
+  10. **Price & market:** adjusted/raw chart with corporate-action and event markers, delivery %, technicals, returns vs index/sector, unexplained moves.
+  11. **Peers & links:** industry peers (comparison), graph-linked companies.
+  12. **Documents & corporate actions:** filings list with links, CA history.
+  Owner-only panel (behind Access): signals, scenarios, research chat for this stock.
+**Gap found: financial-statement history depth is not decided.** D2 (2024-01-01) covers market data only. NSE's results list for INFY has 144 filings (many years). Proposed: backfill **5 years** of quarterly + annual statements (XBRL, code-only, cheap) so trends and the 8-quarter rule have history from day 1.
+
 **Licence funding options** (explained 2026-11-02): A) owner funds the licence from public launch; B) launch public without NSE prices until revenue; C) ask licensed vendors (e.g. CMOTS, Accord) for quotes; D) keep the calculated risk until the paid tier and license before charging. **Owner chose D** (D88): keep the calculated risk until the paid tier; license before charging. *Claude's recommendation remains:* also ask vendors for quotes (C) since it costs nothing; never charge users before a licence is in place.
 
 **Unresolved:** funding for the NSE licence (EOD Capital Market ≈ ₹1,00,000 per display medium + GST ≈ $113/month for the website alone, above the $100 budget). No ads or sponsors (D22).
@@ -692,7 +709,7 @@ probe/                throwaway reachability check
 | D86 | Daily random card audit | Every day a random sample of published cards (and memory-only items) is audited: (a) automatically by a stronger Gemini model on **Batch**, checking every number, quote, unit, period, basis and company against the source pages; (b) the owner reviews flagged items, and Claude reviews samples whenever the owner opens a session (Claude does not run continuously). Errors → correction (D35), gold case, detector. Daily error rate tracked on the data-health page; it feeds the launch gate (D84). |
 | D87 | Regulatory posture | **Owner's decision ("Uber model"):** launch, then comply when required: register as a SEBI Research Analyst if needed; license data when required. Owner's reasoning: without real testing and beta testers there is nothing to pitch to users or investors. *Risks recorded (Claude):* NSE is a data owner, not a regulator; it can block access without asking for payment, which would stop the pipeline. SEBI enforcement against unregistered research can include fee disgorgement and market bans, not only fees. Investors' due diligence will check data rights and registration. Mitigations kept: licence-ready adapter (D24), legal consult list (§12), no charging before licence (D88). |
 | D88 | Licence funding | **Option D:** keep the calculated risk (D24) until the paid tier; obtain the NSE (and index) licence **before charging users**. Vendor quotes (option C) recommended in parallel. |
-| D89 | Launch mode | **Open public, unlisted** (owner): no closed beta, no marketing ("not going to tell everyone"). Because unlisted ≠ private, these apply from day 1: `noindex` + robots disallow + no sitemap (search engines don't list it until the owner decides); bot protection and rate limits on all routes; costly features (plain-English queries) signed-in only (D64); owner-only data behind Access (D53). *Assumed:* opening still waits for the quality gate (D84); legal consult still recommended (§12). Owner context: on a `workers.dev` address with no marketing, practical exposure at launch is very low; the protections above are kept mainly to stop scrapers and cost abuse, which find new hosts automatically. |
+| D89 | Launch mode | **Open public, unlisted** (owner): no closed beta, no marketing ("not going to tell everyone"). Because unlisted ≠ private, these apply from day 1: `noindex` + robots disallow + no sitemap (search engines don't list it until the owner decides); bot protection and rate limits on all routes; costly features (plain-English queries) signed-in only (D64); owner-only data behind Access (D53). **Confirmed (owner): opening waits for the quality gate (D84).** Legal consult still recommended (§12). Owner context: on a `workers.dev` address with no marketing, practical exposure at launch is very low; the protections above are kept mainly to stop scrapers and cost abuse, which find new hosts automatically. |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |
