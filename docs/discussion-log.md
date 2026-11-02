@@ -229,9 +229,11 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 198 | Should I buy the domain now? | D118 (yes, now, after a quick trademark search; repo is public and names the domain) | ✅ |
 | 199 | Does Cloudflare give an email like info@quarterwise.in for free? A single account? | D116 (free forwarding addresses, receive-only; sending needs a provider later) | ✅ |
 
-| 200 | Any other, better variants starting with "Quarter" or "Quarterly"? | D99 round 3 | 🔶 owner may switch from Quarterwise |
+| 200 | Any other, better variants starting with "Quarter" or "Quarterly"? | D99 round 3 (superseded by #202) | ✅ |
 
-| 201 | Wants short names like Zepto, Rapido, Zomato; better suggestions given the website's offering? | D99 round 4 (Tathyo pick; Disclo alternative) | 🔶 owner may switch from Quarterwise |
+| 201 | Wants short names like Zepto, Rapido, Zomato; better suggestions given the website's offering? | D99 round 4 (Disclo chosen in #202) | ✅ |
+
+| 202 | Name: **disclo.in**, bought. | D99 (final), D58, D116, D118 | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -240,10 +242,10 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #201: all checks pass (118 decisions, 201 entries).*
+*Last run 2026-11-02 after entry #202: all checks pass (118 decisions, 202 entries).*
 
 ## Open items from this log
-- **#196** Owner actions: trademark search for "Quarterwise", buy `quarterwise.in` (+ optional `quarterwise.co.in`), add to Cloudflare.
+- **#202** Owner actions: trademark search for "Disclo"; add `disclo.in` to Cloudflare; enable Email Routing.
 **Claude's questions Q1–Q12:** answered in #171–#181; Q1 name choice pending (D99).
 - **#20** Performance targets: approved (§14, D94).
 - **#35/#72** Card sections after real output.
