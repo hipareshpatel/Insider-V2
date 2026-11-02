@@ -37,7 +37,10 @@ async function discover(env: Env, db: Sql): Promise<number> {
     for (const u of attachments(l.kind, await obj.text(), "2021-04-01")) rows.push([`xbrl_${l.kind}`, l.symbol, u, attachmentKey(u), l.job_id]);
   }
   const stmts = insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key, parent_id)", 5, rows);
-  if (lists.length) stmts.push({ sql: `UPDATE fetch_job SET discovered=1 WHERE job_id IN (${lists.map(() => "?").join(",")})`, params: lists.map((l) => l.job_id) });
+  for (let i = 0; i < lists.length; i += 90) {
+    const ids = lists.slice(i, i + 90).map((l) => l.job_id);
+    stmts.push({ sql: `UPDATE fetch_job SET discovered=1 WHERE job_id IN (${ids.map(() => "?").join(",")})`, params: ids }); // D1: <= 100 params
+  }
   await batchAll(db, stmts);
   return rows.length;
 }
@@ -58,7 +61,8 @@ export async function runBatch(env: Env, now = new Date()) {
   const parallel = Number(env.PARALLEL ?? 6);
   const todo = await db.all<{ job_id: number; url: string; r2_key: string; attempts: number }>(
     "SELECT job_id, url, r2_key, attempts FROM fetch_job WHERE url LIKE 'https://www.nseindia.com/%' AND (status='todo' OR (status='failed' AND attempts < 4)) ORDER BY attempts, job_id LIMIT ?", [perRun]);
-  const discovered = await discover(env, db);
+  let discovered: number | string = 0;
+  try { discovered = await discover(env, db); } catch (e) { discovered = `discover error: ${String(e).slice(0, 120)}`; }
   if (!todo.length) return { seeded, discovered, done: 0, left: 0 };
   const ck = await cookies();
   const headers = { "User-Agent": UA, Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", Referer: "https://www.nseindia.com/", Cookie: ck };
