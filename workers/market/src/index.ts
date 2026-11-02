@@ -1,6 +1,7 @@
 // disclo-market Worker: nightly market job + backfill, both driven by cron (§6, D10, D124).
 import { archiveFetcher } from "./archive.js";
 import { d1Sql, r2Raw } from "./d1.js";
+import { acceptance } from "./acceptance.js";
 import { runPending } from "./runner.js";
 
 export interface Env {
@@ -38,6 +39,9 @@ export default {
   // Read-only status (no data beyond counts and run states). Useful from a phone: /status
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+    if (url.pathname === "/acceptance") {
+      return Response.json(await acceptance(d1Sql(env.DB_MARKET), d1Sql(env.DB_APP)), { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname !== "/status") return new Response("not found", { status: 404 });
     const db = env.DB_MARKET;
     const q = async (sql: string) => (await db.prepare(sql).all()).results;

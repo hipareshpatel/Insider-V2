@@ -170,3 +170,15 @@ describe("out-of-order loading", () => {
     expect(infy).toEqual([{ valid_from: "2025-06-13" }]);
   });
 });
+
+describe("acceptance checks (§9.2)", () => {
+  it("test 1 passes on the BAJFINANCE samples", async () => {
+    const { acceptance } = await import("../src/acceptance.js");
+    const { market, app, deps } = setup();
+    await runDay("2025-06-13", deps);
+    await runDay("2025-06-16", deps);
+    const r = await acceptance(market, app);
+    expect(r.find((c) => c.id === "1")).toMatchObject({ pass: true });
+    expect(r.find((c) => c.id === "2")?.pass).toBeNull(); // no index snapshot in this test
+  });
+});
