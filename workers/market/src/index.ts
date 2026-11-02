@@ -42,6 +42,12 @@ export default {
     if (url.pathname === "/acceptance") {
       return Response.json(await acceptance(d1Sql(env.DB_MARKET), d1Sql(env.DB_APP)), { headers: { "cache-control": "no-store" } });
     }
+    if (url.pathname === "/reviews") {
+      const kind = url.searchParams.get("kind");
+      const rows = (await env.DB_APP.prepare(`SELECT kind, subject_ref, summary, created_at FROM review_item WHERE status='open' ${kind ? "AND kind = ?1" : ""} ORDER BY review_id DESC LIMIT 200`)
+        .bind(...(kind ? [kind] : [])).all()).results;
+      return Response.json(rows, { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname !== "/status") return new Response("not found", { status: 404 });
     const db = env.DB_MARKET;
     const q = async (sql: string) => (await db.prepare(sql).all()).results;
