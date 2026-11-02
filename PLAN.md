@@ -575,7 +575,6 @@ probe/                throwaway reachability check
 
 **Still to discuss:**
 - performance targets (page-load and API latency) as part of milestones; the website must be fast, modern and expandable
-- stock page layout
 - API design for the future paid tier
 - milestones and definition of done
 - card sections, after real output (D25)
