@@ -10,7 +10,8 @@ TOKEN = os.environ["INGEST_TOKEN"]
 
 def batch(limit=1500):
     sql = ("SELECT job_id, url FROM fetch_job WHERE url LIKE 'https://nsearchives%' "
-           "AND (status='todo' OR (status='failed' AND attempts < 3 AND http_status <> 404)) ORDER BY attempts, job_id LIMIT %d" % limit)
+           "AND (status='todo' OR (status='failed' AND attempts < 3 AND IFNULL(http_status, 0) <> 404)) "
+           "ORDER BY attempts, job_id LIMIT " + str(int(limit)))
     for i in range(5):
         r = subprocess.run(["npx", "--yes", "wrangler@4.156.1", "d1", "execute", "DB_FILINGS", "--remote", "-c", "wrangler.migrate.json", "--json", "--command", sql],
                            capture_output=True, text=True)
