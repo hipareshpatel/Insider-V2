@@ -1,0 +1,88 @@
+// PR bundle Bc file: corporate actions (§5.2, D6, D7). Purpose text varies, so parsing is tolerant;
+// anything price-affecting that isn't fully understood goes to review. Nothing is guessed.
+import { csvRecords } from "./csv.js";
+import { nseDate } from "./dates.js";
+
+export interface BcRow { series: string; symbol: string; name: string; recordDate: string | null; exDate: string; purpose: string }
+
+export function parseBc(text: string): BcRow[] {
+  return csvRecords(text, ["SERIES", "SYMBOL", "SECURITY", "RECORD_DT", "EX_DT", "PURPOSE"])
+    .filter((r) => r.EX_DT && r.EX_DT !== "-")
+    .map((r) => ({
+      series: r.SERIES!, symbol: r.SYMBOL!, name: r.SECURITY!, recordDate: nseDate(r.RECORD_DT!), exDate: nseDate(r.EX_DT!)!, purpose: r.PURPOSE!.replace(/\s+/g, " ").trim(),
+    }));
+}
+
+/** Bc rows repeat once per series: keep one per (symbol, ex-date, purpose) (§5.2). Equity series only. */
+export function dedupeBc(rows: readonly BcRow[], series: ReadonlySet<string>): BcRow[] {
+  const seen = new Map<string, BcRow>();
+  for (const r of rows) {
+    if (!series.has(r.series)) continue;
+    const k = `${r.symbol}|${r.exDate}|${r.purpose.toUpperCase()}`;
+    if (!seen.has(k)) seen.set(k, r);
+  }
+  return [...seen.values()];
+}
+
+export type CaComponent =
+  | { type: "split"; fromFv: string; toFv: string }          // shares × fromFv/toFv
+  | { type: "consolidation"; fromFv: string; toFv: string }  // shares × fromFv/toFv (< 1)
+  | { type: "bonus"; newShares: string; held: string }       // shares × (new+held)/held
+  | { type: "rights"; newShares: string; held: string; premium: string }
+  | { type: "dividend"; amount: string; kind: "interim" | "final" | "special" }
+  | { type: "demerger" | "capital_reduction" | "merger" | "buyback" }
+  | { type: "meeting" };
+
+export interface ParsedPurpose { components: CaComponent[]; unparsed: string[] }
+
+const NUM = String.raw`(\d+(?:\.\d+)?)`;
+const SPLIT = new RegExp(String.raw`FV\s*SPLI?T\s*(?:FRM|FROM)?\s*R[SE]\.?\s*${NUM}\s*(?:\/-)?\s*TO\s*R[SE]\.?\s*${NUM}`, "i");
+const CONS = new RegExp(String.raw`(?:FV\s*)?CONSOL\w*\s*(?:FRM|FROM)?\s*R[SE]\.?\s*${NUM}\s*TO\s*R[SE]\.?\s*${NUM}`, "i");
+const BONUS = new RegExp(String.raw`^BONUS\s*${NUM}\s*:\s*${NUM}`, "i");
+const RIGHTS = new RegExp(String.raw`RIGHTS\s*${NUM}\s*:\s*${NUM}\s*@\s*PRE?M\s*R[SE]\.?\s*${NUM}`, "i");
+const DIV = new RegExp(String.raw`^(INT\s*DIV|INTDIV|SPL\s*DIV|SPLDIV|SPDV|SP\s*DIV|DIV|DI|DV)\s*-?\s*R[SE]\.?\s*-?\s*${NUM}`, "i");
+
+/** Parse one Bc purpose into components, e.g. "AGM/DIV - RS 5 PER SH" -> meeting + final dividend 5. */
+export function parsePurpose(purpose: string): ParsedPurpose {
+  const components: CaComponent[] = [];
+  const unparsed: string[] = [];
+  const text = purpose.toUpperCase().replace(/\s+/g, " ").trim();
+
+  // Whole-string patterns first: these contain '/' that must not split the text.
+  let m = SPLIT.exec(text);
+  if (m) {
+    const [from, to] = [m[1]!, m[2]!];
+    components.push(Number(from) >= Number(to) ? { type: "split", fromFv: from, toFv: to } : { type: "consolidation", fromFv: from, toFv: to });
+    return { components, unparsed };
+  }
+  m = CONS.exec(text);
+  if (m) return { components: [{ type: "consolidation", fromFv: m[1]!, toFv: m[2]! }], unparsed };
+  m = RIGHTS.exec(text);
+  if (m) return { components: [{ type: "rights", newShares: m[1]!, held: m[2]!, premium: m[3]! }], unparsed };
+  // "DVSPDV - RS 5/RS 3", "DV/SPDV RS 5/RS 3": final + special
+  m = new RegExp(String.raw`^DV\s*\/?\s*SPDV\s*-?\s*R[SE]\s*${NUM}\s*\/\s*R[SE]\s*${NUM}`).exec(text);
+  if (m) return { components: [{ type: "dividend", amount: m[1]!, kind: "final" }, { type: "dividend", amount: m[2]!, kind: "special" }], unparsed };
+
+  for (const raw of text.split("/").map((p) => p.trim()).filter(Boolean)) {
+    const part = raw.replace(/\s*PER\s*SH(ARE)?\s*$/, "").trim();
+    if (/^(AGM|EGM|ANNUAL GENERAL MEETING|EXTRAORDNRY GENRL MEETNG|EXTRA ?ORDINARY GENERAL MEETING)$/.test(part)) { components.push({ type: "meeting" }); continue; }
+    if ((m = BONUS.exec(part))) { components.push({ type: "bonus", newShares: m[1]!, held: m[2]! }); continue; }
+    if ((m = DIV.exec(part))) {
+      const head = m[1]!.replace(/\s/g, "");
+      const kind = head.startsWith("INT") ? "interim" : head.startsWith("SP") ? "special" : "final";
+      components.push({ type: "dividend", amount: m[2]!, kind });
+      continue;
+    }
+    if (/^DEMERGER$/.test(part)) { components.push({ type: "demerger" }); continue; }
+    if (/^MERGER$/.test(part)) { components.push({ type: "merger" }); continue; }
+    if (/^BUY ?BACK$/.test(part)) { components.push({ type: "buyback" }); continue; }
+    if (/^CAPITAL REDUCTION$|^CAP RED/.test(part)) { components.push({ type: "capital_reduction" }); continue; }
+    unparsed.push(raw);
+  }
+  return { components, unparsed };
+}
+
+/** Does this purpose change the share count or price basis (so it needs an adjustment factor or review)? */
+export function affectsPrice(p: ParsedPurpose): boolean {
+  return p.components.some((c) => ["split", "consolidation", "bonus", "rights", "demerger", "capital_reduction"].includes(c.type));
+}
