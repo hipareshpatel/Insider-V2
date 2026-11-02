@@ -5,7 +5,7 @@ If anything looks different from what's described (screens change over time), st
 
 Working domain: `disclo.in` (bought at GoDaddy).
 
-**Progress:** Part A ✅ · Part B ✅ (2026-11-02: nameservers `raegan.ns.cloudflare.com`, `thaddeus.ns.cloudflare.com`; registry confirmed; DNSSEC not set) · **Cloudflare Active (Free plan) confirmed 2026-11-02** · Parts C–E pending. If the launch name changes later, repeat Part A–B for the new domain.
+**Progress:** Part A ✅ · Part B ✅ (2026-11-02: nameservers `raegan.ns.cloudflare.com`, `thaddeus.ns.cloudflare.com`; registry confirmed; DNSSEC not set) · **Cloudflare Active (Free plan) confirmed 2026-11-02** · DNS cleaned (0 records; `www` also removed, fine until a site exists) · Parts C–E pending. If the launch name changes later, repeat Part A–B for the new domain.
 
 ---
 
