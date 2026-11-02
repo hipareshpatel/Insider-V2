@@ -26,7 +26,8 @@ jobs:
         with: { node-version: 22 }
       - run: npm i -g wrangler@4.156.1 >/dev/null 2>&1
       - name: Reachability (one file)
-        run: curl -s -o /dev/null -w "archive from GitHub runner: %{http_code}\n" -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_20240102_F_0000.csv.zip
+        run: |
+          curl -s -o /dev/null -w "archive from GitHub runner %{http_code}\n" -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0" https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_20240102_F_0000.csv.zip
       - name: Prefetch
         run: |
           TO="${{ github.event.inputs.to }}"; [ -z "$TO" ] && TO=$(TZ=Asia/Kolkata date +%F)
