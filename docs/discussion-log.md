@@ -281,6 +281,9 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 225 | "quote-equity (sector classification) works using GitHub Actions; try one stock." | Tested INFY from a GitHub runner directly: homepage 403, quote-equity 403. Not reproduced; asked owner which method/library worked. D8 unchanged. | 🔶 awaiting owner's method |
 
+| 226 | Email verification later. Write a short handover note; owner will start a new chat. | `docs/HANDOVER.md` | ✅ |
+| 227 | Shared V1 repo `hipareshpatel/Insiders` where quote-equity "worked cleanly"; **use only that, not other V1 code** (avoid contamination). | HANDOVER open item 1: next chat reads ONLY the quote-equity/sector-fetch code, nothing else | 🔶 next chat |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -288,7 +291,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #225: all checks pass (119 decisions, 225 entries).*
+*Last run 2026-11-02 after entry #227: all checks pass (119 decisions, 227 entries).*
 
 ## Open items from this log
 - **#204** Launch name to be decided by owner (trademark work paused); `disclo.in` stays the working domain. Owner actions: add `disclo.in` to Cloudflare; enable Email Routing.
