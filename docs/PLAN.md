@@ -655,7 +655,7 @@ probe/                throwaway reachability check
 **Resolved (D80):** ~~Open question from the owner's original brief:~~ Gemini was described as being used for **stock analysis of different types (technical, fundamental, stock research)**, not only announcement processing. The plan currently covers this as computed technical/fundamental data + cards + owner-only research chat. Is a **per-stock AI analysis write-up** (fundamental/technical) wanted, and if so public (factual) or owner-only?
 **Resolved (D81):** "credit increases" = rated bank-facility amount increases.
 
-**Name:** **Disclo** (`disclo.in`, bought). Owner actions: (1) IP India + USPTO trademark search for "Disclo" (classes 9/36/42), then file our own Indian application if clear (D119; preliminary check found a US HR-software company named Disclo); (2) add `disclo.in` to Cloudflare (free plan, change nameservers at the registrar); (3) enable Email Routing to the owner's inbox (`info@`, `alerts@`).
+**Name:** **Disclo** (`disclo.in`, bought, D118). Owner actions: (1) IP India + USPTO trademark search for "Disclo" (classes 9/36/42), then file our own Indian application if clear (D119; preliminary check found a US HR-software company named Disclo); (2) add `disclo.in` to Cloudflare (free plan, change nameservers at the registrar); (3) enable Email Routing to the owner's inbox (`info@`, `alerts@`).
 
 **Provisional decisions to confirm:** D38 (linked-company card threshold), D39 (unlisted counterparties).
 
