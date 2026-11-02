@@ -73,3 +73,23 @@ jobs:
       - name: Remove probe Worker
         if: always() && steps.guard.outputs.ready == 'true'
         run: npx wrangler delete --force || true
+
+  # Direct test from the GitHub runner itself (not via Cloudflare): NSE quote-equity (sector classification, D8).
+  quote-equity-from-github:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: quote-equity for one stock (INFY), cookie flow
+        run: |
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          J=cookies.txt
+          echo "homepage: $(curl -s -o /dev/null -w '%{http_code}' -c $J -A "$UA" -H 'Accept: text/html' -H 'Accept-Language: en-US,en;q=0.9' https://www.nseindia.com/)"
+          sleep 2
+          echo "quote page: $(curl -s -o /dev/null -w '%{http_code}' -b $J -c $J -A "$UA" -H 'Accept: text/html' 'https://www.nseindia.com/get-quotes/equity?symbol=INFY')"
+          sleep 2
+          code=$(curl -s -o q.json -w '%{http_code}' -b $J -A "$UA" -H 'Accept: application/json' -H 'Referer: https://www.nseindia.com/get-quotes/equity?symbol=INFY' 'https://www.nseindia.com/api/quote-equity?symbol=INFY')
+          echo "quote-equity status: $code ($(wc -c < q.json) bytes)"
+          echo "=== QUOTE-EQUITY RESULT ==="
+          python3 -c "import json;d=json.load(open('q.json'));print(json.dumps({'symbol':d.get('info',{}).get('symbol'),'industryInfo':d.get('industryInfo'),'issuedSize':d.get('securityInfo',{}).get('issuedSize')},indent=1))" 2>/dev/null || head -c 400 q.json
+          echo "=== END QUOTE-EQUITY RESULT ==="
+
