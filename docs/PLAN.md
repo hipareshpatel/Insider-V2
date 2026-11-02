@@ -1,6 +1,6 @@
 # Insider V2 — Plan (consolidated)
 
-**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D119** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`.
+**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D119** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`, `setup-guide.md` (owner's step-by-step setup: Cloudflare, GoDaddy nameservers, email routing, probe).
 No production code exists yet. The only code is `probe/`, a throwaway Worker for testing NSE reachability from Cloudflare.
 
 **Working agreement:** this is a discussion phase. No production code is written until the owner says so. Claude asks for the owner's input wherever a decision is theirs, records every decision here, and flags anything it can't verify.
