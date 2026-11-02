@@ -29,7 +29,7 @@ async function seed(db: Sql, raw: R2Bucket, today: string): Promise<number> {
 /** Queue archive-hosted XML attachments found in downloaded lists (fetched by the GitHub runner, D128). */
 async function discover(env: Env, db: Sql): Promise<number> {
   const lists = await db.all<{ job_id: number; kind: string; symbol: string | null; r2_key: string }>(
-    "SELECT job_id, kind, symbol, r2_key FROM fetch_job WHERE status='done' AND discovered=0 AND url LIKE 'https://www.nseindia.com/%' AND kind NOT IN ('announcements','credit_rating') LIMIT 120");
+    "SELECT job_id, kind, symbol, r2_key FROM fetch_job WHERE status='done' AND discovered=0 AND url LIKE 'https://www.nseindia.com/%' AND kind NOT IN ('announcements','credit_rating') LIMIT 300");
   const rows: unknown[][] = [];
   for (const l of lists) {
     const obj = await env.RAW.get(l.r2_key);
