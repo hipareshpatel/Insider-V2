@@ -104,6 +104,11 @@ Links are **populated** only once the layer below them is accurate.
 | D44 | Backups | D1 Time Travel (30 days) + weekly full export to R2 kept 12 weeks. Full rebuild from raw files tested before launch. |
 | D45 | Alerts | Email to owner: pipeline stalled > 1 h, daily Gemini spend > 80% of cap, any dead-letter item, NSE error spike. |
 | D46 | Freshness indicator | Public "data updated HH:MM IST" status on the site. |
+| D47 | Financial statements: storage | Three layers: **as filed** (every XBRL fact, lossless, versioned per filing) → **canonical model** (our own line items mapped from XBRL tags; templates: industrial, bank, NBFC, insurance) → **views** (Screener-like summary, detailed statements, ratios), all computed. No outside convention is the storage format; Screener's guide may be used as one mapping reference, with differences documented. *Verified:* results XBRL has only the current quarter + YTD (no comparatives); half-year XBRL adds balance sheet and cash flow for the current period only. |
+| D48 | Restatements | Values keyed by (security, statement, line, period, basis, version). *Original* = that period's own XBRL; *restated* = comparative column in a later filing's PDF. Never overwritten. PDF tables are validated with **accounting identity checks in code** (Income = Revenue + Other income; PBT = Income − Expenses ± Exceptional; PAT = PBT − Tax; segments sum to total); if an identity fails → rejected/review. A comparative differing > 0.5% from the original → restatement flagged + reason (merger/demerger, discontinued ops, accounting change, **error correction = red flag**). **Default series = latest restated**, with a marker; the original is always available. |
+| D49 | EBITDA definition | Canonical EBITDA **excludes other income** (operating EBITDA). The company's own reported EBITDA is stored and shown alongside, with the difference visible. |
+| D50 | Consolidated vs standalone | Both stored; basis is part of every value's key. **Primary basis per company**: consolidated for most corporates, **standalone for banks**, **both** for holding companies (e.g. Bajaj Finserv, Grasim); editable on the correction screen. Basis switches → series-break marker. Consolidated profit is split into attributable to owners vs NCI; EPS/valuation use attributable profit. |
+| D51 | Basis in AI inputs | Every number in a context pack carries its basis; packs contain the primary basis only, unless the event concerns the other. PDF extraction records basis per table from its heading. **Code rejects card comparisons that mix bases.** Commentary with unclear basis → marked unknown, never used in numeric comparisons. |
 
 ---
 
@@ -376,23 +381,6 @@ probe/                throwaway Cloudflare reachability check
 2. **Run `probe/`** (see `probe/README.md`) 3–4 times, including once after 22:00 IST, and share the JSON output.
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
-
-## 9b. Proposed, awaiting owner decision — Financial statements & restatements (2026-11-02)
-**Verified:** NSE results XBRL (INFY Q3 FY25, consolidated, `in-bse-fin` taxonomy) has **only the current quarter and year-to-date**; there are **no comparative-period columns**. Restated prior-period figures therefore appear **only in the PDF**. NSE results metadata also distinguishes Ind-AS old/new formats and a separate bank format.
-1. **Three storage layers:**
-   - **As filed:** every XBRL fact (tag, context, value, unit, decimals, filing id), lossless and versioned per filing.
-   - **Canonical model:** our own standard line items, mapped from XBRL tags, with **four templates**: industrial (Schedule III), bank, NBFC, insurance.
-   - **Views:** any presentation (Screener-like summary, detailed statements) is computed from the canonical model. **No outside convention is the storage format.**
-2. **Versioned values:** key = (security, statement, line, period, consolidated/standalone, version). Versions: *original* (that period's own XBRL) and *restated* (comparative column in a later filing's PDF). Nothing is ever overwritten.
-3. **PDF table extraction with accounting identity checks in code:** e.g. Income = Revenue + Other income; PBT = Income − Expenses ± Exceptional; PAT = PBT − Tax; segment revenues sum to total. If an identity fails → rejected/review.
-4. **Restatement detection:** a later filing's comparative differs from our stored original by > 0.5% → restatement flagged, reason classified (merger/demerger, discontinued operations, accounting policy change, **error correction = red flag**).
-5. **Consolidated vs standalone:**
-   - Both are always stored; **basis is part of every value's key**, and nothing is ever stored without it.
-   - Each company has a **primary basis**, set per company, not globally: consolidated for most corporates; **standalone for banks** (the bank is the standalone entity; subsidiaries are insurance/AMC etc.); **both** for holding companies (e.g. Bajaj Finserv, Grasim, where standalone income is largely dividends from subsidiaries).
-   - Basis changes are detected (e.g. a company starts consolidating after acquiring its first subsidiary) → series break marker, never silently joined.
-   - Consolidated profit always splits **attributable to owners** vs non-controlling interest. EPS/valuation use attributable profit.
-   - **AI inputs:** every number in a context pack carries its basis. The pack contains the primary basis only, unless the event is about the other one. PDF extraction records basis per table (from the table heading). **Code rejects any card comparison that mixes bases.** Management commentary is tagged with the basis it refers to when stated; when unclear it's marked unknown and never used in a numeric comparison.
-6. *Open:* EBITDA definition (proposed: excludes other income; the company's own reported EBITDA is stored separately). Default series (proposed: latest restated, with a marker; original always available). Default basis (proposed: consolidated where available, standalone also stored).
 
 ## 10. Open questions
 - **Funding gap:** NSE EOD licence ≈ ₹1.18 lakh/yr incl. GST per display medium (≈ $113/month for the website alone) > the $100/month budget. No ads or sponsors (D22).
