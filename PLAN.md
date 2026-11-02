@@ -122,6 +122,8 @@ Links are **populated** only once the layer below them is accurate.
 | D62 | Dashboard contents | EOD (not live). Index levels/trends across ~167 NSE indices; index P/E, P/B, yield vs own history (percentiles); breadth (advances/declines, % above 50/200-DMA, 52-week highs/lows on adjusted prices); sector/industry performance from our classification; FII/DII flows (history from go-live); results-season tracker; latest important cards; calendar; search. All precomputed nightly. More can be added later. Source verified: `ind_close_all_DDMMYYYY.csv` (archive, from 2024-01-01). |
 | D63 | Login | **Google sign-in only.** No magic links. |
 | D64 | Query builder design | Three ways in, one engine: **plain English** (Gemini translates into our query language, shown as editable chips; **the LLM never writes SQL**), **visual chips**, **text expression**. All compile to one validated query language → parameterised SQL over a **precomputed per-stock feature table**. Plain-English queries cost a Gemini call: signed-in users only, daily cap per user, identical questions cached. Saved screens + "what changed since last run". Field catalogue: `docs/field-catalogue.md` (Claude drafts, owner approves). |
+| D65 | Delivery data | `nsearchives…/products/content/sec_bhavdata_full_DDMMYYYY.csv` added to daily market-data sources (delivery quantity/%). |
+| D66 | Field catalogue conventions | Trend = positive linear-fit slope over n quarters and ≥ (n−2) positive QoQ changes. Large order = ≥ 2% of TTM revenue. |
 
 ---
 
@@ -394,6 +396,16 @@ probe/                throwaway Cloudflare reachability check
 2. **Run `probe/`** (see `probe/README.md`) 3–4 times, including once after 22:00 IST, and share the JSON output.
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
+
+## 9b. Proposed, awaiting owner decision — benchmark ideas (stockscans.in, reviewed 2026-11-02)
+Observed: Free + Premium (₹500/month) plans. Footer: "Data provided by CMOTS Internet Technologies", i.e. a **licensed data vendor** (relevant to D22/D24). Features: stock/result/market/announcement/shareholding/concall/IPO/interview scans, research AI chat, watchlists with Email/Telegram alerts, custom index, peer comparison, returns benchmark, market dashboard, scan-match.
+Candidates to adopt (factual only, consistent with D21):
+1. **Dashboard additions:** % of stocks above EMA 20/50/100/200, "daily thrust" (count of stocks ±4% in a day), 52-week extremes, broad-index panel (Nifty 50/500/Smallcap 250/Microcap 250).
+2. **Bulk & block deals** (NSE archive daily files) + **tracked investors**: named investors' holdings ≥ 1% from shareholding patterns, via the graph (D40).
+3. **Keyword scans over announcement text**, with on-site alerts (D60).
+4. **Factual concall metrics** (no sentiment scores): number of analysts, questions per theme, count of congratulatory remarks, share of time on Q&A, topics management declined to answer.
+5. **Custom index / basket tracking** and **returns benchmark** vs indices; **peer comparison** using the field catalogue.
+6. **Not adopted (for now):** "result quality"/"management sentiment" scores (conflict with D21), CEO/media interview scans (non-NSE source, D36 "later"), open research-AI chat (Gemini cost; possible owner-only).
 
 ## 9c. Legal consult checklist (before going public)
 1. **SEBI RA Regulations:** do cards (facts, comparisons with the company's own past, guidance tracking, red flags) count as a "research report" / research-analyst activity? Does the "statistical summaries of financial data" exclusion cover them?

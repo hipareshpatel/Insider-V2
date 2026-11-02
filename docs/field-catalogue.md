@@ -183,8 +183,10 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 
 ---
 
-## Open questions on this draft
-1. **Missing or unwanted fields?** Especially sector packs, which come from your own analysis habits.
-2. **Trend definition for `trend(…)`:** proposed = slope of a linear fit over *n* quarters, "rising" if slope > 0 and ≥ (n−2) of the quarter-on-quarter changes are positive. OK?
-3. **"Large order" threshold:** 2% of TTM revenue (same as the graph rule D38)?
-4. **Delivery %** needs one more daily archive file (`sec_bhavdata_full`). Add it to the market-data sources?
+## Decided (owner, 2026-11-02)
+- **Trend:** "rising" = positive linear-fit slope over *n* quarters **and** ≥ (n−2) positive quarter-on-quarter changes ("falling" mirrors this).
+- **Large order:** ≥ 2% of TTM revenue (same as D38).
+- **Delivery %:** `sec_bhavdata_full_DDMMYYYY.csv` added to daily market-data sources.
+
+## Still open
+1. Missing or unwanted fields, especially in the sector packs.
