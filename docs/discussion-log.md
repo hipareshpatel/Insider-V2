@@ -161,14 +161,20 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 148 | #53 licence funding: listed, no answer yet. | §16 | ❓ |
 | 149 | #73 failure cases: run the site and find them. There will be many from code errors, prompt errors, AI delusional answers, wrong data saving, wrong units, data mix-ups and so on. | D84 (shadow run), D85 (detectors) | ✅ |
 
-| 150 | Pre-results commissioning: "Public: the facts, without the computed impact. Owner-only: estimated extra depreciation, interest and margin effect. OK." | D82 | ⚠ conflicts with #153 |
+| 150 | Pre-results commissioning: "Public: the facts, without the computed impact. Owner-only: estimated extra depreciation, interest and margin effect. OK." | D82 | superseded by #157 |
 | 151 | Public AI write-up with judgement: "Keep it, else why will people pay for the website?" | D80 (public incl. judgement; blocking legal item §12 #13) | ✅ |
 | 152 | Shadow run not required: expanding the universe will bring more feedback, and there'll be daily random card audits with Claude's help, which may be more useful ("or is my understanding wrong?"). | D84 (no fixed shadow; launch gate by measured quality), D86 (daily audit) | ✅ |
-| 153 | Pre-results commissioning warning, facts-only vs everything public: "Public". | D82 | ⚠ conflicts with #150 → clarify |
-| 154 | #53 licence funding: "Explain". | Explained in reply; §16 | ❓ decision pending |
+| 153 | Pre-results commissioning warning, facts-only vs everything public: "Public". | D82 | superseded by #157 |
+| 154 | #53 licence funding: "Explain". | Explained; decided in #161 (D88) | ✅ |
 | 155 | #20 performance targets and #35/#72 card sections: deferred as agreed. | §16, D25 | 🔶 |
 
 | 156 | "Please ensure everything is recorded correctly. Such lapses are giving me a headache." | Full consistency check run (see below); design sections updated for D79–D86; contradictions with D80 fixed | ✅ |
+
+| 157 | Pre-results commissioning: everything public, including the estimate (goes on the legal list). | D82, §12 #14 | ✅ |
+| 158 | On SEBI RA registration for paid opinion: "if needed we will get it". | D87 | ✅ |
+| 159 | "Understand my view first: without testing everything and a few beta testers, how am I going to pitch anything or get funding from anyone?" | D87 reasoning; closed-beta proposal (D89, pending) | 🔶 |
+| 160 | "I am going to run my website as an Uber model: go there, start, and if the government asks, pay them." | D87 (with risks recorded) | ✅ |
+| 161 | Licence funding: option D. | D88 | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -177,11 +183,11 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #156: all checks pass.*
+*Last run 2026-11-02 after entry #161: all checks pass (88 decisions, 161 entries).*
 
 ## Open items from this log
-- **#150/#153** Pre-results commissioning: answers conflict (facts-only public vs everything public).
 - **#20** Performance targets (milestones discussion).
 - **#35/#72** Card sections after real output.
-- **#53** Licence funding.
-- **#73** Failure cases: found via the shadow run (D84).
+- **#53** Licence funding: decided, option D (D88).
+- **#73** Failure cases: found via daily audits and the private period (D84, D86).
+- **#159** Closed beta for testers/pitching (D89 candidate): decide.
