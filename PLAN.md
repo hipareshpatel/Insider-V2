@@ -5,6 +5,8 @@ No production code exists yet. The only code is `probe/`, a throwaway Worker for
 
 **Working agreement:** this is a discussion phase. No production code is written until the owner says so. Claude asks for the owner's input wherever a decision is theirs, records every decision here, and flags anything it can't verify.
 
+**Record-keeping:** `docs/discussion-log.md` logs **every owner statement** (not only decisions), mapped to where it's recorded here. It is updated in the same turn as each discussion message.
+
 **How to read this:** §1–§15 describe the design as it stands. Appendix A is the decision log (each decision with its ID). Appendix B is the evidence from live NSE checks.
 If the design text and Appendix A ever disagree, Appendix A wins and the design text gets fixed.
 
