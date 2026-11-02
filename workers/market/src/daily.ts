@@ -16,6 +16,8 @@ export interface Deps {
   now: () => Date;
   /** waits before retrying a refused file (default 3 s, 6 s, 12 s) */
   retryWaits?: number[];
+  /** true when fetches come from the R2 cache wrapper (cache hits return contentType null) */
+  cachedFromR2?: boolean;
 }
 
 export interface DayReport {
@@ -24,6 +26,7 @@ export interface DayReport {
   counts?: Record<string, number>;
   reasons?: string[];
   reviews?: number;
+  ms?: Record<string, number>;
 }
 
 const iso = (d: Date) => d.toISOString();
@@ -64,6 +67,9 @@ export async function runDay(date: string, deps: Deps): Promise<DayReport> {
 }
 
 async function load(date: string, deps: Deps): Promise<DayReport> {
+  const t0 = Date.now();
+  const ms: Record<string, number> = {};
+  const lap = (k: string) => { ms[k] = Date.now() - t0; };
   // PR bundle first: every session has one, so a settled 404 means no session and nothing else is fetched
   // (the archive answers 403, not 404, for some missing bhavcopies, and refusals stop a run).
   const p = await get(deps.fetch, prBundleUrl(ddmmyy(date)), deps.retryWaits);
@@ -97,6 +103,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   const last = (s: string) => prev.filter((r) => r.source === s).at(-1)?.sha256;
   if (last("udiff_bhavcopy") === shaU && last("pr_bundle") === shaP) return { date, status: "unchanged" };
 
+  lap("fetched");
   // Parse (schema check: parsers throw on missing columns).
   const bhavAll = await parseUdiffZip(u.res!.bytes);
   const pr = await parsePrBundle(p.res!.bytes);
@@ -158,7 +165,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
     if (g.res?.status !== 200) continue;
     const sha = source === "udiff_bhavcopy" ? shaU : source === "pr_bundle" ? shaP : await sha256Hex(g.res.bytes);
     const key = `raw/${source}/${date}/${sha}`;
-    await deps.raw.put(key, g.res.bytes, g.res.contentType);
+    if (g.res.contentType !== null || !deps.cachedFromR2) await deps.raw.put(key, g.res.bytes, g.res.contentType); // R2-cache hits are already raw (D128)
     await deps.market.run(
       "INSERT OR IGNORE INTO source_file (source, file_date, url, sha256, bytes, fetched_at, r2_key) VALUES (?,?,?,?,?,?,?)",
       [source, date, g.url, sha, g.res.bytes.length, iso(deps.now()), key]);
@@ -166,6 +173,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
     fileIds[source] = row!.file_id;
   }
 
+  lap("gated_raw");
   // Identity (B1).
   const idRows = await deps.market.all<{ security_id: number; id_type: string; value: string; valid_from: string; valid_to: string | null }>(
     "SELECT security_id, id_type, value, valid_from, valid_to FROM security_identifier WHERE id_type IN ('nse_symbol','isin')");
@@ -248,7 +256,9 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
       "ON CONFLICT (index_name,trade_date) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,pe=excluded.pe,pb=excluded.pb,div_yield=excluded.div_yield,file_id=excluded.file_id"));
   }
   stmts.push({ sql: "INSERT OR REPLACE INTO trading_calendar (trade_date, is_session, note) VALUES (?, 1, NULL)", params: [date] });
-  await batchAll(deps.market, stmts);
+  lap("identity");
+  await batchAll(deps.market, stmts, 250);
+  lap("prices_written");
 
   // Corporate actions (D6, D7): record every Bc row; decide factors for actions whose ex-date is today.
   const bc = dedupeBc(pr.bc, new Set(pr.bc.map((r) => r.series))); // every series (D127); one row per symbol/ex-date/purpose
@@ -330,7 +340,8 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
     date, status: "loaded",
     counts: { prices: rows.length, stored_all: rowsAll.length, shares: shareRowsUnique.length, delivery: fileIds.delivery ? delivery.length : 0, indices: fileIds.index_close ? indices.length : 0, corp_actions: caStmts.length, factors: factorStmts.length, new_securities: changes.filter((c) => c.kind === "new_security").length },
     reviews: reviews.length,
-  };
+    ms: { ...ms, total: Date.now() - t0 },
+  } as DayReport;
 }
 
 function saneRow(r: BhavRow): boolean {
