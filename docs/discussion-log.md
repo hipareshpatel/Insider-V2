@@ -186,7 +186,10 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 166 | "Short summary from transcript etc.?" | D92 (confirmed in #167) | ✅ |
 
 | 167 | Latest-quarter-brief format OK; keep "declined to answer". | D92 | ✅ |
-| 168 | "Move to milestones. I don't even understand the API, so it's better you decide everything." | D93 (API decided by Claude, delegated); milestones proposed in §14 | 🔶 milestones need approval |
+| 168 | "Move to milestones. I don't even understand the API, so it's better you decide everything." | D93 (API decided by Claude, delegated); milestones approved in #169 | ✅ |
+
+| 169 | Milestones approved; keep discussing for now; Claude should check the documents for needed inputs, ask if the owner missed anything; "you will be my master here". | D94 | ✅ |
+| 170 | The website must be best in class and a benchmark for all. | D95 (measurable via §14 + UX standards Q1–Q5) | 🔶 |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -195,11 +198,23 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #168: all checks pass (93 decisions, 168 entries).*
+*Last run 2026-11-02 after entry #170: all checks pass (95 decisions, 170 entries).*
 
 ## Open items from this log
-- **#168** Milestones, gold-set thresholds, quality-gate numbers and performance targets (§14): owner approval.
-- **#20** Performance targets: proposed in §14, awaiting approval.
+**Claude's questions after full document review (2026-11-02):**
+- **Q1** Brand/site name (legal item 12) and logo: decided, or should Claude propose options?
+- **Q2** Design: light + dark themes? Any reference sites whose look you like?
+- **Q3** Accessibility target: WCAG 2.1 AA (recommended)?
+- **Q4** Mobile: mobile-first web only, no app for now (an app is a separate licence medium)?
+- **Q5** Languages: English only at launch, or Hindi/other too?
+- **Q6** Search scope: companies/symbols/aliases only, or also people, products (NIC), plants, and full-text search of filings?
+- **Q7** Usage analytics for pitching investors: privacy-friendly Cloudflare Web Analytics (free, no cookies)?
+- **Q8** Owner review time: review queues + daily audit flags need daily owner time. How much per day can you give (15 min / 30 min / 1 h)?
+- **Q9** Public repo exposes prompts, detectors and KPI dictionary to competitors. Keep public (D14) or make private?
+- **Q10** Charts: TradingView's open-source Lightweight Charts (Apache-2.0, needs attribution) for price charts?
+- **Q11** CSV/Excel exports for signed-in users (blocked until licence, D93)? Planned for later?
+- **Q12** User data: account deletion/export on request (DPDP); retention of error reports?
+- **#20** Performance targets: approved (§14, D94).
 - **#35/#72** Card sections after real output.
 - **#53** Licence funding: decided, option D (D88).
 - **#73** Failure cases: found via daily audits and the private period (D84, D86).

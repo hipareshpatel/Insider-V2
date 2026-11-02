@@ -20,6 +20,8 @@ If the design text and Appendix A ever disagree, Appendix A wins and the design 
 - **Structured filings:** financial statements (XBRL), shareholding, insider/takeover disclosures, BRSR, governance, credit ratings.
 - **Research tools:** dashboard, sector/industry pages, query builder, trackers, relationship graph, plant registry, forensic and timeliness panels.
 
+**Bar:** best in class and a benchmark for others (D95), measured by the quality gate and performance targets (§14) and UX standards (§16).
+
 **Who:** retail investors **and** institutions/family offices (D25). Layered depth: quick summary first, full sources one click away.
 
 **Scope and phasing:**
@@ -531,7 +533,7 @@ Not built now. Designed in: accounts, API keys, exports, per-plan limits. The we
 
 ---
 
-## 14. Milestones (proposed by Claude, awaiting owner approval)
+## 14. Milestones (approved by owner, D94)
 
 **Definition of done for every milestone:** tests pass in CI on real-file fixtures; staging runs clean; gold set (once it exists) shows no regression; `PLAN.md` + `docs/discussion-log.md` updated and the consistency check passes; owner sign-off.
 
@@ -611,9 +613,10 @@ probe/                throwaway reachability check
 3. Review `docs/field-catalogue.md`, especially the sector packs.
 4. Before backfill/go-live: Workers Paid, a paid Gemini API key, a Cloudflare API token for CI.
 
+**Still to discuss (Claude's open questions, 2026-11-02):** see `docs/discussion-log.md` open items Q1–Q12 (UX standards, brand, analytics, owner review time, repo visibility, languages, search scope, charts, app, exports, user data).
+
 **Still to discuss:**
 - performance targets (page-load and API latency) as part of milestones; the website must be fast, modern and expandable
-- milestones, thresholds and performance targets: proposed in §14, awaiting owner approval
 - card sections, after real output (D25)
 
 **Still to verify:**
@@ -733,6 +736,8 @@ probe/                throwaway reachability check
 | D91 | Stock page layout | **One long page** with a sticky section menu (desktop) / collapsible sections (mobile); sections lazy-load. Global controls: time-machine date, basis (primary default), reported/adjusted (adjusted default), original/restated (restated default); source on hover/tap for every number. **Order:** 0 Header (name, symbol, ISIN, 4-level sector, indices, group, EOD price, mcap ₹ cr, 52-week range, as-of, watchlist) → 1 **AI analysis write-up first** (D80) → 2 **Latest quarter in brief** (D92) → 3 What changed (since last visit / 7 days) → 4 Key facts (valuation vs own history & industry, growth vs trend, margins, ROCE/ROE, net debt, promoter holding/pledge) → 5 Cards & timeline → 6 Financials (12Q + 5Y annual, profit bridge, segments, ratios) → 7 Business (segments/NIC mix, geography, customers, raw materials, plants/capacity, commissioning watch, repeat orders) → 8 Management & guidance (guidance tracker, commitments, credibility ledger, concall metrics, analyst concerns, management changes) → 9 Ownership (shareholding, pledges, insiders, SAST, bulk/block, tracked investors, group) → 10 Credit, governance & forensics (ratings + rated facilities, governance, auditors, complaints, timeliness, disclosure regression, forensic panel, red flags, ASM/GSM) → 11 Price & market (chart with CA/event markers, delivery, technicals, relative returns, unexplained moves) → 12 Peers & links → 13 Documents & CA history. Owner-only panel behind Access: signals, scenarios, research chat. |
 | D92 | Latest quarter in brief | **Confirmed (owner): format OK, keep "declined to answer".** A short **factual** summary of the latest quarter's commentary sources: concall transcript (or provisional audio summary), investor presentation, press release, annual-report MD&A when new. 5–8 bullets, each with source and page: what management said (claim type labelled: reported / guidance / aspiration), what changed vs last quarter, guidance changes, top analyst concerns, and anything management declined to answer. No judgement (that's the write-up). Updated as each source arrives; shows which sources it covers. |
 | D93 | API design | **Delegated to Claude by the owner.** (1) **One API for everything:** the website uses the same versioned REST API (`/api/v1`, JSON) that paid clients would later get, so it is tested by daily use. (2) **Three route families:** public read (`/api/v1/...`), signed-in (`/api/v1/me/...`: watchlists, saved queries, alerts), owner-only (`/api/owner/...`, behind Access, never cached, never in public docs). (3) **Every response carries provenance** (source filing/page or XBRL tag, `period`, `disclosed_at`, `basis`, `version`, `origin`) and supports `as_of=` (time machine), `basis=`, `adjusted=`, `restated=`. (4) Cursor pagination; stable `security_id` in all payloads; symbols accepted as lookup only. (5) **Rate limits per tier:** anonymous < signed-in < (future) API key. (6) **External API keys and bulk exports are not offered until the data licence and legal consult are done** (D88, §12 #7): redistributing NSE data to third parties is the clearest licence trigger. (7) OpenAPI spec generated from code; breaking changes only in a new version (`/api/v2`). |
+| D94 | Milestones | **Approved** as in §14 (M0–M11, definition of done, gold-set thresholds, quality gate, performance targets). Building starts only when the owner says so; discussion continues for now. Claude leads the design and asks the owner for inputs. |
+| D95 | Product bar | **"Best in class; a benchmark for all"** (owner). Made measurable through §14 (quality gate, performance targets) and the UX standards still to be agreed (§16: design system, accessibility, mobile, search, charts). |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |
