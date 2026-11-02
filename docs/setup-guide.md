@@ -13,7 +13,8 @@ Working domain: `disclo.in` (bought at GoDaddy). If the launch name changes late
 2. On the account home page, click **"Add a domain"** (may be labelled "Onboard a domain" or "+ Add").
 3. Type `disclo.in` and continue. Leave the default option to scan for existing DNS records.
 4. Choose the **Free** plan and continue.
-5. Cloudflare shows the DNS records it found (GoDaddy usually has "parking" records). **Leave them for now**, then continue.
+5. Cloudflare shows the DNS records it found from GoDaddy. For `disclo.in` these were (seen 2026-11-02): two **A** records for `disclo.in` → `15.197.148.33` and `3.33.130.190` (GoDaddy's parking page), **CNAME** `_domainconnect` → `_domainconnect.gd.domaincontrol.com` (GoDaddy-only), **CNAME** `www` → `disclo.in`, **TXT** `_dmarc` → GoDaddy's email reporting. **None of these are needed** (we have no site or email yet). You can delete them now (pencil icon → Delete) or later; either is safe. The red "not covered by a certificate" notes are normal before activation: Cloudflare issues the certificate after Part B.
+   Then tap **"Continue to activation"** at the bottom; that's the page that shows the two nameservers.
 6. Cloudflare now shows **two nameservers**, e.g. `xxx.ns.cloudflare.com` and `yyy.ns.cloudflare.com`. **Keep this page open**, because you'll copy both into GoDaddy in Part B.
 
 **Worked when:** the domain appears in your Cloudflare account with status **"Pending"** (it becomes "Active" after Part B).
