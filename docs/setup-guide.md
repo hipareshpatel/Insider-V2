@@ -3,7 +3,9 @@
 Written for the owner. Do the parts in order. Each part says **how you know it worked**.
 If anything looks different from what's described (screens change over time), stop and send Claude a screenshot or the exact text you see.
 
-Working domain: `disclo.in` (bought at GoDaddy). If the launch name changes later, repeat Part A–B for the new domain.
+Working domain: `disclo.in` (bought at GoDaddy).
+
+**Progress:** Part A ✅ · Part B ✅ (2026-11-02: nameservers `raegan.ns.cloudflare.com`, `thaddeus.ns.cloudflare.com`; registry confirmed; DNSSEC not set) · waiting for Cloudflare "Active" · Parts C–E pending. If the launch name changes later, repeat Part A–B for the new domain.
 
 ---
 
