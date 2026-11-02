@@ -274,7 +274,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   // Corporate actions (D6, D7): record every Bc row; decide factors for actions whose ex-date is today.
   const bc = dedupeBc(pr.bc, new Set(pr.bc.map((r) => r.series))); // every series (D127); one row per symbol/ex-date/purpose
   const caStmts: Stmt[] = [];
-  const todays = new Map<number, { purposes: string[]; comps: ReturnType<typeof parsePurpose>["components"] }>();
+  const todays = new Map<number, { purposes: string[]; comps: ReturnType<typeof parsePurpose>["components"]; unknown: boolean }>();
   const shareLike = new Set(rowsAll.filter((r) => ["equity", "etf", "reit", "invit"].includes(kindOf(r))).map((r) => r.symbol));
   for (const r of bc) {
     const sid = secOf.get(r.symbol);
@@ -291,10 +291,10 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
       ON CONFLICT (security_id,ex_date,raw_purpose) DO NOTHING`, params: [sid, r.exDate, type === "meeting" ? "other" : type, r.purpose, amount, status, fileIds.pr_bundle] });
     if (parsed.unparsed.length) reviews.push({ kind: "bc_unparsed", subjectDb: "market", subjectRef: `${r.symbol}|${r.exDate}|${r.purpose}`, summary: `Unparsed corporate action: ${r.symbol} ex ${r.exDate}: "${r.purpose}"`, evidence: { unparsed: parsed.unparsed } });
     if (r.exDate === date && (priceAffecting || parsed.unparsed.length)) {
-      const t = todays.get(sid) ?? { purposes: [], comps: [] };
+      const t = todays.get(sid) ?? { purposes: [], comps: [], unknown: false };
       t.purposes.push(r.purpose);
       t.comps.push(...parsed.components.filter((c) => c.type !== "dividend" && c.type !== "meeting"));
-      if (parsed.unparsed.length) t.comps.push({ type: "capital_reduction" }); // force review: something unknown changes the price basis
+      if (parsed.unparsed.length) t.unknown = true; // something not understood: review, and no factor is written
       todays.set(sid, t);
     }
   }
@@ -314,6 +314,10 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   const todayShares = new Map<number, number>(shareRowsUnique.map((r) => [r[0] as number, r[2] as number]));
   const factorStmts: Stmt[] = [];
   for (const [sid, t] of todays) {
+    if (t.unknown && !t.comps.length) {
+      reviews.push({ kind: "corp_action", subjectDb: "market", subjectRef: `${sid}|${date}`, summary: `Corporate action not understood, no adjustment made: ${t.purposes.join(" + ")}` });
+      continue;
+    }
     const row = rowsAll.find((r) => secOf.get(r.symbol) === sid && r.series === "EQ") ?? rowsAll.find((r) => secOf.get(r.symbol) === sid);
     const d = decideFactor({
       exDate: date, components: t.comps, sharesBefore: prevShares.get(sid) ?? null, sharesOnEx: todayShares.get(sid) ?? null,
@@ -334,7 +338,12 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   for (const [sid, n] of todayShares) {
     if (!universeSids.has(sid)) continue;
     const before = prevShares.get(sid);
-    if (before && !factored.has(sid) && Math.abs(n - before) / before > 0.02) {
+    // D129: a missed split/bonus shows as a big ratio or a big price move; ordinary issuance (QIP, ESOP, allotment) doesn't.
+    const ratio = before ? n / before : 1;
+    const row = rows.find((r) => secOf.get(r.symbol) === sid && r.series === "EQ");
+    const pc = prevClose.get(sid);
+    const move = row && pc && Number(pc) > 0 ? Math.abs(Number(row.close) / Number(pc) - 1) : 0;
+    if (before && !factored.has(sid) && Math.abs(n - before) / before > 0.02 && (ratio >= 1.25 || ratio <= 0.8 || move > 0.2)) {
       reviews.push({ kind: "corp_action", subjectDb: "market", subjectRef: `shares|${sid}|${date}`, summary: `Share count changed ${before} → ${n} with no corporate action`, evidence: { before, after: n } });
     }
   }

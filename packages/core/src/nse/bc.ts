@@ -64,6 +64,17 @@ export function parsePurpose(purpose: string): ParsedPurpose {
   m = new RegExp(String.raw`^DV\s*\/?\s*SPDV\s*-?\s*R[SE]\s*${NUM}\s*\/\s*R[SE]\s*${NUM}`).exec(text);
   if (m) return { components: [{ type: "dividend", amount: m[1]!, kind: "final" }, { type: "dividend", amount: m[2]!, kind: "special" }], unparsed };
 
+  // Dividend-only text in any spelling ("DIV/SPDIV RS 3.5 & 1.5", "SPDV/DIVRS-5/2 PR SH", "AGM/DIV/SPDV RS5/3"):
+  // only dividend words, meeting words and amounts -> dividends (never price-adjusting, D7).
+  if (/(DIV|DV)/.test(text) && !/(BONUS|SPLT|SPLIT|RIGHTS|DEMERGER|CAPITAL|CONSOL|REDEMP|INTEREST|BUY ?BACK|MERGER|SCH)/.test(text)
+      && /^[A-Z0-9 /&\-.,]*$/.test(text) && /^(AGM|EGM|INTDIV|INT DIV|SPDIV|SPL DIV|SPLDIV|SPDV|DIV|DV|DI|RS|RE|PER|SH|SHARE|PR|[0-9.]+|[/&\-,. ])+$/.test(text.replace(/\s+/g, " ").split(/(?=[/&\- ])|(?<=[/&\- ])/).join(""))) {
+    const amounts = [...text.matchAll(/(\d+(?:\.\d+)?)/g)].map((m) => m[1]!);
+    const special = /SP/.test(text), interim = /INT/.test(text);
+    if (/AGM/.test(text)) components.push({ type: "meeting" });
+    amounts.forEach((a, i) => components.push({ type: "dividend", amount: a, kind: special && i === amounts.length - 1 && amounts.length > 1 ? "special" : special && amounts.length === 1 ? "special" : interim ? "interim" : "final" }));
+    if (amounts.length) return { components, unparsed };
+    components.length = 0;
+  }
   for (const raw of text.split("/").map((p) => p.trim()).filter(Boolean)) {
     const part = raw.replace(/\s*PER\s*SH(ARE)?\s*$/, "").trim();
     if (/^(AGM|EGM|ANNUAL GENERAL MEETING|EXTRAORDNRY GENRL MEETNG|EXTRA ?ORDINARY GENERAL MEETING)$/.test(part)) { components.push({ type: "meeting" }); continue; }

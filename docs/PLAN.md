@@ -1,6 +1,6 @@
 # Insider V2 — Plan (consolidated)
 
-**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D128** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`, `setup-guide.md` (owner's step-by-step setup: Cloudflare, GoDaddy nameservers, email routing, probe). **Next chat starts with `docs/HANDOVER.md`.**
+**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D129** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`, `setup-guide.md` (owner's step-by-step setup: Cloudflare, GoDaddy nameservers, email routing, probe). **Next chat starts with `docs/HANDOVER.md`.**
 Build started 2026-11-03 (D122). `probe/` is a throwaway Worker for testing NSE reachability from Cloudflare.
 
 **Working agreement:** this is a discussion phase. No production code is written until the owner says so. Claude asks for the owner's input wherever a decision is theirs, records every decision here, and flags anything it can't verify.
@@ -441,7 +441,7 @@ Not built now. Designed in: accounts, API keys, exports, per-plan limits. The we
 - `|mcap − issue × close| / mcap < 0.5%`.
 - ≥ 99% EQ rows join MCAP (from 2024-02-01).
 - Unexplained adjusted move > ±35% → review.
-- Unexplained share-count change > 2% → review.
+- Unexplained share-count change > 2% → review (only when it looks like a missed split/bonus: ratio ≥ 1.25×/≤ 0.8× or price move > 20%, D129).
 - Index snapshot row counts exact.
 
 ### 9.2 Phase 1 acceptance tests
@@ -794,6 +794,7 @@ probe/                throwaway reachability check
 | D126 | Fund units excluded from the stock universe (clarifies D4) | ETFs trade in NSE's EQ series but carry `INF` ISINs (fund units) and have no MCAP row. Found on the first Cloudflare run: 355 of 2,703 EQ rows on 2026-10-30, all `INF`; **100% of company (`INE`) rows join MCAP.** The universe is EQ/BE/BZ **minus `INF` ISINs**. Cleanup migration removed the ETF rows loaded for Jan 2024. |
 | D127 | Store everything from bulk files | **Owner (#253):** don't discard data for companies outside the current universe; the universe will grow, so process, clean and store every row of every bulk file (bhavcopy all series incl. SME and ETFs, MCAP, delivery, Bc, index lists). **The universe (D4, D111, D126) filters what is analysed and shown, not what is stored.** Gates (§9.1) are computed on the equity universe; other instruments are stored with their type. Raw files stay in R2 as before. *Supersedes the storage effect of D126 (ETFs are stored, not analysed).* |
 | D128 | Front-load all downloads | **Owner (#253): start all downloading now, in parallel with other work.** (1) **Archive history** (bhavcopy, PR bundle, delivery, index closes from 2024-01-01) is prefetched by a GitHub Actions job straight into R2 (`cache/` keys); the market Worker reads R2 first and NSE only for what is missing. *Reason:* the archive refused Cloudflare often (Appendix B) but answers other clouds. (2) **NSE API data** for every listed company (results, integrated filings, shareholding, PIT, SAST, ratings, board meetings, corporate actions, annual reports, BRSR) is fetched raw into R2 from Cloudflare (the API answers Cloudflare, not GitHub runners), as fast as NSE allows with back-off; parsing follows in M2. API pace raised from ~1/s sequential (owner: the archive/API are for scraping). |
+| D129 | Share-count review threshold (**Claude override of §9.1, per D122**) | §9.1: an unexplained share-count change > 2% goes to review. On the first months loaded this raised ~137 reviews, all ordinary issuance (QIP, preferential, ESOP: ratios 1.02–1.10) that needs no price adjustment. **Change:** review only if the change is > 2% **and** (ratio ≥ 1.25 or ≤ 0.8, or the price moved > 20% that day), i.e. what a missed split/bonus/consolidation looks like. Smaller issuance is still stored in `shares_daily`. *Reason:* the owner's review time (D96) goes to things that can corrupt adjusted prices. |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |

@@ -11,7 +11,7 @@ export async function acceptance(db: Sql, app: Sql): Promise<Check[]> {
   const [baj] = await db.all<{ security_id: number }>("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value='BAJFINANCE' LIMIT 1");
   if (!baj) out.push({ id: "1", name: "BAJFINANCE adjusted close 2025-06-13 = 933.10", pass: null, detail: "not loaded yet" });
   else {
-    const f = await db.all<{ ex_date: string; factor: string }>("SELECT ex_date, factor FROM adj_factor WHERE security_id=?", [baj.security_id]);
+    const f = await db.all<{ ex_date: string; factor: string }>("SELECT ex_date, factor FROM adj_factor WHERE security_id=? AND status IN ('auto','confirmed')", [baj.security_id]);
     const p = await db.all<{ trade_date: string; close: string }>("SELECT trade_date, close FROM price_daily WHERE security_id=? AND series='EQ' AND trade_date IN ('2025-06-13','2025-06-16')", [baj.security_id]);
     const c13 = p.find((x) => x.trade_date === "2025-06-13"), c16 = p.find((x) => x.trade_date === "2025-06-16");
     if (!c13 || !c16) out.push({ id: "1", name: "BAJFINANCE adjusted close 2025-06-13 = 933.10", pass: null, detail: "2025-06 not loaded yet" });
@@ -30,7 +30,7 @@ export async function acceptance(db: Sql, app: Sql): Promise<Check[]> {
     const ids = members.map((m) => m.security_id);
     const marks = ids.map(() => "?").join(",");
     const prices = await db.all<{ security_id: number; trade_date: string; close: string }>(`SELECT security_id, trade_date, close FROM price_daily WHERE series='EQ' AND security_id IN (${marks}) ORDER BY security_id, trade_date`, ids);
-    const factors = await db.all<{ security_id: number; ex_date: string; factor: string }>(`SELECT security_id, ex_date, factor FROM adj_factor WHERE security_id IN (${marks})`, ids);
+    const factors = await db.all<{ security_id: number; ex_date: string; factor: string }>(`SELECT security_id, ex_date, factor FROM adj_factor WHERE status IN ('auto','confirmed') AND security_id IN (${marks})`, ids);
     const jumps: string[] = [];
     let prev: { id: number; adj: string; d: string } | null = null;
     for (const r of prices) {

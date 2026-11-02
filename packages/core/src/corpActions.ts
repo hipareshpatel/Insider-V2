@@ -66,7 +66,8 @@ export function decideFactor(i: FactorInputs): FactorDecision {
 
 export interface FactorRow { exDate: string; factor: string }
 
-/** Adjusted price on `date` = raw × product of factors with ex_date after `date` (computed, never stored). */
+/** Adjusted price on `date` = raw × product of factors with ex_date after `date` (computed, never stored).
+ *  Callers pass only factors with status 'auto' or 'confirmed'; 'review' factors are proposals, never applied. */
 export function adjustPrice(raw: string, date: string, factors: readonly FactorRow[], places = 2): string {
   let p = dec(raw);
   for (const f of factors) if (f.exDate > date) p = mul(p, dec(f.factor));

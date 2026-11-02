@@ -131,3 +131,18 @@ describe("delivery + index closes", () => {
     expect(nseDate("30-10-2026")).toBe("2026-10-30");
   });
 });
+
+describe("dividend-only fallback", () => {
+  it.each([
+    "DIV/SPDIV RS 3.5 & 1.5 PER SH", "DIV/SPDV - RS 5 & RS 2.5", "AGM/DIV/SPDV-RS 5 & RS 3", "SPDV/DIVRS-5/2 PR SH", "AGM/DIV/SPDV RS5/3", "AGM/SPDV/DIV RS 2.5/1.5",
+  ])("%s → dividends only, nothing to review", (p) => {
+    const r = parsePurpose(p);
+    expect(r.unparsed).toEqual([]);
+    expect(r.components.filter((c) => c.type === "dividend").length).toBeGreaterThanOrEqual(2);
+    expect(affectsPrice(r)).toBe(false);
+  });
+  it("does not swallow non-dividend actions", () => {
+    expect(parsePurpose("BONUS 1:1").components).toEqual([{ type: "bonus", newShares: "1", held: "1" }]);
+    expect(parsePurpose("DIV RS 5/BUY BACK").components.some((c) => c.type === "buyback")).toBe(true);
+  });
+});
