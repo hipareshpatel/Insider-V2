@@ -86,6 +86,8 @@ Links are **populated** only once the layer below them is accurate.
 | D26 | Triage | Route on **category + subject text**, never category alone. Lanes: A = always full, B = timeline/structured only (no LLM), C = cheap LLM decides. Keyword escalators and size checks lift items from B → C/A. Every item gets a timeline row. Dedupe by PDF hash; revisions supersede; filings linked into one event. Keywords to be tuned in practice. |
 | D27 | Triage miss tolerance | **Zero** material misses in the weekly audit sample. Any miss → the rule that missed it is fixed. |
 | D28 | Insider & pledge data | **In scope:** insider-trading disclosures (SEBI PIT), takeover disclosures (SAST Reg 29), promoter pledges/encumbrance. These are structured feeds, parsed in code with no LLM. |
+| D29 | Insider activity display | A **per-stock insider panel**, always current. A **card only past a threshold** (starting values, tuned in practice): promoter or promoter-group net buy/sell ≥ 0.25% of equity **or** ≥ ₹50 cr over 30 days; any increase in pledged shares; any insider trade during the company's trading-window closure; KMP/director open-market **buy** ≥ ₹1 cr. Pledge truth = quarterly shareholding pattern; events keep it current between quarters. Insider-feed completeness to be verified against the announcements feed. |
+| D30 | Triage audit | About **300 items/week** on the Batch API, weighted toward Lane C skips, against a written definition of "material". The owner spot-checks some "not material" verdicts monthly. |
 
 ---
 
