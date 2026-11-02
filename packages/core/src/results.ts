@@ -21,6 +21,13 @@ export const PL_TAGS: Record<string, string> = {
   finance_cost: "FinanceCosts",
   depreciation: "DepreciationDepletionAndAmortisationExpense",
   other_expenses: "OtherExpenses",
+  // NBFC (Ind AS Division III) lines
+  interest_earned: "InterestEarned",
+  fees_commission_income: "FeesAndCommissionIncome",
+  fees_commission_expense: "FeesAndCommissionExpense",
+  impairment_financial_instruments: "ImpairmentOnFinancialInstruments",
+  net_loss_fair_value: "NetLossOnFairValueChanges",
+  net_loss_derecognition: "NetLossOnDerecognitionOfFinancialInstrumentsUnderAmortisedCostCategory",
   total_expenses: "Expenses",
   pbt_before_exceptional: "ProfitBeforeExceptionalItemsAndTax",
   exceptional_items: "ExceptionalItemsBeforeTax",
@@ -99,9 +106,11 @@ export function identityChecks(l: Record<string, string>): { name: string; ok: b
     const abs = d.units < 0n ? { units: -d.units, scale: d.scale } : d;
     out.push({ name, ok: cmp(abs, tol) <= 0, detail: `${toText(lhs)} vs ${toText(rhs)}` });
   };
-  const sum = (...ks: string[]) => ks.every((k) => v(k)) ? ks.map((k) => v(k)!).reduce((a, b) => add(a, b)) : null;
+  const sum = (...ks: string[]) => (ks.length && ks.every((k) => v(k)) ? ks.map((k) => v(k)!).reduce((a, b) => add(a, b)) : null);
   near("revenue + other income = total income", sum("revenue", "other_income"), v("total_income"));
-  near("expense lines = total expenses", sum("materials", "purchases_stock_in_trade", "inventory_change", "employee_cost", "finance_cost", "depreciation", "other_expenses"), v("total_expenses"));
+  const expenseKeys = ["materials", "purchases_stock_in_trade", "inventory_change", "employee_cost", "finance_cost", "depreciation", "other_expenses",
+    "fees_commission_expense", "impairment_financial_instruments", "net_loss_fair_value", "net_loss_derecognition"].filter((k) => l[k] !== undefined);
+  near("expense lines = total expenses", expenseKeys.length ? sum(...expenseKeys) : null, v("total_expenses"));
   near("total income − total expenses = PBT before exceptional", v("total_income") && v("total_expenses") ? sub(v("total_income")!, v("total_expenses")!) : null, v("pbt_before_exceptional"));
   near("PBT before exceptional + exceptional = PBT", sum("pbt_before_exceptional", "exceptional_items"), v("pbt"));
   near("current + deferred tax = tax", sum("current_tax", "deferred_tax"), v("tax"));
