@@ -213,6 +213,9 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 187 | "Not sure how many conversations you still didn't add or decisions in our documents; do a full chat review and confirm before answering anything, because now I'm worried." | Full review done: 2 remarks were missing (#184, #185), no decisions missing | ✅ |
 | 188 | Shared a Cloudflare vs Linux VPS (Hetzner/Vultr) comparison and a "best of both worlds" architecture (VPS engine → D1 → Cloudflare Pages); asked which hosting is better for 1 lakh visitors/day. | D109 | ✅ |
 
+| 189 | Is it possible to start on Cloudflare and, if traffic grows, move to proper hosting/storage, or should hosting be decided first, or will we migrate? | D110 | ✅ |
+| 190 | Since AI coverage is the cost: start with the first 1,000 companies, add 100 every month; universe cut-off > ₹500 cr (nothing below); stocks crossing below stay in memory and keep updating until ₹300 cr; if they come back, special sessions backfill details; same for new additions. | D111 (proposal recorded with data; budget/depth decision pending) | 🔶 |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -220,9 +223,10 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #188 (full chat review): all checks pass (109 decisions, 188 entries).*
+*Last run 2026-11-02 after entry #190: all checks pass (111 decisions, 190 entries).*
 
 ## Open items from this log
+- **#190** Coverage universe: budget for ~12× Nifty 50 volume, or tiered depth? Market data full universe?
 - **#174/#186** Name: choose from D99 options; then trademark search.
 **Claude's questions Q1–Q12:** answered in #171–#181; Q1 name choice pending (D99).
 - **#20** Performance targets: approved (§14, D94).
