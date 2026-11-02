@@ -20,7 +20,7 @@ If the design text and Appendix A ever disagree, Appendix A wins and the design 
 - **Structured filings:** financial statements (XBRL), shareholding, insider/takeover disclosures, BRSR, governance, credit ratings.
 - **Research tools:** dashboard, sector/industry pages, query builder, trackers, relationship graph, plant registry, forensic and timeliness panels.
 
-**Platform & design:** web only, mobile-first, light theme, English only (D100, D101, D103); accessibility formal target later (D102); usage analytics (D98); name pending (D99).
+**Platform & design:** web only, mobile-first, light theme, English only (D100, D101, D103); accessibility formal target later (D102); usage analytics (D98); name **Quarterwise**, `quarterwise.in` (D99).
 
 **Bar:** best in class and a benchmark for others (D95), measured by the quality gate and performance targets (§14) and UX standards (§16).
 
@@ -528,7 +528,7 @@ Not built now. Designed in: accounts, API keys, exports, per-plan limits. The we
 9. DPDP Act obligations (accounts, emails, error reports).
 10. Individual vs company; terms, liability, jurisdiction, disclaimers.
 11. NSE **index** data (licensed by NSE Indices Ltd).
-12. Name/brand near "insider" in a securities context.
+12. Name/brand: **Quarterwise** chosen (D99); confirm no trademark conflict (classes 36/42). The internal project/repo name "Insider" isn't public-facing.
 13. **Paid, stock-specific AI judgement write-ups (D80):** does this require SEBI Research Analyst registration (individual or entity)? Obligations if registered (qualifications/NISM certification, disclosures, audit, conflict rules). Alternatives.
 14. **Pre-results impact estimates** (D82): public, labelled estimates about named companies' upcoming results.
 
@@ -653,7 +653,7 @@ probe/                throwaway reachability check
 **Resolved (D80):** ~~Open question from the owner's original brief:~~ Gemini was described as being used for **stock analysis of different types (technical, fundamental, stock research)**, not only announcement processing. The plan currently covers this as computed technical/fundamental data + cards + owner-only research chat. Is a **per-stock AI analysis write-up** (fundamental/technical) wanted, and if so public (factual) or owner-only?
 **Resolved (D81):** "credit increases" = rated bank-facility amount increases.
 
-**Name:** round 2: Quarterwise / Boardnote / StockKunji, or more (D99), then an IP India trademark search before buying the domain.
+**Name:** decided: **Quarterwise** (`quarterwise.in`, D99). Owner action: trademark search, then buy the domain (+ optional `quarterwise.co.in`) and add it to Cloudflare, then an IP India trademark search before buying the domain.
 
 **Provisional decisions to confirm:** D38 (linked-company card threshold), D39 (unlisted counterparties).
 
@@ -720,7 +720,7 @@ probe/                throwaway reachability check
 | D55 | Phase 2 backfill | Last 4 quarters of Nifty 50 results, concalls, presentations; cost estimated first. |
 | D56 | Shareholding pattern | Ingested quarterly for all covered stocks. |
 | D57 | Next index | Nifty Next 50 after the Nifty 50 PoC (together = Nifty 100). |
-| D58 | Domain | `*.workers.dev` for now. |
+| D58 | Domain | `*.workers.dev` for now; **`quarterwise.in`** once bought (D99), needed before traffic grows (D108). |
 | D59 | Home page | Market & indices dashboard + latest important cards + calendar + search. |
 | D60 | Accounts | Everything readable without an account. Accounts for watchlists, saved queries and on-site alerts. |
 | D61 | Query builder | Required and must be easy (design: D64). |
@@ -761,7 +761,7 @@ probe/                throwaway reachability check
 | D96 | Owner review time | **30 minutes per day.** Review work is sized to fit: queues are ranked by impact (critical first), routine items auto-resolve by rule where safe, and the daily review list targets ≤ ~30 items. If the backlog grows beyond what 30 min clears, the data-health page shows it and automation thresholds are tightened. Nothing silently waits. |
 | D97 | Repo visibility & docs | **Repo stays public** (owner). No repo description, no README at the root; all `.md` documents live in `docs/` only. *Claude's note:* this reduces casual discoverability only; code and `docs/` remain readable by anyone who opens the repo, and private repos are free on GitHub (CI minutes sufficient). Recommendation stands: consider private. |
 | D98 | Usage analytics | **Cloudflare Web Analytics** (free, cookie-less) from day 1; usage numbers support pitching. |
-| D99 | Name & domain | Round 1 (Kasautee, Saarnama, Satyalekh, Pramaanam, AnkLens, Primafile, Paarkhi): **owner liked none.** **Landscape (owner asked):** global filings/transcript/research tools include AlphaSense (incl. Tegus, Sentieo, BamSEC), Fiscal.ai (formerly FinChat), Quartr, Koyfin, TIKR, Hudson Labs, Daloopa, Simply Wall St, Seeking Alpha, Stockopedia, OpenInsider, WhaleWisdom; in India Screener, Trendlyne, Tijori, Tickertape, StockEdge, StockScans, Finology Ticker, MarketsMojo, Equitymaster, Value Research. Naming patterns: plain English descriptive (Screener, Tickertape), short coined (Koyfin, Quartr, TIKR), one Indian word (Tijori). **Round 2 (RDAP 2026-11-02):** **Quarterwise** (`.in`, `.ai` free; `.com` taken), **Boardnote** (`.in`, `.ai` free; `.com` taken), **StockKunji** (`.com`, `.in` free; *kunji* = key / study guide). *Claude's pick:* Quarterwise. Short English words (Footnotes, Annexure, Firsthand, Disclosed, Kunji, Hundi, Tola) are all taken on `.com` and `.in`. `.ai` costs more than `.com`/`.in` (often a 2-year minimum). Trademark search still needed. *Pending owner choice.* |
+| D99 | Name & domain | **Decided (owner): Quarterwise, domain `quarterwise.in`.** Rechecked 2026-11-02: `quarterwise.in` and `quarterwise.co.in` unregistered; `quarterwise.com` registered by someone else. Before buying: IP India trademark search (classes 36/42). Optional defensive registration: `quarterwise.co.in` (cheap); `.ai` optional (pricier). The domain is pointed to Cloudflare DNS (free plan) to enable CDN caching (D108) and replace `workers.dev` (D58). History: round 1 (Kasautee, Saarnama, Satyalekh, Pramaanam, AnkLens, Primafile, Paarkhi): **owner liked none.** **Landscape (owner asked):** global filings/transcript/research tools include AlphaSense (incl. Tegus, Sentieo, BamSEC), Fiscal.ai (formerly FinChat), Quartr, Koyfin, TIKR, Hudson Labs, Daloopa, Simply Wall St, Seeking Alpha, Stockopedia, OpenInsider, WhaleWisdom; in India Screener, Trendlyne, Tijori, Tickertape, StockEdge, StockScans, Finology Ticker, MarketsMojo, Equitymaster, Value Research. Naming patterns: plain English descriptive (Screener, Tickertape), short coined (Koyfin, Quartr, TIKR), one Indian word (Tijori). **Round 2 (RDAP 2026-11-02):** **Quarterwise** (`.in`, `.ai` free; `.com` taken), **Boardnote** (`.in`, `.ai` free; `.com` taken), **StockKunji** (`.com`, `.in` free; *kunji* = key / study guide). *Claude's pick:* Quarterwise (chosen). Short English words (Footnotes, Annexure, Firsthand, Disclosed, Kunji, Hundi, Tola) are all taken on `.com` and `.in`. `.ai` costs more than `.com`/`.in` (often a 2-year minimum). Trademark search still needed. |
 | D100 | Visual design | **Light theme only.** Mobile-first web (D101). |
 | D101 | Platforms | **Web only, mobile-first.** No app (an app would also be a separate NSE licence medium). |
 | D102 | Accessibility | Formal WCAG target **later** (owner). Basic good practice from day 1 at no extra cost: readable contrast, keyboard-usable controls, alt text. |

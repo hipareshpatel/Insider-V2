@@ -194,7 +194,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 171 | Q8: 30 minutes daily for reviews. | D96 | ✅ |
 | 172 | Q9: keep repo public; don't write a repo description; keep important `.md` files in one folder so the repo isn't self-describing. | D97 (docs moved to `docs/`; Claude's caveat recorded) | ✅ |
 | 173 | Q7: analytics yes. | D98 | ✅ |
-| 174 | Q1: propose one name: unique, easy to remember, catchy, available at regular cost. | D99 (Saarnama proposed; Paarkhi alternative) | 🔶 owner to choose |
+| 174 | Q1: propose one name: unique, easy to remember, catchy, available at regular cost. | D99 (chosen in #196) | ✅ |
 | 175 | Q2: light theme. | D100 | ✅ |
 | 176 | Q3: accessibility later. | D102 | ✅ |
 | 177 | Q4: web only, but mobile-first. | D101 | ✅ |
@@ -209,7 +209,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 184 | *(Retro-added after full chat review; said with #36–#44):* "Really loving these questions; keep in mind it's going to be a very large project, so we need to link whatever possible from day 1." | Feedback; principle already in §2 #1 | ✅ |
 | 185 | *(Retro-added after full chat review; said with #114):* "We can stay factual and still offer more. Sure." Agreement that benchmark features stay factual. | D67 (factual only) | ✅ |
-| 186 | "More and better name options?" | D99 (6 options with both domains free; Kasautee first pick) | 🔶 owner to choose |
+| 186 | "More and better name options?" | D99 (round 1 rejected; chosen in #196) | ✅ |
 | 187 | "Not sure how many conversations you still didn't add or decisions in our documents; do a full chat review and confirm before answering anything, because now I'm worried." | Full review done: 2 remarks were missing (#184, #185), no decisions missing | ✅ |
 | 188 | Shared a Cloudflare vs Linux VPS (Hetzner/Vultr) comparison and a "best of both worlds" architecture (VPS engine → D1 → Cloudflare Pages); asked which hosting is better for 1 lakh visitors/day. | D109 | ✅ |
 
@@ -221,7 +221,9 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 193 | "Why don't you check a few random filings? I thought out of 10, maybe 4 or less are useful; the rest get filtered as you said." | D113 (60-filing sample: ~42% useful, ~25% card-worthy, ~45% noise) | ✅ |
 | 194 | None of the names liked. | D99 (round 1 rejected) | ✅ |
-| 195 | Do such sites exist globally? What are their names? Similar names for India? | D99 (landscape + round 2: Quarterwise, Boardnote, StockKunji) | 🔶 owner to choose |
+| 195 | Do such sites exist globally? What are their names? Similar names for India? | D99 (landscape + round 2; chosen in #196) | ✅ |
+
+| 196 | Name: **Quarterwise.in**. | D99, D58 | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -230,10 +232,10 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #195: all checks pass (113 decisions, 195 entries).*
+*Last run 2026-11-02 after entry #196: all checks pass (113 decisions, 196 entries).*
 
 ## Open items from this log
-- **#174/#186/#195** Name: round 2 options in D99; then trademark search.
+- **#196** Owner actions: trademark search for "Quarterwise", buy `quarterwise.in` (+ optional `quarterwise.co.in`), add to Cloudflare.
 **Claude's questions Q1–Q12:** answered in #171–#181; Q1 name choice pending (D99).
 - **#20** Performance targets: approved (§14, D94).
 - **#35/#72** Card sections after real output.
