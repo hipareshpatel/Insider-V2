@@ -97,7 +97,7 @@ The plain-English mode only translates into this language. Anything that can't b
 | `interest_coverage_ttm` | EBIT ÷ finance cost |
 | `receivable_days`, `inventory_days`, `payable_days`, `working_capital_days`, `cash_conversion_cycle` | Standard, documented |
 | `capex_ttm_cr`, `cwip_cr` | Investment |
-| `contingent_liabilities_cr` | From annual report sections (D, §4.9) |
+| `contingent_liabilities_cr` | From annual-report sections (D74) |
 
 ## 8. Sector packs (KPI dictionary, D31)
 Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), and labelled `source = presentation/transcript` vs `xbrl`.
