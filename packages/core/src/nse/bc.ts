@@ -40,7 +40,7 @@ const NUM = String.raw`(\d+(?:\.\d+)?)`;
 const SPLIT = new RegExp(String.raw`FV\s*SPLI?T\s*(?:FRM|FROM)?\s*R[SE]\.?\s*${NUM}\s*(?:\/-)?\s*TO\s*R[SE]\.?\s*${NUM}`, "i");
 const CONS = new RegExp(String.raw`(?:FV\s*)?CONSOL\w*\s*(?:FRM|FROM)?\s*R[SE]\.?\s*${NUM}\s*TO\s*R[SE]\.?\s*${NUM}`, "i");
 const BONUS = new RegExp(String.raw`^BONUS\s*${NUM}\s*:\s*${NUM}`, "i");
-const RIGHTS = new RegExp(String.raw`RIGHTS\s*${NUM}\s*:\s*${NUM}\s*@\s*PRE?M\s*R[SE]\.?\s*${NUM}`, "i");
+const RIGHTS = new RegExp(String.raw`RI?GHTS\s*${NUM}\s*:\s*${NUM}\s*@?\s*PRE?M\s*R[SE]\.?\s*${NUM}`, "i");
 const DIV = new RegExp(String.raw`^(INT\s*DIV|INTDIV|SPL\s*DIV|SPLDIV|SPDV|SP\s*DIV|DIV|DI|DV)\s*-?\s*R[SE]\.?\s*-?\s*${NUM}`, "i");
 
 /** Parse one Bc purpose into components, e.g. "AGM/DIV - RS 5 PER SH" -> meeting + final dividend 5. */
@@ -60,6 +60,9 @@ export function parsePurpose(purpose: string): ParsedPurpose {
   if (m) return { components: [{ type: "consolidation", fromFv: m[1]!, toFv: m[2]! }], unparsed };
   m = RIGHTS.exec(text);
   if (m) return { components: [{ type: "rights", newShares: m[1]!, held: m[2]!, premium: m[3]! }], unparsed };
+  // REIT/InvIT: "DIV/DISTRIB - RS 2", "DIV//DISTRIBU-RS 2", "DIV/DISTRBUTN - RS 2", "DIV/DISTRIB RS 2 PR UT"
+  m = /^DIV\s*\/+\s*DISTR\w*\s*-?\s*R[SE]\.?\s*-?\s*(\d+(?:\.\d+)?)/.exec(text);
+  if (m) return { components: [{ type: "dividend", amount: m[1]!, kind: "final" }], unparsed };
   // "DVSPDV - RS 5/RS 3", "DV/SPDV RS 5/RS 3": final + special
   m = new RegExp(String.raw`^DV\s*\/?\s*SPDV\s*-?\s*R[SE]\s*${NUM}\s*\/\s*R[SE]\s*${NUM}`).exec(text);
   if (m) return { components: [{ type: "dividend", amount: m[1]!, kind: "final" }, { type: "dividend", amount: m[2]!, kind: "special" }], unparsed };
@@ -85,7 +88,9 @@ export function parsePurpose(purpose: string): ParsedPurpose {
       components.push({ type: "dividend", amount: m[2]!, kind });
       continue;
     }
-    if (/^(INTEREST PAYMENT|INT PAYMN?T|INT PAY|PART REDEMPTI?O?N|REDEMPTI?O?N|PART REDEMPTN|FULL REDEMPTION|MATURITY)$/.test(part)) { components.push({ type: "debt_service" }); continue; }
+    if (/^(INTEREST PAYMENT|INTEREST|INT PAYMENT|INT PAYMN?T|INT PAY|PART REDEMPTI?O?N|REDEMPTI?O?N|PART REDEMPTN|REDEMPTN|FULL REDEMPTION|MATURITY)$/.test(part)) { components.push({ type: "debt_service" }); continue; }
+    // REIT/InvIT unit distributions (any spelling): payouts, not price-adjusting (like dividends, D7)
+    if ((m = /^(?:DIV\s*\/*\s*)?DISTR?I?B?U?T?I?O?N?\w*\s*-?\s*R[SE]\.?\s*(\d+(?:\.\d+)?)/.exec(part))) { components.push({ type: "dividend", amount: m[1]!, kind: "final" }); continue; }
     if (/^DEMERGER$/.test(part)) { components.push({ type: "demerger" }); continue; }
     if (/^MERGER$/.test(part)) { components.push({ type: "merger" }); continue; }
     if (/^BUY ?BACK$/.test(part)) { components.push({ type: "buyback" }); continue; }

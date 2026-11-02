@@ -146,3 +146,18 @@ describe("dividend-only fallback", () => {
     expect(parsePurpose("DIV RS 5/BUY BACK").components.some((c) => c.type === "buyback")).toBe(true);
   });
 });
+
+describe("REIT/InvIT, trust debt and misspelt rights (seen 2025)", () => {
+  it.each(["DIV/DISTRIB - RS 2.5", "DIV//DISTRIBU-RS 3", "DIV/DISTRBUTN - RS 1.2", "DIV/DISTRIB RS 2 PR UT", "DISTRIBUTION - RS 4", "DIV/DISTRIBUTION - RS 5"])("%s → distribution", (p) => {
+    const r = parsePurpose(p);
+    expect(r.unparsed).toEqual([]);
+    expect(r.components.some((c) => c.type === "dividend")).toBe(true);
+  });
+  it.each(["INT PAYMENT/REDEMPTION", "INTEREST/PART REDEMPTION", "INT PAYMENT/REDEMPTN"])("%s → debt service", (p) => {
+    expect(parsePurpose(p).unparsed).toEqual([]);
+    expect(parsePurpose(p).components.every((c) => c.type === "debt_service")).toBe(true);
+  });
+  it("RGHTS 1:5 PRM RS 120 → rights", () => {
+    expect(parsePurpose("RGHTS 1:5 PRM RS 120").components).toEqual([{ type: "rights", newShares: "1", held: "5", premium: "120" }]);
+  });
+});

@@ -315,8 +315,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   const factorStmts: Stmt[] = [];
   for (const [sid, t] of todays) {
     if (t.unknown && !t.comps.length) {
-      reviews.push({ kind: "corp_action", subjectDb: "market", subjectRef: `${sid}|${date}`, summary: `Corporate action not understood, no adjustment made: ${t.purposes.join(" + ")}` });
-      continue;
+      continue; // already raised once as "Unparsed corporate action" (no duplicate item)
     }
     const row = rowsAll.find((r) => secOf.get(r.symbol) === sid && r.series === "EQ") ?? rowsAll.find((r) => secOf.get(r.symbol) === sid);
     const d = decideFactor({
