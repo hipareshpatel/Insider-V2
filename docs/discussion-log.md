@@ -182,6 +182,9 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 164 | "Wait for the quality gate, then move to the stock page." | D89 (gate confirmed); stock page proposal in §16 | ✅ |
 
+| 165 | Financial history 5 years OK; AI write-up first; one long page. | D90, D91 | ✅ |
+| 166 | "Short summary from transcript etc.?" | D92 (proposed: factual "latest quarter in brief", section 2 of stock page) | 🔶 confirm format |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -189,10 +192,10 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #164: all checks pass (89 decisions, 164 entries).*
+*Last run 2026-11-02 after entry #166: all checks pass (92 decisions, 166 entries).*
 
 ## Open items from this log
-- **Stock page layout** proposal (§16) and **financial-statement history depth** (proposed 5 years): decide.
+- **#166** "Latest quarter in brief" format (D92): confirm.
 - **#20** Performance targets (milestones discussion).
 - **#35/#72** Card sections after real output.
 - **#53** Licence funding: decided, option D (D88).
