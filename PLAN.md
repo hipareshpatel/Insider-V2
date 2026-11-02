@@ -408,6 +408,20 @@ probe/                throwaway Cloudflare reachability check
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
 
+## 9b. Proposed, awaiting owner decision — KPI trackers (2026-11-02)
+1. **Trackers** = pre-built pages that rank and chart one metric across a set of companies over time, generated from our own stored data. Each tracker is a saved query (D64) + a chart template, so trackers are cheap to add, and signed-in users can save their own.
+2. **Sector KPI trackers** (from sector packs, D31): e.g. telecom ARPU, cement/steel EBITDA per tonne, bank NIM/GNPA, IT constant-currency growth, auto volumes. For each, **company-reported** and **computed** values (e.g. EBITDA ÷ disclosed volume) are shown side by side, with definitions.
+3. **Segment-margin trackers:** e.g. machining/castings margin. Only where the company reports that segment with segment results; otherwise "not disclosed" (never inferred).
+4. **Export vs domestic economics:**
+   - Factual: export share (BRSR, geographic note) next to overall margin, trended.
+   - Margin **by geography** is shown only where disclosed (geographic operating segments or presentations). Accounting rules require revenue by geography, not profit.
+   - **"Mix-drag" estimate** (e.g. would margins rise if exports stopped?): a statistical estimate from margin vs export-share history, needing ≥ 8 quarters. **Owner-only, labelled estimate** (D73).
+5. **Repeat-order tracker:**
+   - Orders grouped by (supplier, **named** customer) from the graph: count and value per year, trend, and share of the supplier's revenue.
+   - Unnamed customers ("a leading OEM") are not aggregated.
+   - Only orders material enough to be disclosed (Reg 30) are visible; the page states this.
+   - When the customer is also listed, the link shows on both companies' pages.
+
 ## 9c. Legal consult checklist (before going public)
 1. **SEBI RA Regulations:** do cards (facts, comparisons with the company's own past, guidance tracking, red flags) count as a "research report" / research-analyst activity? Does the "statistical summaries of financial data" exclusion cover them?
 2. **Red flags naming people:** e.g. "insider traded during trading-window closure" names an individual. Defamation exposure? Required wording?
