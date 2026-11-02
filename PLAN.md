@@ -416,8 +416,8 @@ confidence_gate    published | published_unverified (badge, never hidden)
 - Interpretation of rated-facility changes as signals (D81, D53).
 - Correction screen (logged; shown publicly as "corrected") (D35). Review queues (CA, entity resolution, demergers, triage audit, error reports). Gold-set & cost dashboard.
 
-### 8.3 Future paid tier (D23)
-Not built now. Designed in: accounts, API keys, exports, per-plan limits. API design is an upcoming topic.
+### 8.3 Future paid tier (D23) & API (D93)
+Not built now. Designed in: accounts, API keys, exports, per-plan limits. The website runs on the same versioned API paid clients would use (D93). External keys/exports only after licence + legal consult.
 
 ---
 
@@ -531,7 +531,45 @@ Not built now. Designed in: accounts, API keys, exports, per-plan limits. API de
 
 ---
 
-## 14. Build order (to be refined in the milestones discussion)
+## 14. Milestones (proposed by Claude, awaiting owner approval)
+
+**Definition of done for every milestone:** tests pass in CI on real-file fixtures; staging runs clean; gold set (once it exists) shows no regression; `PLAN.md` + `docs/discussion-log.md` updated and the consistency check passes; owner sign-off.
+
+| # | Milestone | Done when |
+|---|---|---|
+| **M0** | Foundations | `probe/` passes from Cloudflare (or the D54 relay decision is made); monorepo, CI, D1 migrations for all domains; building blocks B1–B5 (identity, provenance/time, normalisers, ingestion framework, review queue) with tests |
+| **M1** | Market data, full universe | Phase 1 acceptance tests (§9.2) pass; backfill complete; daily job succeeds **10 consecutive sessions** with no manual fix; delivery, indices, market-structure data loading |
+| **M2** | Structured filings & financials | 5-year XBRL backfill (D90) for Nifty 50, then full universe; ≥ 99.5% of filings parse and pass identity checks (rest in review queue); restatement and basis rules verified on known cases; shareholding, PIT/SAST, ratings, board meetings live; classification CLI run once |
+| **M3** | Site v0 | Dashboard, stock page (market + financials sections), data-health page; **performance targets met** (below); noindex + rate limits in place |
+| **M4** | Gold set v0 | ≥ 50 labelled Nifty 50 cases covering every known failure type; owner labels complete |
+| **M5** | Announcements → timeline | Poller + triage + timeline for Nifty 50; first weekly triage audit run; latency measured |
+| **M6** | Extraction, memory, cards (private) | Gold-set thresholds met (below); cards, "latest quarter in brief", AI write-ups generated; daily card audit running; cost per item measured and within budget |
+| **M7** | **Quality gate → open public (unlisted)** | Gate thresholds met (below) |
+| **M8** | Discovery tools | Feature table, query builder (3 modes), trackers, sector pages, alerts |
+| **M9** | Depth | Graph links, plant registry, BRSR + annual-report jobs, Tier 1/2 differentiators (D69) in stages |
+| **M10** | Owner analytics | Signals + outcome ledger + backtest harness; scenarios; research chat |
+| **M11** | Nifty Next 50 | Same gates re-run on the new stocks |
+
+**Gold-set thresholds (M6):**
+- Number accuracy (value + unit + period + basis all correct) ≥ 99%.
+- Fact precision ≥ 97%, recall ≥ 90%.
+- Speaker attribution ≥ 98%.
+- **Zero** company mix-ups and **zero** unit errors.
+
+**Quality gate to open public (M7):**
+- Daily card audit: ≤ 1% of audited cards with any material error for **14 consecutive days**.
+- **Zero critical errors** in those 14 days. Critical = wrong company, wrong headline number, wrong unit or period, mixed basis.
+- Zero material triage misses in the last 2 weekly audits.
+- Lane A latency p90 ≤ 15 min during market hours.
+- Gemini spend within the daily cap for 14 days.
+
+**Performance targets (M3 onward):**
+- Cached page or API from India: TTFB ≤ 200 ms.
+- Stock page: largest content visible ≤ 2.0 s on mid-range mobile 4G.
+- API p95 ≤ 300 ms cached, ≤ 800 ms uncached.
+- Query builder results ≤ 2 s for Nifty 100, ≤ 5 s for the full universe.
+
+### Build order detail (unchanged sequence)
 1. **Probe from Cloudflare** → confirm reachability or trigger the D54 decision.
 2. Monorepo skeleton, D1 migrations (all domains), CI, shared parsers with real-file fixtures (BAJFINANCE 2025-06-13/16; Infosys/Sun Pharma XBRL; Sun Pharma BRSR).
 3. Market pipeline + CA engine + identity → backfill → **Phase 1 acceptance tests**.
@@ -575,8 +613,7 @@ probe/                throwaway reachability check
 
 **Still to discuss:**
 - performance targets (page-load and API latency) as part of milestones; the website must be fast, modern and expandable
-- API design for the future paid tier
-- milestones and definition of done
+- milestones, thresholds and performance targets: proposed in §14, awaiting owner approval
 - card sections, after real output (D25)
 
 **Still to verify:**
@@ -694,7 +731,8 @@ probe/                throwaway reachability check
 | D89 | Launch mode | **Open public, unlisted** (owner): no closed beta, no marketing ("not going to tell everyone"). Because unlisted ≠ private, these apply from day 1: `noindex` + robots disallow + no sitemap (search engines don't list it until the owner decides); bot protection and rate limits on all routes; costly features (plain-English queries) signed-in only (D64); owner-only data behind Access (D53). **Confirmed (owner): opening waits for the quality gate (D84).** Legal consult still recommended (§12). Owner context: on a `workers.dev` address with no marketing, practical exposure at launch is very low; the protections above are kept mainly to stop scrapers and cost abuse, which find new hosts automatically. |
 | D90 | Financial-statement history | **5 years** of quarterly + annual statements backfilled from XBRL (code only, no LLM). Market data still starts 2024-01-01 (D2). |
 | D91 | Stock page layout | **One long page** with a sticky section menu (desktop) / collapsible sections (mobile); sections lazy-load. Global controls: time-machine date, basis (primary default), reported/adjusted (adjusted default), original/restated (restated default); source on hover/tap for every number. **Order:** 0 Header (name, symbol, ISIN, 4-level sector, indices, group, EOD price, mcap ₹ cr, 52-week range, as-of, watchlist) → 1 **AI analysis write-up first** (D80) → 2 **Latest quarter in brief** (D92) → 3 What changed (since last visit / 7 days) → 4 Key facts (valuation vs own history & industry, growth vs trend, margins, ROCE/ROE, net debt, promoter holding/pledge) → 5 Cards & timeline → 6 Financials (12Q + 5Y annual, profit bridge, segments, ratios) → 7 Business (segments/NIC mix, geography, customers, raw materials, plants/capacity, commissioning watch, repeat orders) → 8 Management & guidance (guidance tracker, commitments, credibility ledger, concall metrics, analyst concerns, management changes) → 9 Ownership (shareholding, pledges, insiders, SAST, bulk/block, tracked investors, group) → 10 Credit, governance & forensics (ratings + rated facilities, governance, auditors, complaints, timeliness, disclosure regression, forensic panel, red flags, ASM/GSM) → 11 Price & market (chart with CA/event markers, delivery, technicals, relative returns, unexplained moves) → 12 Peers & links → 13 Documents & CA history. Owner-only panel behind Access: signals, scenarios, research chat. |
-| D92 | Latest quarter in brief | *(Proposed, owner asked: "short summary from transcript etc.?")* A short **factual** summary of the latest quarter's commentary sources: concall transcript (or provisional audio summary), investor presentation, press release, annual-report MD&A when new. 5–8 bullets, each with source and page: what management said (claim type labelled: reported / guidance / aspiration), what changed vs last quarter, guidance changes, top analyst concerns, and anything management declined to answer. No judgement (that's the write-up). Updated as each source arrives; shows which sources it covers. *Pending owner confirmation of format.* |
+| D92 | Latest quarter in brief | **Confirmed (owner): format OK, keep "declined to answer".** A short **factual** summary of the latest quarter's commentary sources: concall transcript (or provisional audio summary), investor presentation, press release, annual-report MD&A when new. 5–8 bullets, each with source and page: what management said (claim type labelled: reported / guidance / aspiration), what changed vs last quarter, guidance changes, top analyst concerns, and anything management declined to answer. No judgement (that's the write-up). Updated as each source arrives; shows which sources it covers. |
+| D93 | API design | **Delegated to Claude by the owner.** (1) **One API for everything:** the website uses the same versioned REST API (`/api/v1`, JSON) that paid clients would later get, so it is tested by daily use. (2) **Three route families:** public read (`/api/v1/...`), signed-in (`/api/v1/me/...`: watchlists, saved queries, alerts), owner-only (`/api/owner/...`, behind Access, never cached, never in public docs). (3) **Every response carries provenance** (source filing/page or XBRL tag, `period`, `disclosed_at`, `basis`, `version`, `origin`) and supports `as_of=` (time machine), `basis=`, `adjusted=`, `restated=`. (4) Cursor pagination; stable `security_id` in all payloads; symbols accepted as lookup only. (5) **Rate limits per tier:** anonymous < signed-in < (future) API key. (6) **External API keys and bulk exports are not offered until the data licence and legal consult are done** (D88, §12 #7): redistributing NSE data to third parties is the clearest licence trigger. (7) OpenAPI spec generated from code; breaking changes only in a new version (`/api/v2`). |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |

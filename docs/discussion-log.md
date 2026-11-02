@@ -183,7 +183,10 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 164 | "Wait for the quality gate, then move to the stock page." | D89 (gate confirmed); stock page proposal in §16 | ✅ |
 
 | 165 | Financial history 5 years OK; AI write-up first; one long page. | D90, D91 | ✅ |
-| 166 | "Short summary from transcript etc.?" | D92 (proposed: factual "latest quarter in brief", section 2 of stock page) | 🔶 confirm format |
+| 166 | "Short summary from transcript etc.?" | D92 (confirmed in #167) | ✅ |
+
+| 167 | Latest-quarter-brief format OK; keep "declined to answer". | D92 | ✅ |
+| 168 | "Move to milestones. I don't even understand the API, so it's better you decide everything." | D93 (API decided by Claude, delegated); milestones proposed in §14 | 🔶 milestones need approval |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -192,11 +195,11 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #166: all checks pass (92 decisions, 166 entries).*
+*Last run 2026-11-02 after entry #168: all checks pass (93 decisions, 168 entries).*
 
 ## Open items from this log
-- **#166** "Latest quarter in brief" format (D92): confirm.
-- **#20** Performance targets (milestones discussion).
+- **#168** Milestones, gold-set thresholds, quality-gate numbers and performance targets (§14): owner approval.
+- **#20** Performance targets: proposed in §14, awaiting approval.
 - **#35/#72** Card sections after real output.
 - **#53** Licence funding: decided, option D (D88).
 - **#73** Failure cases: found via daily audits and the private period (D84, D86).
