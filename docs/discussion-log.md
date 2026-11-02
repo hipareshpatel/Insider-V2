@@ -225,6 +225,10 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 196 | Name: **Quarterwise.in**. | D99, D58 | ✅ |
 
+| 197 | Keep discussing; check documents for anything missed. | Review found 4 design gaps → D114 (UTC/IST), D115 (legal pages, Google OAuth needs), D116 (email), D117 (security headers) | ✅ |
+| 198 | Should I buy the domain now? | D118 (yes, now, after a quick trademark search; repo is public and names the domain) | ✅ |
+| 199 | Does Cloudflare give an email like info@quarterwise.in for free? A single account? | D116 (free forwarding addresses, receive-only; sending needs a provider later) | ✅ |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -232,7 +236,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #196: all checks pass (113 decisions, 196 entries).*
+*Last run 2026-11-02 after entry #199: all checks pass (118 decisions, 199 entries).*
 
 ## Open items from this log
 - **#196** Owner actions: trademark search for "Quarterwise", buy `quarterwise.in` (+ optional `quarterwise.co.in`), add to Cloudflare.
