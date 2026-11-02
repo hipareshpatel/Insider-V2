@@ -382,6 +382,10 @@ probe/                throwaway Cloudflare reachability check
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
 
+## 9b. Proposed, awaiting owner decision (2026-11-02)
+**A. Ratio/adjustment conventions** (Screener "optimizations" guide used as one reference): adjusted metrics exclude exceptional items, with reported shown alongside; ratios on TTM where available; ROCE/ROE on average opening/closing capital, with capital employed definition documented. **No sentinel values** (Screener shows 999 for infinite): undefined ratios are null with a reason.
+**B. "Upcoming results" signals (new requirement):** a per-stock list of **factual, sourced leading indicators**, e.g. guidance revised up/down, order book ÷ TTM revenue, quarter-end provisional business updates (banks/NBFCs), monthly volumes (autos), capacity commissioned vs commitments due, insider buying, margin trend. **Not a prediction or ranking by default.** An outcome ledger records signals vs actual results each quarter; any ranking/prediction ships only if a point-in-time backtest beats a naive baseline. Needs legal review (forward-looking, stock-specific).
+
 ## 10. Open questions
 - **Funding gap:** NSE EOD licence ≈ ₹1.18 lakh/yr incl. GST per display medium (≈ $113/month for the website alone) > the $100/month budget. No ads or sponsors (D22).
 
