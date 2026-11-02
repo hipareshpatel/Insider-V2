@@ -64,8 +64,15 @@ export async function runDay(date: string, deps: Deps): Promise<DayReport> {
 }
 
 async function load(date: string, deps: Deps): Promise<DayReport> {
-  const [u, p, dl, ix] = await Promise.all([
-    get(deps.fetch, udiffUrl(ymd(date)), deps.retryWaits), get(deps.fetch, prBundleUrl(ddmmyy(date)), deps.retryWaits),
+  // PR bundle first: every session has one, so a settled 404 means no session and nothing else is fetched
+  // (the archive answers 403, not 404, for some missing bhavcopies, and refusals stop a run).
+  const p = await get(deps.fetch, prBundleUrl(ddmmyy(date)), deps.retryWaits);
+  if (p.res?.status === 404 && settledNoSession(date, deps.now())) {
+    await deps.market.run("INSERT OR REPLACE INTO trading_calendar (trade_date, is_session, note) VALUES (?, 0, 'no PR bundle')", [date]);
+    return { date, status: "no_session", reasons: ["PR bundle 404"] };
+  }
+  const [u, dl, ix] = await Promise.all([
+    get(deps.fetch, udiffUrl(ymd(date)), deps.retryWaits),
     get(deps.fetch, deliveryUrl(ddmmyyyy(date)), deps.retryWaits), get(deps.fetch, indexCloseUrl(ddmmyyyy(date)), deps.retryWaits),
   ]);
   for (const g of [u, p]) if (!g.res) return { date, status: "failed", reasons: [`${g.url}: ${g.error}`] };
