@@ -251,6 +251,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 210 | Cloudflare shows "Waiting for your registrar to propagate your new nameservers"; "stuck here". | Normal waiting state (1–2 h typical, up to 24 h); registry already correct (#209). Owner to do Parts D–E meanwhile. | ✅ |
 
+| 211 | Cloudflare confirmation email: `disclo.in` is active (Free plan). | Setup Parts A–B complete. Next: remove GoDaddy leftover DNS records, Parts C (email routing), D (Workers), E (probe secrets). | ✅ |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -258,7 +260,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #210: all checks pass (119 decisions, 210 entries).*
+*Last run 2026-11-02 after entry #211: all checks pass (119 decisions, 211 entries).*
 
 ## Open items from this log
 - **#204** Launch name to be decided by owner (trademark work paused); `disclo.in` stays the working domain. Owner actions: add `disclo.in` to Cloudflare; enable Email Routing.
