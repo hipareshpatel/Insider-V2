@@ -255,6 +255,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 212 | Screenshots: "domain protected by Cloudflare" overview with one-click Security/Performance toggles. | Setup guide: leave toggles off until launch (reasons recorded); next = DNS cleanup, Email Routing, probe | ✅ |
 
+| 213 | GoDaddy DNS screenshots: "what and where to delete?" | Setup guide: GoDaddy's DNS page is inactive after the nameserver switch; delete nothing there; cleanup happens in Cloudflare DNS | ✅ |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -262,7 +264,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #212: all checks pass (119 decisions, 212 entries).*
+*Last run 2026-11-02 after entry #213: all checks pass (119 decisions, 213 entries).*
 
 ## Open items from this log
 - **#204** Launch name to be decided by owner (trademark work paused); `disclo.in` stays the working domain. Owner actions: add `disclo.in` to Cloudflare; enable Email Routing.

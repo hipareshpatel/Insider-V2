@@ -40,6 +40,9 @@ Working domain: `disclo.in` (bought at GoDaddy).
 
 ---
 
+## After activation: clean up DNS **in Cloudflare (not GoDaddy)**
+Once nameservers point to Cloudflare, **GoDaddy's DNS page no longer does anything**. It still lists the old records (Parked A, NS ns29/ns30, SOA, www, _domainconnect, _dmarc), but nobody reads them. **Don't change anything there.** Do the cleanup in **Cloudflare → disclo.in → DNS → Records**: delete the two A records (15.197.148.33, 3.33.130.190), CNAME `_domainconnect`, TXT `_dmarc`; keep `www`.
+
 ## After activation: one-click toggles on the overview page
 Cloudflare's overview shows optional switches (Client-side security, Bot Fight Mode, Leaked credentials mitigation, Speed optimizations). **Leave them all off for now.** There's no site yet, and turning features on before there is one makes later problems harder to trace. They're decided when the site goes live:
 - **Bot Fight Mode:** decide at launch together with rate limiting (D108/D117); on the Free plan it can't be fine-tuned and can block legitimate API callers.
