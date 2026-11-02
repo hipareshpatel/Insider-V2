@@ -201,3 +201,16 @@ describe("maintenance + missing-file rules", () => {
     expect(await runPending({ ...deps, now: () => new Date("2025-06-17T01:00:00Z") }, { maxDates: 10, budgetMs: 60_000, revisitSessions: 5, from: "2025-06-13" })).toEqual([]);
   });
 });
+
+describe("wrong-date PR bundle (NSE served 04-Jun-2024 files as PR060424.zip)", () => {
+  it("is not loaded against the requested date; with no bhavcopy it's no session", async () => {
+    const { deps, market } = setup();
+    const pr16 = new Uint8Array(readFileSync(join(FX, "PR160625.zip")));
+    const f = async (u: string) => (u.endsWith("PR130625.zip") ? { status: 200, bytes: pr16, contentType: null } : { status: 404, bytes: new Uint8Array(), contentType: null });
+    const r = await runDay("2025-06-13", { ...deps, fetch: f, now: () => new Date("2025-06-15T00:00:00Z") });
+    expect(r.status).toBe("no_session");
+    expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM shares_daily"))[0]!.n).toBe(0);
+    const withBhav = async (u: string) => (u.endsWith("PR130625.zip") ? { status: 200, bytes: pr16, contentType: null } : fakeFetch()(u));
+    expect((await runDay("2025-06-13", { ...deps, fetch: withBhav })).status).toBe("rejected");
+  });
+});

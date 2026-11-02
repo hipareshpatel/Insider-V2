@@ -4,7 +4,7 @@ import {
   EQUITY_SERIES, type BhavRow, type DeliveryRow, type FetchResult, type Fetcher, type IdentifierRow, type IndexCloseRow,
   type McapRow, type RawStore, type ReviewItem, type Sql, type Stmt, affectsPrice, batchAll, decideFactor, dedupeBc, dec, diffIdentities,
   div, deliveryUrl, indexCloseUrl, insertRows, mul, parseDelivery, parseIndexClose, parsePrBundle, parsePurpose, parseUdiffZip,
-  prBundleUrl, reviewUpsert, sha256Hex, sub, toText, udiffUrl, withinRatio,
+  prBundleMatchesDate, prBundleUrl, reviewUpsert, sha256Hex, sub, toText, udiffUrl, withinRatio,
 } from "@disclo/core";
 import { addDays, ddmmyy, ddmmyyyy, settledNoSession, ymd } from "./dates.js";
 
@@ -94,8 +94,19 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
     await deps.market.run("INSERT OR REPLACE INTO trading_calendar (trade_date, is_session, note) VALUES (?, 0, 'no PR bundle')", [date]);
     return { date, status: "no_session", reasons: [`bhavcopy ${us}, PR bundle 404`] };
   }
-  if (us !== 200 || ps !== 200) return { date, status: "pending", reasons: [`bhavcopy ${us}, PR bundle ${ps}`] };
+  if (us !== 200 && !(us === 404 && ps === 200)) return { date, status: "pending", reasons: [`bhavcopy ${us}, PR bundle ${ps}`] };
+  if (ps !== 200) return { date, status: "pending", reasons: [`bhavcopy ${us}, PR bundle ${ps}`] };
 
+  // Wrong-date bundle (NSE data error): treat as missing.
+  const prParsed = await parsePrBundle(p.res!.bytes);
+  if (!prBundleMatchesDate(prParsed, date)) {
+    if (us === 404 && settledNoSession(date, deps.now())) {
+      await deps.market.run("INSERT OR REPLACE INTO trading_calendar (trade_date, is_session, note) VALUES (?, 0, 'PR bundle holds another date')", [date]);
+      return { date, status: "no_session", reasons: ["bhavcopy 404; PR bundle holds another date's files"] };
+    }
+    return { date, status: "rejected", reasons: [`PR bundle for ${date} holds another date's files (${prParsed.entryNames.slice(0, 3).join(", ")})`] };
+  }
+  if (us !== 200) return { date, status: "pending", reasons: [`bhavcopy ${us}, PR bundle 200 (dated correctly)`] };
   // Idempotency (B4): unchanged bytes for both main files -> nothing to do.
   const shaU = await sha256Hex(u.res!.bytes), shaP = await sha256Hex(p.res!.bytes);
   const prev = await deps.market.all<{ source: string; sha256: string }>(
@@ -106,7 +117,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   lap("fetched");
   // Parse (schema check: parsers throw on missing columns).
   const bhavAll = await parseUdiffZip(u.res!.bytes);
-  const pr = await parsePrBundle(p.res!.bytes);
+  const pr = prParsed;
   const delivery: DeliveryRow[] = dl.res?.status === 200 ? parseDelivery(new TextDecoder().decode(dl.res.bytes)) : [];
   const indices: IndexCloseRow[] = ix.res?.status === 200 ? parseIndexClose(new TextDecoder().decode(ix.res.bytes)) : [];
 
