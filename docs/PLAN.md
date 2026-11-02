@@ -1,6 +1,6 @@
 # Insider V2 — Plan (consolidated)
 
-**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D108** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`.
+**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D109** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`.
 No production code exists yet. The only code is `probe/`, a throwaway Worker for testing NSE reachability from Cloudflare.
 
 **Working agreement:** this is a discussion phase. No production code is written until the owner says so. Claude asks for the owner's input wherever a decision is theirs, records every decision here, and flags anything it can't verify.
@@ -121,6 +121,8 @@ Features built later should only *read* these fields, never require them to be a
 | Website | React + Vite on Workers static assets. Public pages, **Google sign-in** for accounts (D63), **owner-only routes behind Cloudflare Access** (D53) |
 | LLM | Gemini (paid tier) behind a provider interface (D15) |
 | Owner's machine | Sector classification job (D8) |
+
+**VPS vs Cloudflare (D109):** Cloudflare for site and pipeline; VPS/owner machine only as engine fallback, feeding R2 or a batched ingestion Worker.
 
 **Why not GitHub Actions + Python:**
 - GitHub's Actions terms restrict non-build workloads.
@@ -648,7 +650,7 @@ probe/                throwaway reachability check
 **Resolved (D80):** ~~Open question from the owner's original brief:~~ Gemini was described as being used for **stock analysis of different types (technical, fundamental, stock research)**, not only announcement processing. The plan currently covers this as computed technical/fundamental data + cards + owner-only research chat. Is a **per-stock AI analysis write-up** (fundamental/technical) wanted, and if so public (factual) or owner-only?
 **Resolved (D81):** "credit increases" = rated bank-facility amount increases.
 
-**Name:** choose Saarnama / Paarkhi / more options (D99), then an IP India trademark search before buying the domain.
+**Name:** choose from Kasautee / Saarnama / Satyalekh / Pramaanam / AnkLens / Primafile (D99), then an IP India trademark search before buying the domain.
 
 **Provisional decisions to confirm:** D38 (linked-company card threshold), D39 (unlisted counterparties).
 
@@ -756,7 +758,7 @@ probe/                throwaway reachability check
 | D96 | Owner review time | **30 minutes per day.** Review work is sized to fit: queues are ranked by impact (critical first), routine items auto-resolve by rule where safe, and the daily review list targets ≤ ~30 items. If the backlog grows beyond what 30 min clears, the data-health page shows it and automation thresholds are tightened. Nothing silently waits. |
 | D97 | Repo visibility & docs | **Repo stays public** (owner). No repo description, no README at the root; all `.md` documents live in `docs/` only. *Claude's note:* this reduces casual discoverability only; code and `docs/` remain readable by anyone who opens the repo, and private repos are free on GitHub (CI minutes sufficient). Recommendation stands: consider private. |
 | D98 | Usage analytics | **Cloudflare Web Analytics** (free, cookie-less) from day 1; usage numbers support pitching. |
-| D99 | Name & domain | *Proposed by Claude (owner asked):* **Saarnama** (सारनामा, "the record of what matters"). RDAP check 2026-11-02: `saarnama.com` and `saarnama.in` unregistered. Alternative: **Paarkhi** ("the assessor", one who tests gold): `paarkhi.in` unregistered, `.com` taken. Trademark search (IP India) still needed before buying. *Pending owner choice.* |
+| D99 | Name & domain | *Proposed by Claude (owner asked for more and better options).* RDAP check 2026-11-02, **both `.com` and `.in` unregistered** for: **Kasautee** (कसौटी, the touchstone used to test gold: "the test of truth"; *Claude's first pick*), **Saarnama** (सारनामा, "the record of what matters"), **Satyalekh** (सत्य लेख, "true record"), **Pramaanam** (प्रमाणम्, "proof/evidence"), **AnkLens** (अंक numbers + lens), **Primafile** (English: "primary filings"). Paarkhi: `.in` only. IP India trademark search (classes 36/42) needed before buying; note a TV-serial title spelled "Kasautii" exists. *Pending owner choice.* |
 | D100 | Visual design | **Light theme only.** Mobile-first web (D101). |
 | D101 | Platforms | **Web only, mobile-first.** No app (an app would also be a separate NSE licence medium). |
 | D102 | Accessibility | Formal WCAG target **later** (owner). Basic good practice from day 1 at no extra cost: readable contrast, keyboard-usable controls, alt text. |
@@ -766,6 +768,7 @@ probe/                throwaway reachability check
 | D106 | Exports | Built **from day 1**. **Owner-only until the licence is in place** (testing needs, D88/D93); then enabled for signed-in users. |
 | D107 | User data | Account deletion and data export on request (DPDP). **Error reports kept 2 years.** |
 | D108 | Scale & hosting design | **Stay on Cloudflare** (no egress fees; cheapest at 15M page views/month). Designed for scale from day 1: (1) **page-level aggregated endpoints** (a stock page loads in 1–3 API calls, not ~10); (2) **responses cacheable at the CDN** with long TTLs, purged by the pipeline after each update, so cached hits don't invoke a Worker. This needs a **custom domain** with cache rules (`workers.dev` can't do this), so buying the domain (D99) becomes necessary before high traffic; (3) **D1 query-time budget:** every public query < 50 ms; D1 executes queries one at a time per database, so heavy query-builder work runs on a **separate feature-table database** (and D1 read replicas if needed), never on the ingestion databases; (4) static assets served free from Workers static assets. Cost estimate: ≈ $8–15/month for hosting at that traffic (§11). |
+| D109 | Hosting choice (VPS vs Cloudflare review) | Owner shared a Cloudflare vs VPS comparison. **Decision stays: Cloudflare for both the site ("face") and the pipeline ("engine").** Reasons: (1) the pipeline needs no Python data-science stack or headless browser: NSE archive files, JSON APIs and Gemini calls run fine in Workers/Queues; (2) a VPS is also a datacenter IP, so it doesn't solve NSE blocking; (3) a VPS adds OS patching, security and monitoring that the owner's 30 min/day can't absorb, and is a single point of failure; (4) for 15M page views/month, Cloudflare's CDN serving is cheaper and sturdier than one box. **A VPS (e.g. Hetzner) or the owner's machine is used only as an engine fallback** if the probe shows NSE blocks Cloudflare (D54) or a measured job can't fit Workers/Containers. In that case it pushes raw files/JSON to **R2 or a batched ingestion Worker**, not row-by-row through D1's REST API (slow, rate-limited). The sector-classification job already runs on the owner's machine (D8). |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |
