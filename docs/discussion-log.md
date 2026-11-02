@@ -287,6 +287,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 229 | "Tell me what you want from V1 and I will get for you." | Claude's answer: nothing more is needed. At most, the one result line of V1's quote-equity probe step (date + pass/fail) from that run's job summary. The test from our own runner (awaiting owner OK, #228) is the decisive evidence; more V1 material would weaken the clean slate. | 🔶 awaiting owner OK for replication test |
 | 230 | "OK, run the replication test." | `.github/workflows/probe.yml` job `quote-equity-httpx` (httpx HTTP/1.1 + same headers; curl HTTP/1.1 control); results in PLAN Appendix B. **Result: 403 everywhere** (httpx, curl HTTP/1.1, homepage too) → IP-range block of GitHub runners, not request shape. D8 stands; scheduled runs re-test other IPs. | 🔶 scheduled re-tests |
 | 231 | Owner pasted V1 findings: V1's own GitHub probe (22 Oct 2026) got 403 on quote-equity, so it was never shown to work from GitHub; the industry levels had come from BSE's quote-page header (`ComHeadernew`, 4 levels) run from a home connection; suggested probing it from a runner. Owner: **"Better to use BSE for this."** | D120 (provisional; amends D36; D8 = fallback); Appendix B; §3, §4.2, §6, §16; field catalogue §2. BSE probe run: **403 from GitHub and Cloudflare** → owner's machine either way. Only the 403 fact and the BSE endpoint name are kept from the paste (clean slate); V1 counts and fallback rules not recorded. | ❓ owner: machine run OK? BSE or NSE taxonomy? NSE-only fallback |
+| 232 | Owner pasted a description of V1's BSE classification process (cookie visit, `ComHeadernew` per company, fields Sector/IndustryNew/IGroup/ISubGroup, 0.5 s pause, 403 = stop), a standalone script copied from V1, and two V1 stored rows; suggests running it and NSE `quote-equity` side by side from the owner's laptop for ITC and INFY. | Method facts + storage note in Appendix B and D120. **V1 script and stored rows not committed or used** (clean slate); a V2 comparison script will be written from scratch if the owner agrees to a laptop run. ⚠ Laptop run vs #206 (no probes on the owner's computer): owner to confirm. | ❓ owner: laptop comparison run OK? |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -295,7 +296,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #231 (BSE probe result): all checks pass (120 decisions, 231 entries).*
+*Last run 2026-11-02 after entry #232: all checks pass (120 decisions, 232 entries); ⚠ #232 vs #206 open.*
 
 ## Open items from this log
 - **#204** Launch name to be decided by owner (trademark work paused); `disclo.in` stays the working domain. Owner actions: add `disclo.in` to Cloudflare; enable Email Routing.
