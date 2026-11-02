@@ -1,0 +1,57 @@
+name: db
+
+# Creates the D1 databases (6 domains x production/staging, D43) and applies migrations in db/migrations/<domain>.
+# Staging first; production only if staging succeeded. Output is masked (public logs).
+on:
+  workflow_dispatch:
+  push:
+    branches: [ccr-eb822347-c3zp4b]
+    paths: ["db/migrations/**", "tools/d1.mjs", ".github/workflows/db.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Mask filter
+        run: |
+          mkdir -p "$HOME/bin"
+          printf '%s\n' '#!/bin/sh' "sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/<email hidden>/g; s/│ [^│]*Account[^│]*│/│ <account hidden> │/g'" > "$HOME/bin/mask"
+          chmod +x "$HOME/bin/mask"; echo "$HOME/bin" >> "$GITHUB_PATH"
+      - name: Ensure databases exist
+        run: set -o pipefail; node tools/d1.mjs ensure 2>&1 | mask
+      - name: Apply migrations (staging, then production)
+        run: |
+          set -o pipefail
+          for env in staging production; do
+            node tools/d1.mjs config . $env | mask
+            for d in market filings announce memory graph app; do
+              b="DB_$(echo $d | tr a-z A-Z)"
+              echo "== $env $d"
+              npx --yes wrangler@4.156.1 d1 migrations apply "$b" --remote -c wrangler.migrate.json 2>&1 | mask | grep -vE "^\s*$" | tail -8
+            done
+          done
+      - name: Verify tables
+        run: |
+          set -o pipefail
+          for env in staging production; do
+            node tools/d1.mjs config . $env >/dev/null
+            for d in market filings announce memory graph app; do
+              b="DB_$(echo $d | tr a-z A-Z)"
+              n=$(npx --yes wrangler@4.156.1 d1 execute "$b" --remote -c wrangler.migrate.json --json --command "SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name NOT LIKE '\_%' ESCAPE '\' AND name NOT LIKE 'sqlite%' AND name <> 'd1_migrations'" 2>/dev/null | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const j=JSON.parse(s.slice(s.indexOf("[")));console.log(j[0].results[0].n)})')
+              echo "$env $d tables=$n"
+            done
+          done
