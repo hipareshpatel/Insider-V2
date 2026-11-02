@@ -178,6 +178,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 162 | "Keep it open public, as I'm not going to tell everyone or do marketing, promise." | D89 (open public, unlisted, noindex; quality gate assumed to still apply) | 🔶 confirm gate assumption |
 
+| 163 | "Who is going to use a workers.dev domain for launch? No one, so try to understand my situation." Practically, the site is obscure, so real exposure at launch is low. | D89 (accepted: low practical exposure; cheap protections kept for cost/scraping, not secrecy) | ✅ |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -185,7 +187,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #162: all checks pass (89 decisions, 162 entries).*
+*Last run 2026-11-02 after entry #163: all checks pass (89 decisions, 163 entries).*
 
 ## Open items from this log
 - **#20** Performance targets (milestones discussion).
