@@ -99,6 +99,8 @@ describe("Bc purpose parser (patterns from 2024–2026 files)", () => {
   });
   it("sends anything not understood to review instead of guessing", () => {
     expect(c("SCH AGMT-BONUS NCRPS 1:1").unparsed).toEqual(["SCH AGMT-BONUS NCRPS 1:1"]);
+    // seen live on 2024-02-01: NSE truncated the purpose text
+    expect(c("FV SPLT FRM RS 216.75 TO")).toEqual({ components: [], unparsed: ["FV SPLT FRM RS 216.75 TO"] });
     expect(c("DEMERGER").components).toEqual([{ type: "demerger" }]);
     expect(affectsPrice(c("DEMERGER"))).toBe(true);
   });
