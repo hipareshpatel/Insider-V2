@@ -1,4 +1,4 @@
-// Archive fetcher (D124): up to 4 parallel, no fixed pause; on 403/429/503 drop to 1 at a time with a 2 s pause;
+// Archive fetcher (D124): 2 parallel (refusals seen at 4 from Cloudflare, Appendix B), no fixed pause; on 403/429/503 drop to 1 at a time with a 2 s pause;
 // three refusals in a row stop the run (resume later). 404 is passed through (holiday / file not published).
 import type { FetchResult, Fetcher } from "@disclo/core";
 
@@ -13,7 +13,7 @@ export function archiveFetcher(base: typeof fetch = fetch, sleep = (ms: number) 
   let active = 0;
   const queue: (() => void)[] = [];
   const acquire = async () => {
-    const limit = slow ? 1 : 4;
+    const limit = slow ? 1 : 2;
     if (active >= limit) await new Promise<void>((r) => queue.push(r));
     active++;
   };

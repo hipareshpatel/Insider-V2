@@ -77,6 +77,8 @@ describe("identity (B1)", () => {
     ]);
     expect(changes.map((c) => c.kind)).toEqual(["isin_change", "symbol_change", "new_security", "isin_change"]);
     const withConflict = diffIdentities(rows, [{ symbol: "INFY", isin: "INE296A01024", date: "2025-01-01" }]);
+    const doubled = [...rows, { securityId: 3, idType: "nse_symbol" as const, value: "INFY", validFrom: "2024-06-01", validTo: null }];
+    expect(diffIdentities(doubled, [{ symbol: "INFY", isin: "INE009A01021", date: "2025-01-01" }])[0]?.kind).toBe("conflict");
     expect(withConflict[0]?.kind).toBe("conflict");
   });
 });

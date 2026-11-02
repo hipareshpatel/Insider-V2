@@ -13,10 +13,7 @@ export async function pendingDates(db: Sql, now: Date, revisit: number, from = H
   const all = datesBetween(from < HISTORY_START ? HISTORY_START : from, today).filter((d) => eligible(d, now));
   const done = new Set((await db.all<{ run_key: string }>(
     "SELECT DISTINCT run_key FROM pipeline_run WHERE pipeline='market.daily' AND status IN ('ok','skipped')")).map((r) => r.run_key));
-  const recentFail = new Set((await db.all<{ run_key: string }>(
-    "SELECT DISTINCT run_key FROM pipeline_run WHERE pipeline='market.daily' AND status='failed' AND started_at > ? AND (detail IS NULL OR detail NOT LIKE '%\"status\":\"pending\"%')",
-    [new Date(now.getTime() - 3 * 3600_000).toISOString()])).map((r) => r.run_key));
-  const todo = all.filter((d) => !done.has(d) && !recentFail.has(d));
+  const todo = all.filter((d) => !done.has(d));
   // Revised-file check (§5.2): re-fetch the last N sessions once a day; unchanged bytes cost nothing.
   const recent = (await db.all<{ trade_date: string }>(
     "SELECT trade_date FROM trading_calendar WHERE is_session=1 ORDER BY trade_date DESC LIMIT ?", [revisit])).map((r) => r.trade_date);
@@ -33,7 +30,9 @@ export async function runPending(deps: Deps, opt: RunOptions): Promise<DayReport
     if (Date.now() - t0 > opt.budgetMs) break;
     const r = await runDay(d, deps);
     out.push(r);
-    if (r.status === "failed" && r.reasons?.some((x) => x.includes("ArchiveStopped"))) break;
+    // Strict date order: corporate-action factors compare with the previous session, so a date that didn't load
+    // (refused, failed, rejected by a gate) stops this run; the next run retries it first.
+    if (!["loaded", "unchanged", "no_session"].includes(r.status)) break;
   }
   await deriveJanuary2024(deps.market);
   await maybeSnapshot(deps);

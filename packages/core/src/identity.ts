@@ -40,8 +40,15 @@ export type IdentityChange =
 export function diffIdentities(rows: readonly IdentifierRow[], observed: readonly ObservedListing[]): IdentityChange[] {
   const out: IdentityChange[] = [];
   for (const o of observed) {
-    const bySym = resolveAsOf(rows, "nse_symbol", o.symbol, o.date);
-    const byIsin = resolveAsOf(rows, "isin", o.isin, o.date);
+    let bySym: number | null, byIsin: number | null;
+    try {
+      bySym = resolveAsOf(rows, "nse_symbol", o.symbol, o.date);
+      byIsin = resolveAsOf(rows, "isin", o.isin, o.date);
+    } catch (e) {
+      // Our own history already has two securities on one identifier: never guess, send to review, keep the day loading.
+      out.push({ kind: "conflict", symbol: o.symbol, isin: o.isin, date: o.date, reason: String(e instanceof Error ? e.message : e) });
+      continue;
+    }
     if (bySym === null && byIsin === null) out.push({ kind: "new_security", symbol: o.symbol, isin: o.isin, date: o.date });
     else if (bySym !== null && byIsin !== null && bySym !== byIsin)
       out.push({ kind: "conflict", symbol: o.symbol, isin: o.isin, date: o.date, reason: `symbol→${bySym}, isin→${byIsin}` });

@@ -146,16 +146,27 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   const observed = [...new Map(good.map((r) => [r.symbol, { symbol: r.symbol, isin: r.isin, date, name: r.name }])).values()];
   const changes = diffIdentities(ids, observed);
   const conflictSyms = new Set<string>();
+  // New securities in one batch (the first day creates ~2,000).
+  const fresh = changes.filter((c): c is Extract<typeof c, { kind: "new_security" }> => c.kind === "new_security");
+  if (fresh.length) {
+    const [mx] = await deps.market.all<{ id: number | null }>("SELECT max(security_id) AS id FROM security");
+    let next = (mx?.id ?? 0) + 1;
+    const secRows: unknown[][] = [];
+    const idRowsNew: unknown[][] = [];
+    for (const c of fresh) {
+      const sid = next++;
+      secRows.push([sid, observed.find((o) => o.symbol === c.symbol)!.name]);
+      idRowsNew.push([sid, "nse_symbol", c.symbol, date, `udiff:${date}`], [sid, "isin", c.isin, date, `udiff:${date}`]);
+      ids.push({ securityId: sid, idType: "nse_symbol", value: c.symbol, validFrom: date, validTo: null }, { securityId: sid, idType: "isin", value: c.isin, validFrom: date, validTo: null });
+    }
+    await batchAll(deps.market, [
+      ...insertRows("INSERT INTO security (security_id, name)", 2, secRows),
+      ...insertRows("INSERT INTO security_identifier (security_id,id_type,value,valid_from,source)", 5, idRowsNew),
+    ]);
+  }
   for (const c of changes) {
     if (c.kind === "new_security") {
-      const name = observed.find((o) => o.symbol === c.symbol)!.name;
-      await deps.market.run("INSERT INTO security (name) VALUES (?)", [name]);
-      const [s] = await deps.market.all<{ id: number }>("SELECT max(security_id) AS id FROM security");
-      await deps.market.batch([
-        { sql: "INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (?,?,?,?,?)", params: [s!.id, "nse_symbol", c.symbol, date, `udiff:${date}`] },
-        { sql: "INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (?,?,?,?,?)", params: [s!.id, "isin", c.isin, date, `udiff:${date}`] },
-      ]);
-      ids.push({ securityId: s!.id, idType: "nse_symbol", value: c.symbol, validFrom: date, validTo: null }, { securityId: s!.id, idType: "isin", value: c.isin, validFrom: date, validTo: null });
+      continue;
     } else if (c.kind === "isin_change" || c.kind === "symbol_change") {
       const t = c.kind === "isin_change" ? "isin" : "nse_symbol";
       await deps.market.batch([

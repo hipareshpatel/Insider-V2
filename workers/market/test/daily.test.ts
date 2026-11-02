@@ -145,3 +145,15 @@ describe("index snapshot + sector (D9, D121)", () => {
     expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM index_membership WHERE index_name='NIFTY TOTAL MARKET' AND valid_to IS NULL"))[0]!.n).toBe(4);
   });
 });
+
+describe("runner order", () => {
+  it("stops at the first date that didn't load, so later dates never get ahead of it", async () => {
+    const { runPending } = await import("../src/runner.js");
+    const { deps } = setup();
+    const out = await runPending({ ...deps, now: () => new Date("2025-06-17T01:00:00Z") }, { maxDates: 10, budgetMs: 60_000, revisitSessions: 5, from: "2025-06-13" });
+    // 13th loads; 14th/15th are weekend 404s -> no session; 16th loads; 17th not eligible yet
+    expect(out.map((r) => `${r.date}:${r.status}`)).toEqual(["2025-06-13:loaded", "2025-06-14:no_session", "2025-06-15:no_session", "2025-06-16:loaded"]);
+    const refused = await runPending({ ...deps, fetch: async () => ({ status: 403, bytes: new Uint8Array(), contentType: null }), now: () => new Date("2025-06-20T01:00:00Z") }, { maxDates: 10, budgetMs: 60_000, revisitSessions: 0, from: "2025-06-13" });
+    expect(refused.map((r) => r.status)).toEqual(["pending"]);
+  });
+});
