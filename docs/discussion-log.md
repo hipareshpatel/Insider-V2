@@ -33,7 +33,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 23 | Repo public. | D14 | ✅ |
 | 24 | No Cloudflare account yet → later: free account created. | §16 owner actions | ✅ |
 | 25 | The project will have an external API for persistent memory; plan for it. | §5.5 memory, §7 | ✅ |
-| 26 | Gemini API will be used for stock analysis of different types (technical, fundamental, stock research, and so on). | §7.6; **per-stock AI analysis write-up not yet decided** | ❓ |
+| 26 | Gemini API will be used for stock analysis of different types (technical, fundamental, stock research, and so on). | D80 (public factual overview; judgement owner-only) | ✅ |
 | 27 | Gemini reads all NSE announcements, collects required info per stock, saves it in memory. | §5.5, §7 | ✅ |
 | 28 | On a new announcement: read it, read the stock's memory, pick the needed context from a huge memory, process the announcement with past inputs. | §7.4 | ✅ |
 | 29 | "I may not explain well; ask more questions." | Working agreement | ✅ |
@@ -129,7 +129,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 119 | Export market / country-wise exposure (e.g. US tax on pharma); query pharma companies with highest exposure or similar; "Claude must help here". | D70, D71 | ✅ |
 | 120 | Companies in the castings segment with castings sales > X% and margin above Y%, and so on. | D70 (NIC + segment margins) | ✅ |
 | 121 | "What other such ideas should we add?" | D70–D75 | ✅ |
-| 122 | Employee count tracking, seen on other sites, for predicting expansion or "credit increases", or forensics (e.g. 1,200 employees per FY26 annual report but salaries only ₹1.2 cr = red flag). | D71 (forensic), D53 (expansion indicator); **"credit increases" meaning unclear** | ❓ |
+| 122 | Employee count tracking, seen on other sites, for predicting expansion or "credit increases", or forensics (e.g. 1,200 employees per FY26 annual report but salaries only ₹1.2 cr = red flag). | D71 (forensic), D53 (expansion indicator), D81 ("credit increases" = rated facility amounts) | ✅ |
 | 123 | Margin recovery or margin going away. | D70, catalogue | ✅ |
 | 124 | Input like Tata Steel: steel price up 40% → find companies with steel as the biggest raw material and possible inventory gain/loss, etc. | D72, D73 | ✅ |
 | 125 | Look at Tijori and its social media for more ideas. | Tijori reviewed; niche indices + X-ray adopted (D75); macro/social trends later (§1) | ✅ |
@@ -147,9 +147,13 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 137 | "Is anything I said missing?" | Found 5 gaps, fixed (D79, D15, §7.5, D53, open question #26) | ✅ |
 | 138 | Everything discussed must go to documentation; skipping things wastes the owner's time and energy. | This log + same-turn update rule | ✅ |
 
+| 139 | Agreed with Claude's recommendation: factual overview public, judgement owner-only. | D80 | ✅ |
+| 140 | "Credit increases" example: a small company's credit rating was for ₹100 cr at rating A; a recent rating announcement shows the rating stayed A but the credit limit rose by ₹500 cr. Owner's understanding: this signals upcoming capex, a big order etc. ("I might be wrong"). | D81 (with split by facility type; interpretation labelled) | ✅ |
+| 141 | Some websites track new facilities going live and warn before results: last quarter management said 30% utilisation next quarter; expect high depreciation because plant cost is ₹X cr, so margins may look compressed. | D82 (facts public; estimate owner-only) | 🔶 owner to confirm public/owner split |
+| 142 | Same can be analysed and highlighted using contextual memory: new capacity was the reason PAT decreased, or the block was capitalised now, and so on. | D82 (post-results evidence-based explanation, public) | ✅ |
+
 ## Open items from this log
-- **#26** Per-stock AI analysis write-up (fundamental/technical): wanted? Public factual or owner-only?
-- **#122** "Credit increases": bank credit growth, company borrowing increase, or credit-rating upgrades?
+- **#141** Pre-results commissioning warning: confirm facts public, estimated depreciation/margin impact owner-only.
 - **#20** Performance targets (milestones discussion).
 - **#35/#72** Card sections after real output.
 - **#53** Licence funding.

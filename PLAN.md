@@ -170,7 +170,7 @@ All NSE. "Verified" = fetched successfully from a cloud IP on 2026-11-02 (Append
 | Takeover Reg 29 | `corporate-sast-reg29` | As filed | Verified |
 | Pledges (SAST Reg 31) | not found yet | As filed | **To find**; shareholding pattern is pledge truth meanwhile |
 | Related-party transactions | possibly in half-yearly integrated filing | Half-yearly | **To verify** |
-| Credit ratings (agency, rating, action, outlook) | `corporate-credit-rating` | As filed | Verified (D76) |
+| Credit ratings (agency, instrument type, rating, action, outlook; **no amounts**) | `corporate-credit-rating` (+ XBRL per rating) | As filed | Verified (D76, D81) |
 | Board meetings (results calendar) | `corporate-board-meetings` | As filed | Verified |
 | Corporate actions | `corporates-corporateActions` | As filed | Verified |
 | BRSR (XBRL) | `corporate-bussiness-sustainabilitiy` (NSE's spelling) | Annual | Verified (D71) |
@@ -577,8 +577,8 @@ probe/                throwaway reachability check
 
 **Unresolved:** funding for the NSE licence (EOD Capital Market ≈ ₹1,00,000 per display medium + GST ≈ $113/month for the website alone, above the $100 budget). No ads or sponsors (D22).
 
-**Open question from the owner's original brief:** Gemini was described as being used for **stock analysis of different types (technical, fundamental, stock research)**, not only announcement processing. The plan currently covers this as computed technical/fundamental data + cards + owner-only research chat. Is a **per-stock AI analysis write-up** (fundamental/technical) wanted, and if so public (factual) or owner-only?
-**Clarify:** "credit increases" in the employee-count idea: bank credit growth, a company's borrowing increase, or credit-rating upgrades?
+**Resolved (D80):** ~~Open question from the owner's original brief:~~ Gemini was described as being used for **stock analysis of different types (technical, fundamental, stock research)**, not only announcement processing. The plan currently covers this as computed technical/fundamental data + cards + owner-only research chat. Is a **per-stock AI analysis write-up** (fundamental/technical) wanted, and if so public (factual) or owner-only?
+**Resolved (D81):** "credit increases" = rated bank-facility amount increases.
 
 **Provisional decisions to confirm:** D38 (linked-company card threshold), D39 (unlisted counterparties).
 
@@ -663,10 +663,13 @@ probe/                throwaway reachability check
 | D73 | Scenario calculator | Owner-only; user-entered shocks → estimated cost impact and inventory gain/loss, labelled as a scenario. |
 | D74 | Annual-report scope | Adds: segment note (geography + major customers), revenue disaggregation, FX earnings & outgo, R&D, unhedged FX exposure, raw materials consumed. |
 | D75 | Niche indices & portfolio X-ray | Adopted (NIC-based niche indices; aggregated exposure X-ray). |
-| D76 | Structured NSE sources | Integrated Filing – Financials as primary quarterly source; structured credit ratings; market-structure data (F&O OI, ban, ASM/GSM, short selling, price bands); governance fields from Integrated Filing – Governance. Later (non-NSE): MCA charges, AMFI, RBI. |
+| D76 | Structured NSE sources | Integrated Filing – Financials as primary quarterly source; structured credit ratings (agency, instrument type, rating, action, outlook; **no amounts**, see D81); market-structure data (F&O OI, ban, ASM/GSM, short selling, price bands); governance fields from Integrated Filing – Governance. Later (non-NSE): MCA charges, AMFI, RBI. |
 | D77 | Plant registry & location impact | Plant entity with location (PIN → city/district/state), products, capacity, utilisation, status, regulatory status; annual-report plant locations cross-checked with BRSR counts; Reg 30 disruption disclosures linked to plants; city/state filtering, **no map view**; plant revenue share factual only when single-plant/disclosed, else labelled estimate; owner-entered event impact screen. News and FDA databases later. |
 | D78 | Trackers | **Adopted:** sector KPI trackers (company-reported vs computed), segment-margin trackers (where disclosed), export share vs margin, repeat-order tracker (named customers, disclosed orders). **Export mix-drag estimate: owner-only, labelled.** |
 | D79 | Availability | **Occasional downtime is acceptable** (owner, production discussion). No redundancy/failover/on-call; queues catch up after outages; freshness indicator (D46) shows staleness. |
+| D80 | Per-stock AI overview | **Public:** a factual company overview (business, segments, trends, guidance record, commitments, red flags), with no opinion or judgement. **Owner-only:** full AI analysis with judgement (fundamental/technical/research). Consistent with D21, D53. |
+| D81 | Rated bank-facility tracking | Track the **rated amount** of bank facilities/instruments over time, not just the rating. E.g. rating unchanged at A, but rated facilities raised ₹100 cr → ₹600 cr = an early sign of capex, large orders or working-capital expansion. *Verified 2026-11-02:* NSE's structured credit-rating feed/XBRL has agency, instrument type, rating, action, outlook, dates, but **no amounts**. Amounts and the split come from the **credit-rating announcement PDF** (CRA letter/press release), extracted in Lane A. **Split matters:** long-term term loans (→ capex), fund-based working capital (→ growth *or* stress), non-fund-based limits like bank guarantees/LCs (→ order execution). Public: facts (amount change by type). Interpretation ("likely capex") is labelled as such, and owner-only signal per D53. CRA rationale reports (non-NSE) later (D36). |
+| D82 | Capacity commissioning → P&L impact | **Before results (watch item):** when a plant/capacity is commissioned (D77), show facts together: project cost, commissioning date, management's guided utilisation ramp (e.g. 30% next quarter), depreciation policy (annual report), debt-funded share. Public = facts only. **Owner-only** = estimated incremental depreciation (cost ÷ useful life), finance cost no longer capitalised after commissioning (Ind AS 23), and estimated margin effect (B15, labelled estimate). **After results (card context):** explain changes with evidence from memory, e.g. depreciation +₹X cr and finance cost +₹Y cr QoQ, coinciding with commissioning of plant Z (₹W cr, CWIP → gross block in the half-yearly balance sheet), utilisation N% vs guidance. Stated as a factual link between disclosed numbers, not a judgement. |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |
