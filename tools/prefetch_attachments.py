@@ -39,6 +39,9 @@ def ingest(job_id, status, http, data):
     for i in range(4):
         try:
             with urllib.request.urlopen(req, timeout=60) as r: return r.status == 200
+        except urllib.error.HTTPError as e:
+            if e.code == 403: raise SystemExit("ingest refused the token (403): stopping")
+            time.sleep(2 * (i + 1))
         except Exception:
             time.sleep(2 * (i + 1))
     return False
