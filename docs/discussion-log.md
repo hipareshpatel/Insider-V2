@@ -294,7 +294,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 236 | "Accepted." (D38/D39 refinements) | Read as: all proposed fixes accepted; 2% threshold kept; merges auto only on exact alias, others to owner review queue. D38, D39 confirmed; §5.6, §2 #8, §16 updated. Unlisted-entity public pages answered in #238. | ✅ |
 | 237 | *(Carried over from the previous chat window):* "§16 Open items is stale; rewrite it with the current setup status" (Cloudflare Free plan; disclo.in active, DNS cleaned; Email Routing info@/alerts@/paresh@ → owner's Gmail, test pending; Workers subdomain set; GitHub secrets added; probe working, remove 3×/day schedule after ~2 days). Upgrades before backfill/go-live: Workers Paid, paid Gemini key. Remove done/superseded: adding secrets, failure cases (D84/D86), Q1–Q12 (answered), performance targets (D94). Log it and run the consistency check. | §16 rewritten; this log's open-items list aligned to it. Stale "Resolved" lines (D80, D81) and done owner actions dropped; parked classification and D39 pages kept. | ✅ |
 | 238 | Accepted Claude's recommendation: no public pages for unlisted entities at launch (thin, one-sided); may add later. | D39 (e), §5.6; removed from §16 | ✅ |
-| 239 | "Email test at last." "Explain what is the field catalogue." Name: "Disclo, https://disclo.in/". "Sector you will get in the CSV when you download it from NSE; we will use it." | Email test = last item (§16). Field catalogue explained in chat. D99 final (Disclo); D119 trademark check resumes. **D121** (NSE index CSV sector) supersedes D8/D120; classification un-parked; conflict with #206 resolved (no owner machine). Coverage measured: 22 sectors, 747 of 1,798 universe stocks; fill proposal awaiting owner. Field catalogue §2 updated. | 🔶 D121 fill open |
+| 239 | "Email test at last." "Explain what is the field catalogue." Name: "Disclo, https://disclo.in/". "Sector you will get in the CSV when you download it from NSE; we will use it." | Email test = last item (§16). Field catalogue explained in chat. D99 final (Disclo); D119 trademark check resumes. **D121** (NSE index CSV sector) supersedes D8/D120; classification un-parked; conflict with #206 resolved (no owner machine). Coverage measured: 22 sectors, 747 of 1,798 universe stocks; fill accepted in #240. Field catalogue §2 updated. | ✅ |
+| 240 | "Accept the smIndustry fill, and remove the old probe checks." On the field-catalogue review (missing/unwanted fields, sector packs §8): "Ok". | D121 fill confirmed; §6, §16, field catalogue §2. Probe: `quote-equity` + BSE checks removed (workflow jobs and Worker calls). "Ok" read as: owner will do the review (stays open in §16). | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -303,13 +304,13 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #239: all checks pass (121 decisions, 239 entries); no open ⚠.*
+*Last run 2026-11-02 after entry #240: all checks pass (121 decisions, 240 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
 - **#226/#239** Email test (owner, last).
 - **Field catalogue** review, especially sector packs (owner).
-- **#239** D121 sector fill for stocks outside the NSE index CSV.
+- **#240** Owner reviews the `smIndustry` → 22-sector map when drafted (M0).
 - **#239** Trademark check for Disclo (IP India search + filing), owner.
 - **#35/#72** Card sections after real output (D25).
 - **#206/#224** Remove the probe's 3×/day schedule after ~2 days.

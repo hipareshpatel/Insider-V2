@@ -1,4 +1,4 @@
-// One-off probe: which NSE (and BSE quote-header) endpoints answer from Cloudflare's egress IPs?
+// One-off probe: which NSE endpoints answer from Cloudflare's egress IPs?
 // Only response headers / a small prefix of each body are read, to stay
 // within the Free-plan CPU budget.
 
@@ -86,7 +86,6 @@ export default {
 
     const noCookie = await Promise.all([
       probe("announcements_api_nocookie", "https://www.nseindia.com/api/corporate-announcements?index=equities", { Accept: "application/json" }, 300),
-      probe("quote_equity_nocookie", "https://www.nseindia.com/api/quote-equity?symbol=INFY", { Accept: "application/json" }, 200),
     ]);
 
     const { cookie, status: homeStatus } = await getNseCookies();
@@ -94,7 +93,6 @@ export default {
     const withCookie = await Promise.all([
       probe("announcements_api_cookie", "https://www.nseindia.com/api/corporate-announcements?index=equities", ck, 300),
       probe("announcements_hist_cookie", `https://www.nseindia.com/api/corporate-announcements?index=equities&from_date=${ddmmyyyy}&to_date=${ddmmyyyy}`, ck, 200),
-      probe("quote_equity_cookie", "https://www.nseindia.com/api/quote-equity?symbol=INFY", ck, 300),
     ]);
 
     // An attachment URL taken from the announcements feed, if we got one.
@@ -102,13 +100,6 @@ export default {
       .map((r) => r.sample?.match(/https:\/\/nsearchives\.nseindia\.com\/corporate\/[^"]+\.pdf/)?.[0])
       .find(Boolean);
     const pdf = firstPdf ? [await probe("announcement_pdf", firstPdf)] : [];
-
-    // BSE quote header (sector classification candidate, D120): ITC 500875, INFY 500209.
-    const bseH = { Accept: "application/json, text/plain, */*", Referer: "https://www.bseindia.com/", Origin: "https://www.bseindia.com" };
-    const bse = await Promise.all(
-      [["bse_header_itc", "500875"], ["bse_header_infy", "500209"]].map(([n, code]) =>
-        probe(n, `https://api.bseindia.com/BseIndiaAPI/api/ComHeadernew/w?quotetype=EQ&scripcode=${code}&seriesid=`, bseH, 1500)),
-    );
 
     // Structured-filing endpoints (per company), one at a time with a short gap (log #234).
     const sf: Result[] = [];
@@ -135,7 +126,7 @@ export default {
       await new Promise((r) => setTimeout(r, 400));
     }
 
-    const all = [...archive, ...noCookie, ...withCookie, ...pdf, ...bse, ...sf];
+    const all = [...archive, ...noCookie, ...withCookie, ...pdf, ...sf];
     const report = {
       probed_at_utc: new Date().toISOString(),
       cf_colo: (req as any).cf?.colo ?? null,
