@@ -36,7 +36,8 @@ The plain-English mode only translates into this language. Anything that can't b
 | Field | Definition | Source |
 |---|---|---|
 | `symbol`, `name`, `isin` | Current identifiers | EQUITY_L, bhavcopy |
-| `macro_sector`, `sector`, `industry`, `basic_industry` | 4-level classification. **Names follow the taxonomy chosen under D120** (BSE: Sector > Industry > Group > Sub-group; NSE: Macro sector > Sector > Industry > Basic industry) | BSE `ComHeadernew` (D120, provisional); fallback NSE quote-equity (owner's machine, D8) |
+| `sector` | One of NSE's 22 broad sectors (D121) | NSE index CSV `Industry` (Total Market list); others per D121 fill, labelled; else "Unclassified" |
+| `industry_detail` | Finer NSE industry where available (75 values, e.g. Paints, Sugar), labelled | Announcement `smIndustry` (D121, if the owner confirms) |
 | `index` | Current index memberships | Index snapshots (D9) |
 | `group` | Promoter group (e.g. Tata, Adani) | Shareholding pattern (D40, D56) |
 | `listing_age_years` | Years since listing | EQUITY_L |
@@ -224,5 +225,5 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 - **Delivery %:** `sec_bhavdata_full_DDMMYYYY.csv` added to daily market-data sources.
 
 ## Still open
-0. Classification taxonomy: BSE's 4 levels or NSE's (D120); field names change if BSE is chosen.
+0. Sector fill for stocks outside the NSE index CSV (D121).
 1. Missing or unwanted fields, especially in the sector packs (owner review).
