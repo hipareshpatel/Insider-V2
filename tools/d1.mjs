@@ -11,7 +11,18 @@ export const ENVS = ["production", "staging"];
 export const dbName = (domain, env) => `disclo-${domain}${env === "staging" ? "-staging" : ""}`;
 
 function wrangler(args) {
-  return execFileSync("npx", ["--yes", "wrangler@4.156.1", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  // Cloudflare API rate limit (code 971 / Retry-After): wait and retry, up to 5 times.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return execFileSync("npx", ["--yes", "wrangler@4.156.1", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    } catch (e) {
+      const msg = String(e.stderr ?? e.message);
+      if (attempt >= 5 || !/971|throttl|Retry-After/i.test(msg)) throw e;
+      const wait = Number(/wait (\d+) second/.exec(msg)?.[1] ?? 30) + 2;
+      console.log(`Cloudflare API rate limit; waiting ${wait}s (attempt ${attempt})`);
+      execFileSync("sleep", [String(wait)]);
+    }
+  }
 }
 export function listDbs() {
   const out = wrangler(["d1", "list", "--json"]);

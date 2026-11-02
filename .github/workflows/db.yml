@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: db
+  group: cloudflare
   cancel-in-progress: false
 
 jobs:
