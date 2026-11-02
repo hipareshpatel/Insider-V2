@@ -231,6 +231,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 200 | Any other, better variants starting with "Quarter" or "Quarterly"? | D99 round 3 | 🔶 owner may switch from Quarterwise |
 
+| 201 | Wants short names like Zepto, Rapido, Zomato; better suggestions given the website's offering? | D99 round 4 (Tathyo pick; Disclo alternative) | 🔶 owner may switch from Quarterwise |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -238,7 +240,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #200: all checks pass (118 decisions, 200 entries).*
+*Last run 2026-11-02 after entry #201: all checks pass (118 decisions, 201 entries).*
 
 ## Open items from this log
 - **#196** Owner actions: trademark search for "Quarterwise", buy `quarterwise.in` (+ optional `quarterwise.co.in`), add to Cloudflare.
