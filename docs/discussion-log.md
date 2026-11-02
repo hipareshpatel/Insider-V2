@@ -291,8 +291,9 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 233 | "OK, let's move next. Park it as pending. What is next?" | Classification (D8/D120, #231–#232 questions, ⚠ vs #206) **parked as pending**; PLAN §16 + HANDOVER marked. Next proposed: probe structured-filing endpoints from Cloudflare (HANDOVER item 2). | 🔶 parked |
 | 234 | "Yes, run the structured-filing probe. But before it, don't you need the Nifty 50 CSV containing the stock list and other details?" | Claude: not for the probe (1–2 fixed symbols; Nifty 50 CSV already proven 200 from Cloudflare). Needed later for the universe (§4.1). Probe run: **all 14 structured-filing calls 200 from Cloudflare**; credit-rating endpoint ignores symbol (bulk feed). Appendix B, §16. | ✅ |
 | 235 | "Yes, take D38 and D39 now." | Claude stress-tested both; refinements proposed in D38/D39 (Appendix A), owner answered in #236. | ✅ |
-| 236 | "Accepted." (D38/D39 refinements) | Read as: all proposed fixes accepted; 2% threshold kept; merges auto only on exact alias, others to owner review queue. D38, D39 confirmed; §5.6, §2 #8, §16 updated. Unlisted-entity public pages not answered → open. | 🔶 public pages open |
+| 236 | "Accepted." (D38/D39 refinements) | Read as: all proposed fixes accepted; 2% threshold kept; merges auto only on exact alias, others to owner review queue. D38, D39 confirmed; §5.6, §2 #8, §16 updated. Unlisted-entity public pages answered in #238. | ✅ |
 | 237 | *(Carried over from the previous chat window):* "§16 Open items is stale; rewrite it with the current setup status" (Cloudflare Free plan; disclo.in active, DNS cleaned; Email Routing info@/alerts@/paresh@ → owner's Gmail, test pending; Workers subdomain set; GitHub secrets added; probe working, remove 3×/day schedule after ~2 days). Upgrades before backfill/go-live: Workers Paid, paid Gemini key. Remove done/superseded: adding secrets, failure cases (D84/D86), Q1–Q12 (answered), performance targets (D94). Log it and run the consistency check. | §16 rewritten; this log's open-items list aligned to it. Stale "Resolved" lines (D80, D81) and done owner actions dropped; parked classification and D39 pages kept. | ✅ |
+| 238 | Accepted Claude's recommendation: no public pages for unlisted entities at launch (thin, one-sided); may add later. | D39 (e), §5.6; removed from §16 | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -301,7 +302,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #237: all checks pass (120 decisions, 237 entries); ⚠ #232 vs #206 open (parked).*
+*Last run 2026-11-02 after entry #238: all checks pass (120 decisions, 238 entries); ⚠ #232 vs #206 open (parked).*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
@@ -309,6 +310,5 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 - **Field catalogue** review, especially sector packs (owner).
 - **#204** Launch name (owner); `disclo.in` stays the working domain.
 - **#231–#233** Sector classification parked: own-machine run (⚠ vs #206), BSE vs NSE taxonomy, NSE-only fallback.
-- **#236** Public pages for unlisted entities (D39).
 - **#35/#72** Card sections after real output (D25).
 - **#206/#224** Remove the probe's 3×/day schedule after ~2 days.
