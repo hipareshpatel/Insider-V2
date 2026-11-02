@@ -110,7 +110,32 @@ export default {
         probe(n, `https://api.bseindia.com/BseIndiaAPI/api/ComHeadernew/w?quotetype=EQ&scripcode=${code}&seriesid=`, bseH, 1500)),
     );
 
-    const all = [...archive, ...noCookie, ...withCookie, ...pdf, ...bse];
+    // Structured-filing endpoints (per company), one at a time with a short gap (log #234).
+    const sf: Result[] = [];
+    const api = "https://www.nseindia.com/api/";
+    const eq = (sym: string) => `index=equities&symbol=${sym}`;
+    const sfList: [string, string][] = [
+      ["sf_pit_infy", `corporates-pit?${eq("INFY")}`],
+      ["sf_sast29_infy", `corporate-sast-reg29?${eq("INFY")}`],
+      ["sf_integrated_fin_infy", `integrated-filing-results?${eq("INFY")}&type=Integrated%20Filing-%20Financials`],
+      ["sf_shareholding_infy", `corporate-share-holdings-master?${eq("INFY")}`],
+      ["sf_governance_infy", `corporate-governance-master?${eq("INFY")}`],
+      ["sf_credit_rating", `corporate-credit-rating?${eq("INFY")}`],
+      ["sf_board_meetings_infy", `corporate-board-meetings?${eq("INFY")}`],
+      ["sf_corp_actions_infy", `corporates-corporateActions?${eq("INFY")}`],
+      ["sf_annual_reports_infy", `annual-reports?${eq("INFY")}`],
+      ["sf_brsr_infy", `corporate-bussiness-sustainabilitiy?${eq("INFY")}`],
+      ["sf_results_q_infy", `corporates-financial-results?${eq("INFY")}&period=Quarterly`],
+      ["sf_results_q_hdfcbank", `corporates-financial-results?${eq("HDFCBANK")}&period=Quarterly`],
+      ["sf_shareholding_hdfcbank", `corporate-share-holdings-master?${eq("HDFCBANK")}`],
+      ["sf_fii_dii", "fiidiiTradeReact"],
+    ];
+    for (const [n, q] of sfList) {
+      sf.push(await probe(n, api + q, ck, 160));
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    const all = [...archive, ...noCookie, ...withCookie, ...pdf, ...bse, ...sf];
     const report = {
       probed_at_utc: new Date().toISOString(),
       cf_colo: (req as any).cf?.colo ?? null,
