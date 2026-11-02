@@ -7,12 +7,19 @@ export interface Env { DB_FILINGS: D1Database; RAW: R2Bucket; ENVIRONMENT: strin
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
-async function seed(db: Sql, today: string): Promise<number> {
+async function seed(db: Sql, raw: R2Bucket, today: string): Promise<number> {
   const [n] = await db.all<{ n: number }>("SELECT count(*) AS n FROM fetch_job");
   if ((n?.n ?? 0) > 0) return 0;
-  const r = await fetch("https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv", { headers: { "User-Agent": UA } });
-  if (!r.ok) throw new Error(`EQUITY_L ${r.status}`);
-  const symbols = parseEquityList(await r.text()).filter((x) => EQUITY_SERIES.has(x.series) || x.series === "EQ").map((x) => x.symbol);
+  // Company list: prefetched copy in R2 first (D128), else NSE with retries.
+  let text: string | null = null;
+  const cached = await raw.get("cache/content/equities/EQUITY_L.csv");
+  if (cached) text = await cached.text();
+  for (let i = 0; !text && i < 4; i++) {
+    const r = await fetch("https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv", { headers: { "User-Agent": UA, Accept: "*/*" } });
+    if (r.ok) text = await r.text(); else { await r.body?.cancel(); await new Promise((x) => setTimeout(x, 3000 * (i + 1))); }
+  }
+  if (!text) throw new Error("EQUITY_L not available (R2 cache missing, NSE refused)");
+  const symbols = parseEquityList(text).filter((x) => EQUITY_SERIES.has(x.series) || x.series === "EQ").map((x) => x.symbol);
   const jobs = [...bulkJobs(today).map((j) => [j.kind, null, j.url, j.key]), ...companyJobs(symbols, today).map((j) => [j.kind, j.symbol, j.url, j.key])];
   await batchAll(db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key)", 4, jobs));
   return jobs.length;
@@ -29,7 +36,7 @@ async function cookies(): Promise<string> {
 export async function runBatch(env: Env, now = new Date()) {
   const db = d1Sql(env.DB_FILINGS);
   const today = new Date(now.getTime() + 330 * 60_000).toISOString().slice(0, 10);
-  const seeded = await seed(db, today);
+  const seeded = await seed(db, env.RAW, today);
   const perRun = Number(env.PER_RUN ?? 240);
   const parallel = Number(env.PARALLEL ?? 6);
   const todo = await db.all<{ job_id: number; url: string; r2_key: string; attempts: number }>(
@@ -85,7 +92,11 @@ async function withLock<T>(db: D1Database, fn: () => Promise<T>): Promise<T | nu
 
 export default {
   async scheduled(_e: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil((async () => console.log(JSON.stringify(await withLock(env.DB_FILINGS, () => runBatch(env)) ?? "locked")))());
+    ctx.waitUntil((async () => {
+      let detail: unknown;
+      try { detail = (await withLock(env.DB_FILINGS, () => runBatch(env))) ?? "locked"; } catch (e) { detail = { error: String(e instanceof Error ? e.message : e) }; }
+      if (detail !== "locked") await env.DB_FILINGS.prepare("INSERT INTO prefetch_log (at, detail) VALUES (?1, ?2)").bind(new Date().toISOString(), JSON.stringify(detail)).run();
+    })());
   },
   async fetch(req: Request, env: Env) {
     if (new URL(req.url).pathname !== "/status") return new Response("not found", { status: 404 });
@@ -95,6 +106,7 @@ export default {
       by_status: await q("SELECT status, count(*) AS n, sum(bytes) AS bytes FROM fetch_job GROUP BY status"),
       by_kind: await q("SELECT kind, sum(status='done') AS done, sum(status='empty') AS empty, sum(status='failed') AS failed, sum(status='todo') AS todo FROM fetch_job GROUP BY kind"),
       recent_errors: await q("SELECT kind, symbol, http_status, error FROM fetch_job WHERE status='failed' ORDER BY fetched_at DESC LIMIT 5"),
+      last_runs: await q("SELECT at, detail FROM prefetch_log ORDER BY id DESC LIMIT 5"),
     }, { headers: { "cache-control": "no-store" } });
   },
 };

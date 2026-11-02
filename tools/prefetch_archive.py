@@ -44,7 +44,7 @@ def put(bucket, key, data):
 def main():
     bucket, a, b = sys.argv[1], dt.date.fromisoformat(sys.argv[2]), dt.date.fromisoformat(sys.argv[3])
     days = [a + dt.timedelta(n) for n in range((b - a).days + 1)]
-    jobs = [u for d in days for u in urls(d)]
+    jobs = [f"{HOST}/content/equities/EQUITY_L.csv", f"{HOST}/emerge/corporates/content/SME_EQUITY_L.csv"] + [u for d in days for u in urls(d)]
     stats = {"ok": 0, "404": 0, "refused_or_error": 0, "bytes": 0, "upload_failed": 0}
     t0 = time.time()
     def work(u):
