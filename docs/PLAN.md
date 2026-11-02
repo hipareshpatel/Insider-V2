@@ -620,7 +620,7 @@ db/migrations/{market,filings,announce,memory,graph,app}/
 eval/gold/            gold set (metadata + expected outputs; no NSE PDFs committed)
 docs/                 ALL .md documents (plan, discussion log, field catalogue, probe usage); no README/description at the root (D97)
 probe/                throwaway reachability check
-.github/workflows/    ci.yml only
+.github/workflows/    ci.yml (CI) + probe.yml (temporary NSE reachability probe; deploys/deletes a test Worker)
 ```
 
 ---
@@ -628,7 +628,7 @@ probe/                throwaway reachability check
 ## 16. Open items
 
 **Waiting on the owner:**
-1. Run `probe/` from Cloudflare (3–4 times, incl. after 22:00 IST) and share the output.
+1. Probe now runs **from GitHub Actions** (`.github/workflows/probe.yml`): owner adds two secrets (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`) per `docs/setup-guide.md` Part E; Claude reads results from the run logs. Schedule (3×/day) removed after ~2 days.
 2. Share 10–20 known failure cases for the gold set.
 3. Review `docs/field-catalogue.md`, especially the sector packs.
 4. Before backfill/go-live: Workers Paid, a paid Gemini API key, a Cloudflare API token for CI.

@@ -60,44 +60,38 @@ Working domain: `disclo.in` (bought at GoDaddy). If the launch name changes late
 
 ---
 
-## Part E — Run the NSE probe (20 minutes, on your computer)
+## Part E — Run the NSE probe from the cloud (10 minutes, no computer setup)
 
-The probe is a tiny test that checks whether NSE answers requests from Cloudflare's network. **This decides whether our pipeline can run fully on Cloudflare.**
+The probe is a tiny test that checks whether NSE answers requests from Cloudflare's network. **This decides whether our pipeline can run fully on Cloudflare.** It runs from **GitHub**: GitHub deploys it to your Cloudflare account, calls it, prints the result, and deletes it again. **Claude reads the results directly from GitHub**, so you don't need to copy anything.
 
-### E1. Install Node.js (once)
-- Go to **nodejs.org** → download the **LTS** version for your computer (Windows or Mac) → install with default options.
-- Check: open **Terminal** (Mac) or **Command Prompt / PowerShell** (Windows) and type `node -v` → it should print a version like `v22…`.
+You only give GitHub permission once, by adding two secrets.
 
-### E2. Get the project files
-- Download this ZIP (our working branch):
-  `https://github.com/hipareshpatel/Insider-V2/archive/refs/heads/ccr-eb822347-c3zp4b.zip`
-- Unzip it. Inside you'll find a folder named `probe`.
+### E1. Create a Cloudflare API token
+1. Cloudflare dashboard → top-right **profile icon** → **My Profile** → **API Tokens** → **Create Token**.
+2. Find the template **"Edit Cloudflare Workers"** → **Use template**.
+3. **Account Resources:** Include → *your account*. **Zone Resources:** Include → *All zones* (the template asks for it).
+4. **Continue to summary** → **Create Token**.
+5. **Copy the token now**; Cloudflare shows it only once. Don't paste it into chat or anywhere else except step E3.
 
-### E3. Deploy the probe
-In Terminal / Command Prompt:
-```
-cd <path to the unzipped folder>/probe
-npm install
-npx wrangler login
-```
-- `wrangler login` opens your browser → click **Allow**. Return to the terminal.
-```
-npx wrangler deploy
-```
-- At the end it prints a web address like `https://insider-probe.yourname.workers.dev`.
+### E2. Copy your Cloudflare Account ID
+Cloudflare dashboard → **Workers & Pages** → on the right side under account details, **Account ID** → copy.
 
-### E4. Run it and send the result to Claude
-- Open that address in your browser. You'll see a block of text (JSON).
-- **Select all → copy → paste it to Claude.**
-- Do this **3–4 times at different times**, including **once after 10 PM IST**.
+### E3. Add both as GitHub secrets
+1. Open **github.com/hipareshpatel/Insider-V2** → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**.
+2. Name: `CLOUDFLARE_API_TOKEN` → paste the token from E1 → **Add secret**.
+3. **New repository secret** again → Name: `CLOUDFLARE_ACCOUNT_ID` → paste the ID from E2 → **Add secret**.
 
-### E5. Remove the probe when done
-```
-npx wrangler delete
-```
-Confirm with `y`. (It's harmless, but it shouldn't keep running publicly.)
+Secrets are encrypted; they never appear in logs or in the public repo.
 
-**Worked when:** you've pasted 3–4 results to Claude and deleted the probe.
+### E4. Start the first run
+1. Repo → **Actions** tab → workflow **probe** → **Run workflow** → keep the branch shown → **Run workflow**.
+2. Tell Claude "probe started". Claude reads the result.
+
+After that it also runs automatically **3 times a day** (10:00, 15:00 and 22:30 IST), and each run cleans up after itself. Claude switches the schedule off once there are enough results (about 2 days).
+
+**Worked when:** the run shows a green tick and Claude confirms it has the results.
+
+*(Alternative if ever needed: run the probe from your own computer with Node.js + `npx wrangler deploy`, see `docs/probe-usage.md`.)*
 
 ---
 
@@ -106,6 +100,7 @@ Confirm with `y`. (It's harmless, but it shouldn't keep running publicly.)
 |---|---|
 | Cloudflare still "Pending" after 48 h | Re-check the two nameservers in GoDaddy (exact spelling, no extra nameservers); check DNSSEC is off. |
 | Verification email not received | Check spam; resend from Cloudflare Email Routing → Destination addresses. |
-| `npm` / `node` "not recognised" | Close and reopen the terminal after installing Node.js; on Windows, restart the computer once. |
-| `wrangler login` browser doesn't open | Copy the link the terminal prints and open it manually. |
+| Probe run fails with an authentication error | Recreate the API token with the "Edit Cloudflare Workers" template and update the `CLOUDFLARE_API_TOKEN` secret. |
+| Probe run says "Secrets … not set yet" | Check the two secret names are exactly `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. |
+| Probe deploy says no workers.dev subdomain | Do Part D first. |
 | Anything else | Send Claude a screenshot or the exact error text. |

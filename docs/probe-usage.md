@@ -1,5 +1,7 @@
 # NSE reachability probe
 
+**Normal way to run it:** from GitHub Actions (`.github/workflows/probe.yml`), see `docs/setup-guide.md` Part E. The steps below are the manual alternative from a computer.
+
 One-off Worker that checks which NSE endpoints answer requests coming from
 Cloudflare's network. It decides whether the Phase 1/2 pipeline can poll NSE
 directly from Workers (see docs/PLAN.md §3 and §16).
