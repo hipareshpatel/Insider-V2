@@ -51,7 +51,7 @@ Cloudflare's overview shows optional switches (Client-side security, Bot Fight M
 
 ## Part C — Free email forwarding: `info@disclo.in` → your inbox (10 minutes, after Part B is Active)
 
-1. Cloudflare dashboard → click `disclo.in` → left menu **Email** → **Email Routing** → **Get started** / **Enable**.
+1. Cloudflare dashboard → click `disclo.in` → left menu **Email** → **Email Routing** → **Get started** / **Enable**. *Newer layout (seen 2026-11-02):* the account-level **Email Routing** page shows **"Onboard Domain"** → tap it → choose `disclo.in` → continue; it then asks for the first custom address.
 2. Create a custom address: `info` → destination: **your personal email** (e.g. your Gmail).
 3. Cloudflare sends a **verification email** to that inbox → open it → click **Verify**.
 4. Cloudflare asks to add the needed DNS records (MX, TXT) → click **Add records automatically**.
