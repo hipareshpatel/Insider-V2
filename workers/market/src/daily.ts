@@ -167,6 +167,12 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   for (const c of changes) {
     if (c.kind === "new_security") {
       continue;
+    } else if (c.kind === "extend_back") {
+      await deps.market.batch([
+        { sql: "UPDATE security_identifier SET valid_from=? WHERE security_id=? AND id_type='nse_symbol' AND value=? AND valid_from = (SELECT min(valid_from) FROM security_identifier WHERE security_id=? AND id_type='nse_symbol' AND value=?)", params: [date, c.securityId, c.symbol, c.securityId, c.symbol] },
+        { sql: "UPDATE security_identifier SET valid_from=? WHERE security_id=? AND id_type='isin' AND value=? AND valid_from = (SELECT min(valid_from) FROM security_identifier WHERE security_id=? AND id_type='isin' AND value=?)", params: [date, c.securityId, c.isin, c.securityId, c.isin] },
+      ]);
+      for (const r of ids) if (r.securityId === c.securityId && ((r.idType === "nse_symbol" && r.value === c.symbol) || (r.idType === "isin" && r.value === c.isin)) && r.validFrom > date) r.validFrom = date;
     } else if (c.kind === "isin_change" || c.kind === "symbol_change") {
       const t = c.kind === "isin_change" ? "isin" : "nse_symbol";
       await deps.market.batch([

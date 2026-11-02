@@ -30,7 +30,15 @@ export type IdentityChange =
   | { kind: "new_security"; symbol: string; isin: string; date: string }
   | { kind: "isin_change"; securityId: number; from: string; to: string; date: string }
   | { kind: "symbol_change"; securityId: number; from: string; to: string; date: string }
+  | { kind: "extend_back"; securityId: number; symbol: string; isin: string; date: string }
   | { kind: "conflict"; symbol: string; isin: string; date: string; reason: string };
+
+/** The security whose earliest record for `value` starts after `date` (seen first on a later date), or null. */
+function firstSeenLater(rows: readonly IdentifierRow[], idType: IdType, value: string, date: string): number | null {
+  const later = rows.filter((r) => r.idType === idType && r.value === value && r.validFrom > date).sort((a, b) => a.validFrom.localeCompare(b.validFrom));
+  const earlier = rows.some((r) => r.idType === idType && r.value === value && r.validFrom <= date);
+  return !earlier && later[0] ? later[0].securityId : null;
+}
 
 /**
  * Compare a day's (symbol, ISIN) pairs with current identifiers and say what changed.
@@ -49,7 +57,14 @@ export function diffIdentities(rows: readonly IdentifierRow[], observed: readonl
       out.push({ kind: "conflict", symbol: o.symbol, isin: o.isin, date: o.date, reason: String(e instanceof Error ? e.message : e) });
       continue;
     }
-    if (bySym === null && byIsin === null) out.push({ kind: "new_security", symbol: o.symbol, isin: o.isin, date: o.date });
+    if (bySym === null && byIsin === null) {
+      // Loading an earlier date than this security's first record (backfill / retry): same security, start earlier.
+      const ls = firstSeenLater(rows, "nse_symbol", o.symbol, o.date);
+      const li = firstSeenLater(rows, "isin", o.isin, o.date);
+      if (ls !== null && li !== null && ls === li) out.push({ kind: "extend_back", securityId: ls, symbol: o.symbol, isin: o.isin, date: o.date });
+      else if (ls !== null || li !== null) out.push({ kind: "conflict", symbol: o.symbol, isin: o.isin, date: o.date, reason: `seen later with a different pairing (symbol→${ls}, isin→${li})` });
+      else out.push({ kind: "new_security", symbol: o.symbol, isin: o.isin, date: o.date });
+    }
     else if (bySym !== null && byIsin !== null && bySym !== byIsin)
       out.push({ kind: "conflict", symbol: o.symbol, isin: o.isin, date: o.date, reason: `symbol→${bySym}, isin→${byIsin}` });
     else if (bySym !== null && byIsin === null) {

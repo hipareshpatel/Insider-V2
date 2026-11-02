@@ -77,6 +77,14 @@ describe("identity (B1)", () => {
     ]);
     expect(changes.map((c) => c.kind)).toEqual(["isin_change", "symbol_change", "new_security", "isin_change"]);
     const withConflict = diffIdentities(rows, [{ symbol: "INFY", isin: "INE296A01024", date: "2025-01-01" }]);
+    // retrying an earlier date after a later one loaded: same security, extend back (no duplicate)
+    const later: IdentifierRow[] = [
+      { securityId: 9, idType: "nse_symbol", value: "NEWCO", validFrom: "2024-01-03", validTo: null },
+      { securityId: 9, idType: "isin", value: "INE999X01011", validFrom: "2024-01-03", validTo: null },
+    ];
+    expect(diffIdentities(later, [{ symbol: "NEWCO", isin: "INE999X01011", date: "2024-01-02" }])).toEqual([
+      { kind: "extend_back", securityId: 9, symbol: "NEWCO", isin: "INE999X01011", date: "2024-01-02" },
+    ]);
     const doubled = [...rows, { securityId: 3, idType: "nse_symbol" as const, value: "INFY", validFrom: "2024-06-01", validTo: null }];
     expect(diffIdentities(doubled, [{ symbol: "INFY", isin: "INE009A01021", date: "2025-01-01" }])[0]?.kind).toBe("conflict");
     expect(withConflict[0]?.kind).toBe("conflict");

@@ -157,3 +157,16 @@ describe("runner order", () => {
     expect(refused.map((r) => r.status)).toEqual(["pending"]);
   });
 });
+
+describe("out-of-order loading", () => {
+  it("loading 2025-06-16 then 2025-06-13 creates no duplicate securities", async () => {
+    const { market, deps } = setup();
+    await runDay("2025-06-16", deps);
+    const before = (await market.all<{ n: number }>("SELECT count(*) AS n FROM security"))[0]!.n;
+    const r = await runDay("2025-06-13", deps);
+    expect(r.status).toBe("loaded");
+    expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM security"))[0]!.n).toBe(before);
+    const infy = await market.all<{ valid_from: string }>("SELECT valid_from FROM security_identifier WHERE value='INFY'");
+    expect(infy).toEqual([{ valid_from: "2025-06-13" }]);
+  });
+});
