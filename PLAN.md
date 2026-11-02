@@ -126,6 +126,7 @@ Links are **populated** only once the layer below them is accurate.
 | D66 | Field catalogue conventions | Trend = positive linear-fit slope over n quarters and ≥ (n−2) positive QoQ changes. Large order = ≥ 2% of TTM revenue. |
 | D67 | Adopted from benchmark review (stockscans.in) | (1) Dashboard: % of stocks above EMA 20/50/100/200, daily thrust (count ±4% in a day), 52-week extremes, broad-index panel. (2) **Bulk & block deals** (NSE archive daily) + **tracked investors** (named holders ≥ 1% from shareholding patterns, via graph). (3) Keyword scans over announcement text with on-site alerts. (4) **Factual concall metrics**: number of analysts, questions per theme, congratulatory remarks, Q&A time share, questions management declined to answer; no sentiment scores. (5) Custom baskets, returns vs indices, peer comparison. Benchmark note: they use a licensed data vendor (CMOTS); Free + ₹500/month Premium. |
 | D68 | Research chat | **Owner-only** (Gemini cost; not public). |
+| D69 | Differentiating features | **Adopted.** Tier 1: time machine (as-of views); disclosure regression detector; management credibility ledger (per company and named executive, facts only); sector commentary map; "what changed since your last visit"; disclosure timeliness & hygiene; unexplained-move panel. Tier 2: concall audio → provisional same-day summary (validated when the transcript arrives); forensic panel (no score). Owner-only: insider/promoter trades in the N days before material announcements. **Phasing:** the data foundations for all of these are built from day 1; screens ship in stages after the Nifty 50 core passes acceptance tests. |
 
 ---
 
@@ -399,24 +400,35 @@ probe/                throwaway Cloudflare reachability check
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
 
-## 9b. Proposed, awaiting owner decision — differentiating features (2026-11-02)
-Novelty in India is **not verified**; ranked by what our design makes cheap and hard to copy.
-**Tier 1, falls out of the existing design:**
-1. **Time machine:** any dossier/screen "as of" a past date, using only facts known then (D32).
-2. **Disclosure regression detector:** KPIs or segments a company **stopped disclosing**, new risk language, changed definitions, by diffing each filing against the company's prior equivalent.
-3. **Management credibility ledger:** guidance met/missed/dropped history per company and per **named executive**, following people across companies via the graph. Facts only.
-4. **Sector commentary map:** what all companies in an industry said this quarter on demand, pricing, costs, capex, with quotes, aggregated across peers.
-5. **"What changed since your last visit"** per stock/watchlist for signed-in users.
-6. **Disclosure timeliness & hygiene:** board-meeting end → filing delay, late filings vs LODR deadlines, corrigenda/revision frequency, results filed late on Friday/pre-holiday.
-7. **Unexplained-move panel:** price/volume move beyond threshold with **no disclosure** in the window; links any exchange clarification/rumour verification.
-**Tier 2, needs extra work:**
-8. **Concall audio → same-day summary:** process the recording link (often filed days before the transcript) with Gemini audio; marked provisional; replaced/validated when the transcript arrives.
-9. **Rule alerts over the query language:** e.g. "any capital-goods company with an order ≥ 5% of revenue" (on-site, D60).
-10. **Exposure queries over the graph:** "listed companies with disclosed orders from Indian Railways in the last 12 months"; "who supplies X".
-11. **Forensic panel (no score):** receivables vs revenue growth, CWIP ageing, contingent-liability growth, RPT growth vs revenue, auditor changes, OCF/PAT gap; each a sourced fact.
-12. **Verifiable data API:** every value with provenance (filing, page, version), for institutions (D23).
-**Owner-only (legal sensitivity):**
-13. **Pre-announcement trading timing:** insider/promoter trades in the N days before material announcements. Implies wrongdoing if public → owner-only, legal review before anything public.
+## 9b. Proposed, awaiting owner decision — business mix, exposure & sector pages (2026-11-02)
+*Verified:* NSE BRSR filings are listed at `/api/corporate-bussiness-sustainabilitiy` (NSE's spelling) with **XBRL per company** (Sun Pharma FY26: ~2,000 facts). They contain: **products/services with NIC code and % of turnover**, **exports as % of turnover** (Sun Pharma 72.3%), plants/offices by national/international, number of states/countries served, employee and worker tables, energy/water consumption, and concentration of purchases/sales. **Caveat:** Sun Pharma's BRSR revenue (₹20,755 cr) is **standalone**, so BRSR figures carry basis = standalone (D50) and must not be mixed with consolidated metrics.
+1. **Sector/industry page:** aggregated results trend (sum and median growth, margins), guidance raised/cut distribution, commentary map (D69), valuation vs own history, sector KPI-pack comparison, leaders/laggards, red flags, raw-material exposure, upcoming results.
+2. **Segments & business mix:**
+   - Quarterly segment data (XBRL/results) is company-defined, so it's mapped to a **canonical business-line taxonomy**.
+   - Product mix from BRSR uses **NIC codes**, a government standard, so e.g. "castings" = NIC 243x.
+   - Segment margins come from segment results.
+   - Enables "castings ≥ X% of turnover AND segment margin ≥ Y%".
+3. **Geographic exposure:**
+   - BRSR exports % (standalone, annual).
+   - Ind AS 108 geographic note in the annual report (by country when material).
+   - Presentations (e.g. US % of sales).
+   - Mapped to a canonical region/country list. Enables "pharma ranked by US revenue share".
+4. **Customer concentration:** Ind AS 108 requires disclosure of any single customer ≥ 10% of revenue. Extract it, and link named customers via the graph.
+5. **Employees & forensic:**
+   - BRSR headcount (permanent/contract) → employee cost per employee (standalone employee expense ÷ standalone headcount) vs industry median.
+   - Implausibly low → red flag (e.g. 1,200 employees but ₹1.2 cr salaries).
+   - Headcount growth vs revenue growth; contract-worker share.
+6. **Operating-activity proxies (BRSR):** energy and water consumption growth vs revenue growth (e.g. revenue +40% with flat energy use → forensic flag).
+7. **Margin recovery / erosion fields:** e.g. margin rising ≥ 2 quarters after a trailing-4Q low; margin ≥ X bps below trailing-8Q peak; consecutive quarters of contraction.
+8. **Raw-material exposure & commodity shocks:**
+   - RM cost % of revenue from XBRL (materials consumed + purchases of stock-in-trade ± inventory change).
+   - Which materials: company-stated (filings, annual report, concalls → graph `uses_material`).
+   - Inventory days (half-yearly).
+   - A **scenario calculator**: user enters "steel +40%" → estimated cost impact (% of revenue) and inventory gain/loss, labelled as a scenario.
+   - Commodity price feed remains a later phase (D19).
+9. **Annual-report scope additions:** segment note (geography + major customers), revenue disaggregation (Ind AS 115), foreign-exchange earnings & outgo (Board's report), R&D expenditure, unhedged foreign-currency exposure, raw materials consumed.
+10. **BRSR XBRL** ingested annually for all covered companies.
+*Open:* industry-default input map (conflicts with D37 explicit-only unless labelled "industry default"); scenario calculator public or owner-only.
 
 ## 9c. Legal consult checklist (before going public)
 1. **SEBI RA Regulations:** do cards (facts, comparisons with the company's own past, guidance tracking, red flags) count as a "research report" / research-analyst activity? Does the "statistical summaries of financial data" exclusion cover them?
