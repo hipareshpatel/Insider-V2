@@ -23,7 +23,7 @@
 - **Probe result:** all pipeline NSE sources reachable from Cloudflare; only `quote-equity` (sector classification) is 403 → D8 (owner's machine) stands; the D54 relay isn't needed.
 
 ## Open items for next chat
-1. **quote-equity from GitHub:** the owner says it worked in repo **`hipareshpatel/Insiders`** (V1). **Owner permits reading ONLY the code that fetches NSE `quote-equity`/sector classification, to learn the method (library/endpoint/headers). Do not read, use or reference anything else in that repo.** If it works, D8 can move to a GitHub scheduled job. **Done 2026-11-02 (#228):** method recorded in PLAN Appendix B; next step is replicating it from our runner (owner OK needed).
+1. **quote-equity from GitHub:** the owner says it worked in repo **`hipareshpatel/Insiders`** (V1). **Owner permits reading ONLY the code that fetches NSE `quote-equity`/sector classification, to learn the method (library/endpoint/headers). Do not read, use or reference anything else in that repo.** If it works, D8 can move to a GitHub scheduled job. **Done 2026-11-02 (#228):** method recorded in PLAN Appendix B; replicated from our runner (#230): **403**, homepage too (IP-range block). D8 stands; scheduled probe runs re-test.
 2. Extend the probe to structured-filing endpoints from Cloudflare (integrated filings, PIT, SAST, ratings, BRSR, shareholding).
 3. Review scheduled probe runs; then remove the schedule.
 4. Owner: email test; field-catalogue review (sector packs); launch name.

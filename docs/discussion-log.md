@@ -285,7 +285,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 227 | Shared V1 repo `hipareshpatel/Insiders` where quote-equity "worked cleanly"; **use only that, not other V1 code** (avoid contamination). | HANDOVER open item 1: next chat reads ONLY the quote-equity/sector-fetch code, nothing else | 🔶 next chat |
 | 228 | New chat: continue on branch `ccr-eb822347-c3zp4b`; read HANDOVER, PLAN, log, field catalogue; follow working rules (discussion only until "build", clean slate, log every statement same turn, consistency check after every update). First task: in `hipareshpatel/Insiders`, read **only** the code that fetches NSE quote-equity/sector classification, to learn how it worked from GitHub Actions; nothing else. | Done: read only the NSE HTTP client and the quote-equity call + the workflow that ran it (no other files; a docs file matching the search was skipped). Method recorded in PLAN Appendix B; §16 "Still to verify". D8 unchanged until replicated. | 🔶 replication test awaits owner OK |
 | 229 | "Tell me what you want from V1 and I will get for you." | Claude's answer: nothing more is needed. At most, the one result line of V1's quote-equity probe step (date + pass/fail) from that run's job summary. The test from our own runner (awaiting owner OK, #228) is the decisive evidence; more V1 material would weaken the clean slate. | 🔶 awaiting owner OK for replication test |
-| 230 | "OK, run the replication test." | `.github/workflows/probe.yml` job `quote-equity-httpx` (httpx HTTP/1.1 + same headers; curl HTTP/1.1 control); results in PLAN Appendix B | 🔶 result pending |
+| 230 | "OK, run the replication test." | `.github/workflows/probe.yml` job `quote-equity-httpx` (httpx HTTP/1.1 + same headers; curl HTTP/1.1 control); results in PLAN Appendix B. **Result: 403 everywhere** (httpx, curl HTTP/1.1, homepage too) → IP-range block of GitHub runners, not request shape. D8 stands; scheduled runs re-test other IPs. | 🔶 scheduled re-tests |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -294,7 +294,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #230: all checks pass (119 decisions, 230 entries).*
+*Last run 2026-11-02 after entry #230 (result added): all checks pass (119 decisions, 230 entries).*
 
 ## Open items from this log
 - **#204** Launch name to be decided by owner (trademark work paused); `disclo.in` stays the working domain. Owner actions: add `disclo.in` to Cloudflare; enable Email Routing.
