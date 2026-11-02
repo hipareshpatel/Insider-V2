@@ -154,9 +154,17 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 143 | Facilities etc. will come from presentations, transcripts and management discussion (MD&A) in annual reports. | D83 | ✅ (interpreted "transformation" as "transcripts"; "facilities" as plant/capacity facilities) |
 
+| 144 | #26 per-stock AI analysis write-up: "let it be public". | D80 | 🔶 clarify whether judgement is included |
+| 145 | #122 "credit increases": already explained; ask if questions remain. | D81 | ✅ |
+| 146 | #20 performance targets: milestones discussion. | §16 | 🔶 |
+| 147 | #35/#72 card sections: after real output. | D25 | 🔶 |
+| 148 | #53 licence funding: listed, no answer yet. | §16 | ❓ |
+| 149 | #73 failure cases: run the site and find them. There will be many from code errors, prompt errors, AI delusional answers, wrong data saving, wrong units, data mix-ups and so on. | D84 (shadow run), D85 (detectors) | ✅ |
+
 ## Open items from this log
-- **#141** Pre-results commissioning warning: confirm facts public, estimated depreciation/margin impact owner-only.
+- **#141** Pre-results commissioning warning: facts public + estimate owner-only, or all public (→ legal list)?
+- **#144** Public AI write-up: factual only, or including judgement?
 - **#20** Performance targets (milestones discussion).
 - **#35/#72** Card sections after real output.
 - **#53** Licence funding.
-- **#73** Failure cases (owner to share).
+- **#73** Failure cases: found via the shadow run (D84).
