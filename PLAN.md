@@ -72,7 +72,7 @@ Links are **populated** only once the layer below them is accurate.
 | D12 | Language | TypeScript everywhere. |
 | D13 | Website | Private (Cloudflare Access) and autonomous. NSE licensing must be reviewed before going public. Website only, no alerts. |
 | D14 | Repo | Public. |
-| D15 | LLM | **Gemini paid tier only**, no other providers and no fallback to other vendors. **One pinned model version per stage**, changed only after the gold set passes. Behind a provider interface. |
+| D15 | LLM | **Gemini paid tier only**, no other providers and no fallback to other vendors. **One pinned model version per stage** (stable/GA versions only), changed only after the gold set passes. Prompt caching is used throughout. **Tier split:** Standard for triage and time-critical events (results, transcripts, orders, management changes); **Flex** (50% off, 1–15 min latency) for everything else; **Batch** for backfill, audits and gold-set runs. Behind a provider interface. |
 | D16 | Announcement latency | Card within **15 minutes** of filing. |
 | D17 | PDFs | **Not stored long-term.** Keep URL + SHA-256 + per-page text forever. Keep PDFs of high-value types for 90 days only. |
 | D18 | Budget | **$100/month total** (Cloudflare + Gemini + everything). Hard spending cap in code. |
@@ -83,6 +83,9 @@ Links are **populated** only once the layer below them is accurate.
 | D23 | Paid tier | Possible later (institutions). Not built now, but accounts, API keys and exports are designed in from day 1. Product robustness comes first. |
 | D24 | Prices on public site | Bhavcopy-derived prices are shown publicly before a licence: **owner's calculated risk**. The source adapter allows a switch to a licensed feed. |
 | D25 | Audience | Retail **and** institutions: a layered card (summary → full context with sources). Shareable image generated from the web card. Card sections are decided later, based on content and quality. |
+| D26 | Triage | Route on **category + subject text**, never category alone. Lanes: A = always full, B = timeline/structured only (no LLM), C = cheap LLM decides. Keyword escalators and size checks lift items from B → C/A. Every item gets a timeline row. Dedupe by PDF hash; revisions supersede; filings linked into one event. Keywords to be tuned in practice. |
+| D27 | Triage miss tolerance | **Zero** material misses in the weekly audit sample. Any miss → the rule that missed it is fixed. |
+| D28 | Insider & pledge data | **In scope:** insider-trading disclosures (SEBI PIT), takeover disclosures (SAST Reg 29), promoter pledges/encumbrance. These are structured feeds, parsed in code with no LLM. |
 
 ---
 
