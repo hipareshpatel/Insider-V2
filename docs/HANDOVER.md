@@ -24,7 +24,7 @@
 
 ## Open items for next chat
 1. **[PARKED, #233] quote-equity from GitHub:** the owner says it worked in repo **`hipareshpatel/Insiders`** (V1). **Owner permits reading ONLY the code that fetches NSE `quote-equity`/sector classification, to learn the method (library/endpoint/headers). Do not read, use or reference anything else in that repo.** If it works, D8 can move to a GitHub scheduled job. **Done 2026-11-02 (#228):** method recorded in PLAN Appendix B; replicated from our runner (#230): **403**, homepage too (IP-range block). V1's own run was also 403 (#231). **Owner chose BSE `ComHeadernew` (D120, provisional)**; BSE also **403 from GitHub and Cloudflare** → owner's machine either way; owner to decide machine run, taxonomy, NSE-only fallback.
-2. Extend the probe to structured-filing endpoints from Cloudflare (integrated filings, PIT, SAST, ratings, BRSR, shareholding).
+2. ~~Extend the probe to structured-filing endpoints~~ **Done (#234): all 200 from Cloudflare.** Rate limits at volume to measure in M0.
 3. Review scheduled probe runs; then remove the schedule.
 4. Owner: email test; field-catalogue review (sector packs); launch name.
 5. Provisional decisions to confirm: D38, D39. Unresolved: licence funding (D88 option D chosen; vendor quotes recommended).
