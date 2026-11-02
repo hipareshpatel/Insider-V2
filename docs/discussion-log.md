@@ -307,6 +307,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 249 | "Updated" (screenshot: token summary: D1, Queues, R2, KV, Vectorize, Workers Scripts Edit; Workers Routes Edit, all zones). R2 enabled; buckets `disclo-raw` + `disclo-raw-staging` created by owner. | Infra check re-run (masked log): D1 OK (no databases yet), R2 OK (both buckets listed), Queues OK. §16 owner list closed. | ✅ |
 | 250 | "Test everything once so I can go for sleep." | Full run: 51 unit tests pass (clean install); probe typecheck; 3 workflows valid; live full-file test on 2026-10-30, 2025-06-16, 2024-02-01, 2024-01-02 passes (MCAP absent Jan 2024 as expected; 2 truncated split purposes on 2024-02-01 → review); CI green; consistency check passes. | ✅ |
 | 251 | "Now what's your next 6-hour plan and what will be ready by morning 06:00 IST?" | Plan + honest ready/not-ready list given in chat; morning summary at 06:00 reports against it. | ✅ |
+| 252 | "NSE archive site doesn't limit downloads, so feel free to have more speed. It is made for this purpose only." | D124 (archive: 4 parallel, no pause, automatic back-off on 403/429/503); §6 backfill row. API endpoints keep the gentler pace. | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -315,7 +316,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #251: all checks pass (123 decisions, 251 entries); no open ⚠.*
+*Last run 2026-11-02 after entry #252: all checks pass (124 decisions, 252 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
