@@ -134,6 +134,7 @@ Links are **populated** only once the layer below them is accurate.
 | D74 | Annual-report extraction scope (adds to §4.9) | Segment note (geography + major customers), revenue disaggregation (Ind AS 115), FX earnings & outgo, R&D expenditure, unhedged foreign-currency exposure, raw materials consumed. |
 | D75 | Niche indices & portfolio X-ray | **Adopted.** Niche sector indices computed from our own data (e.g. NIC-based "castings" index). Portfolio/watchlist X-ray: aggregated geographic, raw-material, customer and pledge exposure. |
 | D76 | More structured NSE sources | **Adopted.** (1) **Integrated Filing – Financials XBRL** (consolidated + standalone) as the primary quarterly financial source, falling back to results XBRL. (2) **Structured credit-rating feed** (`/api/corporate-credit-rating`) instead of LLM extraction. (3) **Market-structure data** (daily archive): F&O participant-wise OI, F&O ban list, **ASM/GSM surveillance lists** (red flag on entry), short-selling disclosures, price-band changes. (4) **Governance fields** from Integrated Filing – Governance XBRL: independent-director share, attendance, committee meetings, auditor tenure/changes, investor complaints trend, MSME dues ageing. Also used: shareholding-pattern master, board meetings (results calendar), corporate actions API, annual-report list. *To find/verify:* SAST Reg 31 pledge endpoint; RPT data (possibly in half-yearly integrated filing). **Later (non-NSE):** MCA charges, AMFI monthly MF holdings, RBI sector data. |
+| D77 | Plant registry & location impact | Graph entity `plant`: company, name, address, PIN, **city, district, state**, country, products (NIC), capacity, utilisation, status, commissioning dates (→ D33), regulatory status, all with as-of/source (D32). **Sources:** annual-report "plant locations" (LODR Schedule V) cross-checked against BRSR plant counts (mismatch → review); presentations/concalls (capacity, utilisation); announcements (commissioning, expansion, shutdown, **Reg 30 disruption disclosures** → Lane A, linked to plant); company-disclosed USFDA outcomes linked to facility. **Location:** PIN → district/state via the government open PIN directory; city from address + PIN directory. **Filtering at city/state level; no map view.** **Plant revenue share:** factual only for single-plant companies or plant-wise disclosures; otherwise capacity share labelled "estimate". **Event impact:** owner enters an event (e.g. "flood, Ahmedabad, 15 days") on an owner-only screen → plants in area → companies → % capacity → estimated revenue at risk (scenario, D73). Company disruption disclosures are public facts. News feed and FDA public databases: **later**. |
 
 ---
 
@@ -406,28 +407,6 @@ probe/                throwaway Cloudflare reachability check
 2. **Run `probe/`** (see `probe/README.md`) 3–4 times, including once after 22:00 IST, and share the JSON output.
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
-
-## 9b. Proposed, awaiting owner decision — plants, capacity & location-based impact (2026-11-02)
-1. **Plant registry** (graph entity `plant`):
-   - Fields: company, name, address, PIN, district, state, country, products (NIC), capacity (value, unit, as-of, source), utilisation (value, period, source), status (operational / under construction / shut / divested), commissioning dates (linked to commitments, D33), regulatory status (e.g. USFDA inspection outcomes), and dates on every value (D32).
-2. **Sources:**
-   - Annual report **"plant locations"** (a required item in the corporate-governance section, LODR Schedule V).
-   - BRSR plant counts (cross-check: number of extracted plants must match).
-   - Presentations/concalls (capacity, utilisation).
-   - Announcements: commissioning, expansion, shutdowns, and **disruption of operations due to natural calamity, fire, strike, force majeure** (a required LODR Reg 30 disclosure → triage Lane A, linked to the plant).
-3. **Location mapping:**
-   - PIN code → district/state via the government's open PIN directory (deterministic, free).
-   - Optional lat/long via OpenStreetMap geocoding (cached, within their usage policy).
-4. **Revenue/capacity share per plant:**
-   - Factual only when the company has **one plant** (100%) or discloses plant-wise figures.
-   - Otherwise **capacity share as a proxy**, labelled "estimate".
-5. **Impact queries:**
-   - "Plants in district X / state Y" → companies → % of capacity in the area → estimated revenue at risk (scenario, owner-only per D73).
-   - Company disruption disclosures are shown as facts (public).
-6. **Regulator data for plants:**
-   - USFDA inspection outcomes are disclosed by companies in announcements (facility name → plant).
-   - Optional later: FDA public databases (warning letters, import alerts, inspection classifications). Official and free, but non-NSE.
-7. *Open:* event input (owner-entered events now, news later?); map view on the site (MapLibre + open tiles).
 
 ## 9c. Legal consult checklist (before going public)
 1. **SEBI RA Regulations:** do cards (facts, comparisons with the company's own past, guidance tracking, red flags) count as a "research report" / research-analyst activity? Does the "statistical summaries of financial data" exclusion cover them?
