@@ -641,6 +641,7 @@ probe/                throwaway reachability check
 
 **Still to verify:**
 - `quote-equity` from a GitHub runner: **403** in our replication and in the V1 run of 22 Oct 2026 (Appendix B); never shown to work. Closed as a cloud option; stays the D8 fallback
+- **[PARKED by owner, #233: classification questions below stay pending]**
 - **BSE `ComHeadernew` (D120): 403 from GitHub and Cloudflare** (Appendix B). Owner decides: run on own machine OK? BSE or NSE taxonomy? fallback for NSE-only listings
 - ⚠ **Owner's machine vs #206** (owner asked that probes not run on their computer): a laptop comparison run (BSE vs NSE, ITC + INFY, log #232) and the quarterly classification job both need it; owner to confirm
 - every source from Cloudflare: **core sources verified ✅ (probe run #3)**; structured-filing endpoints (integrated filings, PIT, SAST, ratings, BRSR, shareholding) not yet probed from Cloudflare
