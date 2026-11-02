@@ -109,3 +109,17 @@ describe("market daily job on real file samples", () => {
     expect(at2230).toEqual(["2024-01-01", "2024-01-02", "2024-01-03"]);
   });
 });
+
+describe("universe filter (D4)", () => {
+  it("drops fund units (INF ISINs) and keeps companies", async () => {
+    const { market, deps } = setup();
+    // add an ETF row to the 2025-06-13 bhavcopy sample
+    const { readFileSync: rf } = await import("node:fs");
+    const csv = rf(join(FX, "udiff_20250613.csv"), "utf8").trimEnd() + "\r\n2025-06-13,2025-06-13,CM,NSE,STK,999,INF204KB14I2,NIFTYBEES,EQ,,,,,NIP IND ETF NIFTY BEES,280.00,281.00,279.00,280.50,280.50,279.90,,280.50,,,1000,280500.00,10,F1,1,,,,,\r\n";
+    const { zipSync } = await import("./zip.js");
+    const r = await runDay("2025-06-13", { ...deps, fetch: fakeFetch({ "BhavCopy_NSE_CM_0_0_0_20250613_F_0000.csv.zip": zipSync("BhavCopy_NSE_CM_0_0_0_20250613_F_0000.csv", csv) }) });
+    expect(r.status).toBe("loaded");
+    expect(await market.all("SELECT 1 FROM security_identifier WHERE value='NIFTYBEES'")).toEqual([]);
+    expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM security_identifier WHERE value='INFY'"))[0]!.n).toBe(1);
+  });
+});

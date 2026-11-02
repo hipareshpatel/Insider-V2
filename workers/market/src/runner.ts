@@ -13,7 +13,7 @@ export async function pendingDates(db: Sql, now: Date, revisit: number, from = H
   const done = new Set((await db.all<{ run_key: string }>(
     "SELECT DISTINCT run_key FROM pipeline_run WHERE pipeline='market.daily' AND status IN ('ok','skipped')")).map((r) => r.run_key));
   const recentFail = new Set((await db.all<{ run_key: string }>(
-    "SELECT DISTINCT run_key FROM pipeline_run WHERE pipeline='market.daily' AND status='failed' AND started_at > ?",
+    "SELECT DISTINCT run_key FROM pipeline_run WHERE pipeline='market.daily' AND status='failed' AND started_at > ? AND (detail IS NULL OR detail NOT LIKE '%\"status\":\"pending\"%')",
     [new Date(now.getTime() - 3 * 3600_000).toISOString()])).map((r) => r.run_key));
   const todo = all.filter((d) => !done.has(d) && !recentFail.has(d));
   // Revised-file check (§5.2): re-fetch the last N sessions once a day; unchanged bytes cost nothing.

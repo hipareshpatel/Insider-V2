@@ -81,7 +81,8 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
 
   const wrongDate = bhavAll.filter((r) => r.tradeDate !== date).length;
   if (wrongDate) return { date, status: "rejected", reasons: [`${wrongDate} bhavcopy rows dated other than ${date}`] };
-  const equity = bhavAll.filter((r) => EQUITY_SERIES.has(r.series));
+  // Universe (D4): equity series only, and no fund units — ETFs trade in EQ but carry INF ISINs and have no MCAP row.
+  const equity = bhavAll.filter((r) => EQUITY_SERIES.has(r.series) && !r.isin.startsWith("INF"));
   const reviews: ReviewItem[] = [];
   const reasons: string[] = [];
 
