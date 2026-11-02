@@ -363,6 +363,7 @@ technical_context  computed from prices
 provenance         model, prompt version, tool calls, cost, latency
 confidence_gate    published | published_unverified (badge, never hidden)
 ```
+- **Goal (owner's words):** an investor of any type should be able to **take a decision after reading the card**, so it must carry **full context**. Every section serves that.
 - **Writing rules:** neutral, factual language (no hype words such as "fantastic" or "strongly positive"); reported and adjusted figures side by side; explain *why* (e.g. profit bridge when PAT and EBITDA diverge); label claim strength (guidance vs aspiration); one card per event, updated as filings arrive; a disclaimer on every card.
 - **Card sections and their order are decided after seeing real output** (D25). A shareable image is generated from the web card.
 - Insider activity gets cards only past thresholds (D29); otherwise it appears in the insider panel.
@@ -399,7 +400,7 @@ confidence_gate    published | published_unverified (badge, never hidden)
 - **Data-health page:** last runs, review-queue sizes, freshness.
 
 ### 8.2 Owner-only (Cloudflare Access; never cached publicly or exposed via public API routes)
-- Upcoming-results signals + outcome ledger; predictions only after a backtest beats the naive baseline (D53).
+- Upcoming-results signals (incl. headcount growth as an expansion indicator) + outcome ledger; predictions only after a backtest beats the naive baseline (D53).
 - Scenario calculator, incl. commodity shocks and inventory gain/loss (D73).
 - Event-impact screen ("flood, Ahmedabad, 15 days" → plants → companies → % capacity → revenue at risk) (D77).
 - Export mix-drag estimate (D78).
@@ -574,6 +575,9 @@ probe/                throwaway reachability check
 
 **Unresolved:** funding for the NSE licence (EOD Capital Market ≈ ₹1,00,000 per display medium + GST ≈ $113/month for the website alone, above the $100 budget). No ads or sponsors (D22).
 
+**Open question from the owner's original brief:** Gemini was described as being used for **stock analysis of different types (technical, fundamental, stock research)**, not only announcement processing. The plan currently covers this as computed technical/fundamental data + cards + owner-only research chat. Is a **per-stock AI analysis write-up** (fundamental/technical) wanted, and if so public (factual) or owner-only?
+**Clarify:** "credit increases" in the employee-count idea: bank credit growth, a company's borrowing increase, or credit-rating upgrades?
+
 **Provisional decisions to confirm:** D38 (linked-company card threshold), D39 (unlisted counterparties).
 
 ---
@@ -596,7 +600,7 @@ probe/                throwaway reachability check
 | D12 | Language | TypeScript everywhere. |
 | D13 | Website | Autonomous. **Public later** after legal consult; owner-only routes behind Cloudflare Access. Website only: no email/Telegram alerts to users (on-site alerts for signed-in users per D60; owner email alerts per D45). |
 | D14 | Repo | Public. |
-| D15 | LLM | **Gemini paid tier only**, no other providers, no vendor fallback. **One pinned stable model version per stage**, changed only after the gold set passes. Prompt caching throughout. **Tiers:** Standard for triage and time-critical events; **Flex** (50% off, 1–15 min) for everything else; **Batch** for backfill, audits, gold-set runs. Behind a provider interface. |
+| D15 | LLM | **Gemini paid tier only**, no other providers, no vendor fallback. **One pinned stable model version per stage**, changed only after the gold set passes. Owner accepts model-change risk and **welcomes newer models when the gold set shows an improvement** (not only when Google retires a model). Prompt caching throughout. **Tiers:** Standard for triage and time-critical events; **Flex** (50% off, 1–15 min) for everything else; **Batch** for backfill, audits, gold-set runs. Behind a provider interface. |
 | D16 | Announcement latency | Card within **15 minutes** of filing. |
 | D17 | PDFs | **Not stored long-term.** URL + SHA-256 + per-page text kept forever. High-value PDFs kept 90 days. |
 | D18 | Budget | **$100/month total.** Hard spending cap in code. |
@@ -634,7 +638,7 @@ probe/                throwaway reachability check
 | D50 | Consolidated vs standalone | Both stored; basis in every key. Primary basis per company: consolidated (most), standalone (banks), both (holding cos). Basis switch → series break. Profit split owners vs NCI; EPS/valuation use attributable. |
 | D51 | Basis in AI inputs | Basis-tagged numbers; primary basis only unless relevant; basis per PDF table; code rejects mixed comparisons; unclear commentary basis → unknown, not used numerically. |
 | D52 | Ratio conventions | Adjusted excludes exceptional items (reported alongside). TTM. ROE/ROCE on average capital; capital employed documented. No sentinel values. (Screener's "net of excise duty" adjustment is not needed: our history starts in the GST era.) |
-| D53 | Upcoming-results signals | Factual leading indicators + outcome ledger. "Good results" = growth above own 8-quarter trend **and** guidance met. Ranking/prediction only after a point-in-time backtest beats a naive baseline, **owner-only**, never cached publicly. |
+| D53 | Upcoming-results signals | Factual leading indicators (guidance revisions, order book ÷ TTM revenue, quarter-end provisional business updates, monthly volumes, capacity vs commitments due, insider/promoter buying, pledge changes, margin trend, **headcount growth from BRSR as an expansion indicator**) + outcome ledger. "Good results" = growth above own 8-quarter trend **and** guidance met. Ranking/prediction only after a point-in-time backtest beats a naive baseline, **owner-only**, never cached publicly. |
 | D54 | NSE-block fallback | Decide if it happens (owner-machine relay vs small VPS). |
 | D55 | Phase 2 backfill | Last 4 quarters of Nifty 50 results, concalls, presentations; cost estimated first. |
 | D56 | Shareholding pattern | Ingested quarterly for all covered stocks. |
@@ -660,6 +664,7 @@ probe/                throwaway reachability check
 | D76 | Structured NSE sources | Integrated Filing – Financials as primary quarterly source; structured credit ratings; market-structure data (F&O OI, ban, ASM/GSM, short selling, price bands); governance fields from Integrated Filing – Governance. Later (non-NSE): MCA charges, AMFI, RBI. |
 | D77 | Plant registry & location impact | Plant entity with location (PIN → city/district/state), products, capacity, utilisation, status, regulatory status; annual-report plant locations cross-checked with BRSR counts; Reg 30 disruption disclosures linked to plants; city/state filtering, **no map view**; plant revenue share factual only when single-plant/disclosed, else labelled estimate; owner-entered event impact screen. News and FDA databases later. |
 | D78 | Trackers | **Adopted:** sector KPI trackers (company-reported vs computed), segment-margin trackers (where disclosed), export share vs margin, repeat-order tracker (named customers, disclosed orders). **Export mix-drag estimate: owner-only, labelled.** |
+| D79 | Availability | **Occasional downtime is acceptable** (owner, production discussion). No redundancy/failover/on-call; queues catch up after outages; freshness indicator (D46) shows staleness. |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |
