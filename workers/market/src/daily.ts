@@ -241,14 +241,16 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   const bc = dedupeBc(pr.bc, new Set(pr.bc.map((r) => r.series))); // every series (D127); one row per symbol/ex-date/purpose
   const caStmts: Stmt[] = [];
   const todays = new Map<number, { purposes: string[]; comps: ReturnType<typeof parsePurpose>["components"] }>();
+  const shareLike = new Set(rowsAll.filter((r) => ["equity", "etf", "reit", "invit"].includes(kindOf(r))).map((r) => r.symbol));
   for (const r of bc) {
     const sid = secOf.get(r.symbol);
     if (!sid) continue;
+    if (!shareLike.has(r.symbol)) continue; // bonds/debentures/G-secs: their corporate actions don't adjust share prices
     const parsed = parsePurpose(r.purpose);
     const priceAffecting = affectsPrice(parsed);
     const status = parsed.unparsed.length ? "review" : "parsed";
     const type = typeOf(parsed.components);
-    if (type === "meeting" && !parsed.unparsed.length) continue;
+    if ((type === "meeting" || parsed.components.every((c) => c.type === "debt_service" || c.type === "meeting")) && !parsed.unparsed.length) continue;
     const amount = parsed.components.filter((c) => c.type === "dividend").map((c) => (c as { amount: string }).amount).join("+") || null;
     caStmts.push({ sql: `INSERT INTO corp_action (security_id,ex_date,type,raw_purpose,amount,status,file_id) VALUES (?,?,?,?,?,?,?)
       ON CONFLICT (security_id,ex_date,raw_purpose) DO NOTHING`, params: [sid, r.exDate, type, r.purpose, amount, status, fileIds.pr_bundle] });

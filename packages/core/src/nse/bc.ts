@@ -31,7 +31,8 @@ export type CaComponent =
   | { type: "rights"; newShares: string; held: string; premium: string }
   | { type: "dividend"; amount: string; kind: "interim" | "final" | "special" }
   | { type: "demerger" | "capital_reduction" | "merger" | "buyback" }
-  | { type: "meeting" };
+  | { type: "meeting" }
+  | { type: "debt_service" };     // bond/debenture interest or redemption: never price-adjusting for shares
 
 export interface ParsedPurpose { components: CaComponent[]; unparsed: string[] }
 
@@ -73,6 +74,7 @@ export function parsePurpose(purpose: string): ParsedPurpose {
       components.push({ type: "dividend", amount: m[2]!, kind });
       continue;
     }
+    if (/^(INTEREST PAYMENT|INT PAYMN?T|INT PAY|PART REDEMPTI?O?N|REDEMPTI?O?N|PART REDEMPTN|FULL REDEMPTION|MATURITY)$/.test(part)) { components.push({ type: "debt_service" }); continue; }
     if (/^DEMERGER$/.test(part)) { components.push({ type: "demerger" }); continue; }
     if (/^MERGER$/.test(part)) { components.push({ type: "merger" }); continue; }
     if (/^BUY ?BACK$/.test(part)) { components.push({ type: "buyback" }); continue; }

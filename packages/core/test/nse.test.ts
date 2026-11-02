@@ -92,6 +92,9 @@ describe("Bc purpose parser (patterns from 2024–2026 files)", () => {
     ["DVSPDV - RS 5/RS 3", [{ type: "dividend", amount: "5", kind: "final" }, { type: "dividend", amount: "3", kind: "special" }]],
     ["SPLDIV - RS 10 PER SH", [{ type: "dividend", amount: "10", kind: "special" }]],
     ["ANNUAL GENERAL MEETING", [{ type: "meeting" }]],
+    ["INTEREST PAYMENT", [{ type: "debt_service" }]],
+    ["INT PAYMNT/PART REDEMPTN", [{ type: "debt_service" }, { type: "debt_service" }]],
+    ["REDEMPTION", [{ type: "debt_service" }]],
   ])("%s (not price-affecting, D7)", (p, want) => {
     expect(c(p).components).toEqual(want);
     expect(c(p).unparsed).toEqual([]);
