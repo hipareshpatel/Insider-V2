@@ -114,3 +114,17 @@ describe("masters", () => {
     expect(parseIndexList(text("ind_niftytotalmarket_list.csv")).find((r) => r.symbol === "ITC")?.sector).toBe("Fast Moving Consumer Goods");
   });
 });
+
+describe("delivery + index closes", () => {
+  it("delivery % (D65)", async () => {
+    const { parseDelivery } = await import("../src/index.js");
+    const rows = parseDelivery(text("sec_bhavdata_full_30102026.csv"));
+    expect(rows.find((r) => r.symbol === "INFY" && r.series === "EQ")).toMatchObject({ tradeDate: "2026-10-30", deliverableQty: 7575174, deliveryPct: "58.13" });
+  });
+  it("index closes (D62), dd-mm-yyyy dates", async () => {
+    const { parseIndexClose } = await import("../src/index.js");
+    const n50 = parseIndexClose(text("ind_close_all_30102026.csv")).find((r) => r.indexName === "Nifty 50")!;
+    expect(n50).toMatchObject({ tradeDate: "2026-10-30", close: "23053.1", pe: "19.3", pb: "2.83", divYield: "1.42" });
+    expect(nseDate("30-10-2026")).toBe("2026-10-30");
+  });
+});
