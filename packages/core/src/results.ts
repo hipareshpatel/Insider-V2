@@ -82,6 +82,31 @@ export const BANK_TAGS: Record<string, string> = {
   roa: "ReturnOnAssets",
 };
 
+/** Life-insurance template (IRDAI format: policyholders' + shareholders' accounts). */
+export const LIFE_TAGS: Record<string, string> = {
+  premium_first_year: "IncomeFirstYearPremium",
+  premium_renewal: "IncomeRenewalPremium",
+  premium_single: "IncomeSinglePremium",
+  gross_premium: "GrossPremiumIncome",
+  net_premium: "NetPremiumIncome",
+  investment_income_policyholders: "IncomeFromInvestmentsNet",
+  total_income_policyholders: "Income",
+  commission: "Commission",
+  commission_first_year: "CommissionFirstYearPremium",
+  commission_renewal: "CommissionRenewalPremium",
+  commission_single: "CommissionSinglePremium",
+  operating_expenses: "OperatingExpensesRelatedToInsuranceBusiness",
+  expenses_of_management: "ExpensesOfManagement",
+  benefits_paid: "BenefitsPaidNet",
+  change_actuarial_liability: "ChangeInActuarialLiability",
+  total_expenses_policyholders: "Expenses",
+  surplus: "NetSurplusDeficit",
+  transfer_to_shareholders: "TransferredToShareholdersAccount",
+  pbt: "ProfitLossBeforeTax",
+  tax: "ProvisionsForTaxes",
+  pat: "ProfitLossAfterTaxAndExtraordinaryItems",
+};
+
 export interface CanonicalResult {
   symbol: string | null;
   periodStart: string;
@@ -89,7 +114,7 @@ export interface CanonicalResult {
   periodKind: PeriodKind;
   label: string;
   basis: "standalone" | "consolidated";
-  template: "industrial" | "bank";
+  template: "industrial" | "bank" | "life_insurance";
   audited: string | null;
   lines: Record<string, string>;      // exact rupee text (EPS in rupees per share)
   missing: string[];                  // canonical lines not reported (null with reason, D52)
@@ -117,8 +142,9 @@ export function canonicalResult(inst: XbrlInstance): CanonicalResult {
   const lines: Record<string, string> = {};
   const missing: string[] = [];
   // Template by content: banks report InterestExpended; industrial and NBFC (Ind AS Div II/III) share the other layout.
-  const template: "industrial" | "bank" = inst.facts.some((f) => f.tag === P + "InterestExpended") ? "bank" : "industrial";
-  const tags = template === "bank" ? BANK_TAGS : PL_TAGS;
+  const has = (t: string) => inst.facts.some((f) => f.tag === P + t);
+  const template: CanonicalResult["template"] = has("InterestExpended") ? "bank" : has("IncomeFirstYearPremium") ? "life_insurance" : "industrial";
+  const tags = template === "bank" ? BANK_TAGS : template === "life_insurance" ? LIFE_TAGS : PL_TAGS;
   for (const [line, tag] of Object.entries(tags)) {
     const f = inst.facts.find((x) => x.tag === P + tag && x.contextRef === ctx.id && !x.nil);
     if (f?.value !== undefined && f.value !== null && f.value !== "") lines[line] = toText(dec(f.value));
@@ -130,7 +156,7 @@ export function canonicalResult(inst: XbrlInstance): CanonicalResult {
     basis: nature.startsWith("consol") ? "consolidated" : "standalone",
     template,
     audited: meta("WhetherResultsAreAuditedOrUnaudited"),
-    lines, missing, checks: template === "bank" ? bankChecks(lines) : identityChecks(lines),
+    lines, missing, checks: template === "bank" ? bankChecks(lines) : template === "life_insurance" ? lifeChecks(lines) : identityChecks(lines),
   };
 }
 
@@ -176,5 +202,24 @@ export function bankChecks(l: Record<string, string>): { name: string; ok: boole
   near("total income − expenditure = operating profit", diff("total_income", "expenditure_excl_provisions"), v("operating_profit"));
   near("operating profit − provisions + exceptional = PBT", v("operating_profit") && v("provisions") && v("exceptional_items") ? add(sub(v("operating_profit")!, v("provisions")!), v("exceptional_items")!) : null, v("pbt"));
   near("PBT − tax = PAT (ordinary)", diff("pbt", "tax"), v("pat_ordinary"));
+  return out;
+}
+
+/** Life-insurer identities (B8), tolerance ₹1 lakh. */
+export function lifeChecks(l: Record<string, string>): { name: string; ok: boolean; detail: string }[] {
+  const tol = dec("100000");
+  const v = (k: string): Dec | null => (l[k] !== undefined ? dec(l[k]!) : null);
+  const out: { name: string; ok: boolean; detail: string }[] = [];
+  const near = (name: string, lhs: Dec | null, rhs: Dec | null) => {
+    if (!lhs || !rhs) return;
+    const d = sub(lhs, rhs);
+    const abs = d.units < 0n ? { units: -d.units, scale: d.scale } : d;
+    out.push({ name, ok: cmp(abs, tol) <= 0, detail: `${toText(lhs)} vs ${toText(rhs)}` });
+  };
+  const sum = (...ks: string[]) => (ks.every((k) => v(k)) ? ks.map((k) => v(k)!).reduce((a, b) => add(a, b)) : null);
+  near("first-year + renewal + single = gross premium", sum("premium_first_year", "premium_renewal", "premium_single"), v("gross_premium"));
+  near("commission parts = commission", sum("commission_first_year", "commission_renewal", "commission_single"), v("commission"));
+  near("policyholders' income − expenses = surplus", v("total_income_policyholders") && v("total_expenses_policyholders") ? sub(v("total_income_policyholders")!, v("total_expenses_policyholders")!) : null, v("surplus"));
+  near("PBT − tax = PAT", v("pbt") && v("tax") ? sub(v("pbt")!, v("tax")!) : null, v("pat"));
   return out;
 }

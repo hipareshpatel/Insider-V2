@@ -67,3 +67,15 @@ describe("bank template (HDFCBANK Q2 FY27 consolidated, trimmed real file)", asy
     expect(r.checks.filter((c) => !c.ok)).toEqual([]);
   });
 });
+
+describe("life-insurance template (SBILIFE Q2 FY27, trimmed real file)", async () => {
+  const { canonicalResult } = await import("../src/index.js");
+  const r = canonicalResult(parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_SBILIFE_IF_Q2FY27_trim.xml"), "utf8")));
+  it("detects the life-insurer layout; identities hold", () => {
+    expect(r.template).toBe("life_insurance");
+    expect(r.lines.gross_premium).toBe("271151274000");
+    expect(r.lines.pat).toBe("5492318000");
+    expect(r.checks.length).toBe(4);
+    expect(r.checks.filter((c) => !c.ok)).toEqual([]);
+  });
+});
