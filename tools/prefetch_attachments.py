@@ -35,12 +35,12 @@ def fetch(url):
 
 def ingest(job_id, status, http, data):
     req = urllib.request.Request(f"{BASE}/ingest?job={job_id}&status={status}&http={http}", data=data, method="PUT",
-                                 headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/octet-stream"})
+                                 headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/octet-stream", "User-Agent": "disclo-prefetch-attachments/1"})
     for i in range(4):
         try:
             with urllib.request.urlopen(req, timeout=60) as r: return r.status == 200
         except urllib.error.HTTPError as e:
-            if e.code == 403: raise SystemExit("ingest refused the token (403): stopping")
+            if e.code == 403: raise SystemExit("ingest 403: " + e.read()[:200].decode("utf8", "replace"))
             time.sleep(2 * (i + 1))
         except Exception:
             time.sleep(2 * (i + 1))
