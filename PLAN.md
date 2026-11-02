@@ -127,6 +127,12 @@ Links are **populated** only once the layer below them is accurate.
 | D67 | Adopted from benchmark review (stockscans.in) | (1) Dashboard: % of stocks above EMA 20/50/100/200, daily thrust (count ±4% in a day), 52-week extremes, broad-index panel. (2) **Bulk & block deals** (NSE archive daily) + **tracked investors** (named holders ≥ 1% from shareholding patterns, via graph). (3) Keyword scans over announcement text with on-site alerts. (4) **Factual concall metrics**: number of analysts, questions per theme, congratulatory remarks, Q&A time share, questions management declined to answer; no sentiment scores. (5) Custom baskets, returns vs indices, peer comparison. Benchmark note: they use a licensed data vendor (CMOTS); Free + ₹500/month Premium. |
 | D68 | Research chat | **Owner-only** (Gemini cost; not public). |
 | D69 | Differentiating features | **Adopted.** Tier 1: time machine (as-of views); disclosure regression detector; management credibility ledger (per company and named executive, facts only); sector commentary map; "what changed since your last visit"; disclosure timeliness & hygiene; unexplained-move panel. Tier 2: concall audio → provisional same-day summary (validated when the transcript arrives); forensic panel (no score). Owner-only: insider/promoter trades in the N days before material announcements. **Phasing:** the data foundations for all of these are built from day 1; screens ship in stages after the Nifty 50 core passes acceptance tests. |
+| D70 | Business mix & exposure | **Sector/industry page** (aggregated results trend, guidance raised/cut, commentary map, valuation vs own history, KPI-pack comparison, leaders/laggards, red flags, raw-material exposure, upcoming results). **Segments** mapped to a canonical business-line taxonomy; **product mix on NIC codes** (from BRSR) as the standard product vocabulary; segment margins. **Geographic exposure** (BRSR exports %, Ind AS 108 geographic note, presentations) on a canonical region/country list. **Customer concentration** (Ind AS 108 ≥ 10% customers, linked via graph). **Margin recovery/erosion** fields. |
+| D71 | BRSR | **BRSR XBRL ingested annually** for all covered companies: products (NIC + % turnover), exports %, plants/offices, markets served, employees/workers, energy/water, purchase/sales concentration. BRSR figures are **standalone**; basis rules D50/D51 apply. Forensic uses: cost per employee vs industry median; headcount vs revenue growth; energy/water growth vs revenue growth. |
+| D72 | Raw materials | RM cost % revenue (XBRL) + company-stated materials (graph `uses_material`) + **industry-default input map, allowed but always labelled "industry default, not company-stated"** (amends D37 for this use only). Inventory days for gain/loss estimates. |
+| D73 | Scenario calculator | **Owner-only.** User-entered shocks (e.g. steel +40%) → estimated cost impact and inventory gain/loss, labelled as a scenario. |
+| D74 | Annual-report extraction scope (adds to §4.9) | Segment note (geography + major customers), revenue disaggregation (Ind AS 115), FX earnings & outgo, R&D expenditure, unhedged foreign-currency exposure, raw materials consumed. |
+| D75 | Niche indices & portfolio X-ray | **Adopted.** Niche sector indices computed from our own data (e.g. NIC-based "castings" index). Portfolio/watchlist X-ray: aggregated geographic, raw-material, customer and pledge exposure. |
 
 ---
 
@@ -400,35 +406,22 @@ probe/                throwaway Cloudflare reachability check
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
 
-## 9b. Proposed, awaiting owner decision — business mix, exposure & sector pages (2026-11-02)
-*Verified:* NSE BRSR filings are listed at `/api/corporate-bussiness-sustainabilitiy` (NSE's spelling) with **XBRL per company** (Sun Pharma FY26: ~2,000 facts). They contain: **products/services with NIC code and % of turnover**, **exports as % of turnover** (Sun Pharma 72.3%), plants/offices by national/international, number of states/countries served, employee and worker tables, energy/water consumption, and concentration of purchases/sales. **Caveat:** Sun Pharma's BRSR revenue (₹20,755 cr) is **standalone**, so BRSR figures carry basis = standalone (D50) and must not be mixed with consolidated metrics.
-1. **Sector/industry page:** aggregated results trend (sum and median growth, margins), guidance raised/cut distribution, commentary map (D69), valuation vs own history, sector KPI-pack comparison, leaders/laggards, red flags, raw-material exposure, upcoming results.
-2. **Segments & business mix:**
-   - Quarterly segment data (XBRL/results) is company-defined, so it's mapped to a **canonical business-line taxonomy**.
-   - Product mix from BRSR uses **NIC codes**, a government standard, so e.g. "castings" = NIC 243x.
-   - Segment margins come from segment results.
-   - Enables "castings ≥ X% of turnover AND segment margin ≥ Y%".
-3. **Geographic exposure:**
-   - BRSR exports % (standalone, annual).
-   - Ind AS 108 geographic note in the annual report (by country when material).
-   - Presentations (e.g. US % of sales).
-   - Mapped to a canonical region/country list. Enables "pharma ranked by US revenue share".
-4. **Customer concentration:** Ind AS 108 requires disclosure of any single customer ≥ 10% of revenue. Extract it, and link named customers via the graph.
-5. **Employees & forensic:**
-   - BRSR headcount (permanent/contract) → employee cost per employee (standalone employee expense ÷ standalone headcount) vs industry median.
-   - Implausibly low → red flag (e.g. 1,200 employees but ₹1.2 cr salaries).
-   - Headcount growth vs revenue growth; contract-worker share.
-6. **Operating-activity proxies (BRSR):** energy and water consumption growth vs revenue growth (e.g. revenue +40% with flat energy use → forensic flag).
-7. **Margin recovery / erosion fields:** e.g. margin rising ≥ 2 quarters after a trailing-4Q low; margin ≥ X bps below trailing-8Q peak; consecutive quarters of contraction.
-8. **Raw-material exposure & commodity shocks:**
-   - RM cost % of revenue from XBRL (materials consumed + purchases of stock-in-trade ± inventory change).
-   - Which materials: company-stated (filings, annual report, concalls → graph `uses_material`).
-   - Inventory days (half-yearly).
-   - A **scenario calculator**: user enters "steel +40%" → estimated cost impact (% of revenue) and inventory gain/loss, labelled as a scenario.
-   - Commodity price feed remains a later phase (D19).
-9. **Annual-report scope additions:** segment note (geography + major customers), revenue disaggregation (Ind AS 115), foreign-exchange earnings & outgo (Board's report), R&D expenditure, unhedged foreign-currency exposure, raw materials consumed.
-10. **BRSR XBRL** ingested annually for all covered companies.
-*Open:* industry-default input map (conflicts with D37 explicit-only unless labelled "industry default"); scenario calculator public or owner-only.
+## 9b. Proposed, awaiting owner decision — more structured sources (2026-11-02)
+*Verified reachable from cloud (NSE API), per-company:*
+- **Integrated Filing – Financials** (`/api/integrated-filing-results`): SEBI's integrated quarterly filing, consolidated + standalone, **XBRL + iXBRL**. Sun Pharma Q2 FY27: 220 tags incl. balance sheet and cash flow, MSME dues, borrowings, segment flag.
+- **Integrated Filing – Governance** (same list, quarterly XBRL): 104 tags. Board/committee composition & meetings, independent directors, remuneration, auditors, **investor complaints received/disposed**.
+- **Shareholding pattern master** (`/api/corporate-share-holdings-master`): quarterly, promoter vs public %, notes.
+- **Credit ratings** (`/api/corporate-credit-rating`): structured. Agency, rating, action (new/upgrade/downgrade/reaffirm), outlook, date.
+- **Board meetings** (`/api/corporate-board-meetings`) → results calendar.
+- **Corporate actions** (`/api/corporates-corporateActions`), complementing `Bc*.csv`.
+- **Annual reports list** (`/api/annual-reports`): PDF links for D74 extraction.
+*Not yet found:* SAST Reg 31 (pledge/encumbrance) and related-party-transaction endpoints. RPT may sit in the half-yearly integrated filing (to verify on a Q2/Q4 filing with RPTs).
+Proposed additions:
+1. Use **Integrated Filing XBRL as the primary quarterly financial source** (falling back to results XBRL); governance XBRL for board/committee/complaints fields.
+2. **Structured credit-rating feed** instead of LLM extraction from announcements.
+3. **Market structure data (archive, daily):** F&O participant-wise open interest (FII/DII/Pro/Client), securities in F&O ban, **ASM/GSM surveillance lists** (red flag when a stock enters), short-selling disclosures, price-band changes.
+4. **Governance fields:** independent-director share, attendance, committee meetings, auditor tenure/changes, investor complaints trend, MSME dues ageing (supplier stress signal).
+5. **Later (non-NSE):** MCA charges (secured borrowings), AMFI monthly MF scheme holdings, RBI sector data.
 
 ## 9c. Legal consult checklist (before going public)
 1. **SEBI RA Regulations:** do cards (facts, comparisons with the company's own past, guidance tracking, red flags) count as a "research report" / research-analyst activity? Does the "statistical summaries of financial data" exclusion cover them?
