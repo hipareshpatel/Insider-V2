@@ -112,6 +112,7 @@ After that it also runs automatically **3 times a day** (10:00, 15:00 and 22:30 
 |---|---|
 | Cloudflare still "Pending" after 48 h | Re-check the two nameservers in GoDaddy (exact spelling, no extra nameservers); check DNSSEC is off. |
 | Test email bounces with "550 5.1.1 Address does not exist" | Mail is reaching Cloudflare correctly; there's just no routing rule for that exact address yet. Create one (Routing rules → Create routing rule). Every address needs its own rule unless Catch-all is on (keep it off). |
+| Routing rule says "Allowed characters: a-z 0-9 _ - . +" | The address has a capital letter (phones auto-capitalise). Type it in lowercase, e.g. `info`. |
 | Verification email not received | Check spam; resend from Cloudflare Email Routing → Destination addresses. |
 | Probe run fails with an authentication error | Recreate the API token with the "Edit Cloudflare Workers" template and update the `CLOUDFLARE_API_TOKEN` secret. |
 | Probe run says "Secrets … not set yet" | Check the two secret names are exactly `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. |

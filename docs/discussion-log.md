@@ -269,6 +269,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 219 | Test mail to a personal address at disclo.in bounced: "550 5.1.1 Address does not exist"; Email Routing shows disclo.in Enabled. | Diagnosis: MX works (Cloudflare received and rejected); no routing rule exists for that address yet. Fix: verify destination, create rule(s) for the wanted address(es); test from a different sender account | ✅ |
 
+| 220 | Routing rule rejects "Info" (allowed: a-z 0-9 _ - . +). | Cause: capital letter from phone auto-capitalisation; type lowercase `info` | ✅ |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -276,7 +278,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #219: all checks pass (119 decisions, 219 entries).*
+*Last run 2026-11-02 after entry #220: all checks pass (119 decisions, 220 entries).*
 
 ## Open items from this log
 - **#204** Launch name to be decided by owner (trademark work paused); `disclo.in` stays the working domain. Owner actions: add `disclo.in` to Cloudflare; enable Email Routing.
