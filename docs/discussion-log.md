@@ -290,7 +290,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 232 | Owner pasted a description of V1's BSE classification process (cookie visit, `ComHeadernew` per company, fields Sector/IndustryNew/IGroup/ISubGroup, 0.5 s pause, 403 = stop), a standalone script copied from V1, and two V1 stored rows; suggests running it and NSE `quote-equity` side by side from the owner's laptop for ITC and INFY. | Method facts + storage note in Appendix B and D120. **V1 script and stored rows not committed or used** (clean slate); a V2 comparison script will be written from scratch if the owner agrees to a laptop run. ⚠ Laptop run vs #206 (no probes on the owner's computer): owner to confirm. | ❓ owner: laptop comparison run OK? |
 | 233 | "OK, let's move next. Park it as pending. What is next?" | Classification (D8/D120, #231–#232 questions, ⚠ vs #206) **parked as pending**; PLAN §16 + HANDOVER marked. Next proposed: probe structured-filing endpoints from Cloudflare (HANDOVER item 2). | 🔶 parked |
 | 234 | "Yes, run the structured-filing probe. But before it, don't you need the Nifty 50 CSV containing the stock list and other details?" | Claude: not for the probe (1–2 fixed symbols; Nifty 50 CSV already proven 200 from Cloudflare). Needed later for the universe (§4.1). Probe run: **all 14 structured-filing calls 200 from Cloudflare**; credit-rating endpoint ignores symbol (bulk feed). Appendix B, §16. | ✅ |
-| 235 | "Yes, take D38 and D39 now." | Claude stress-tested both; refinements proposed in D38/D39 (Appendix A), awaiting owner choice. | ❓ owner: confirm/change D38, D39 |
+| 235 | "Yes, take D38 and D39 now." | Claude stress-tested both; refinements proposed in D38/D39 (Appendix A), owner answered in #236. | ✅ |
+| 236 | "Accepted." (D38/D39 refinements) | Read as: all proposed fixes accepted; 2% threshold kept; merges auto only on exact alias, others to owner review queue. D38, D39 confirmed; §5.6, §2 #8, §16 updated. Unlisted-entity public pages not answered → open. | 🔶 public pages open |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -299,7 +300,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #235: all checks pass (120 decisions, 235 entries); ⚠ #232 vs #206 open (parked).*
+*Last run 2026-11-02 after entry #236: all checks pass (120 decisions, 236 entries); ⚠ #232 vs #206 open (parked).*
 
 ## Open items from this log
 - **#204** Launch name to be decided by owner (trademark work paused); `disclo.in` stays the working domain. Owner actions: add `disclo.in` to Cloudflare; enable Email Routing.

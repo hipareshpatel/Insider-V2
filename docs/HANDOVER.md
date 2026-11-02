@@ -27,5 +27,5 @@
 2. ~~Extend the probe to structured-filing endpoints~~ **Done (#234): all 200 from Cloudflare.** Rate limits at volume to measure in M0.
 3. Review scheduled probe runs; then remove the schedule.
 4. Owner: email test; field-catalogue review (sector packs); launch name.
-5. Provisional decisions to confirm: D38, D39. Unresolved: licence funding (D88 option D chosen; vendor quotes recommended).
+5. ~~Provisional decisions D38, D39~~ **confirmed (#236)**; open: public pages for unlisted entities. Unresolved: licence funding (D88 option D chosen; vendor quotes recommended).
 6. Card sections after real output (D25). Then, on the owner's "build", start **M0**.

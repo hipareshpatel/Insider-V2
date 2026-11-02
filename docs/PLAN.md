@@ -55,7 +55,7 @@ If the design text and Appendix A ever disagree, Appendix A wins and the design 
 5. **Every fact quotes its source** (verbatim quote + page). Code verifies that the quote exists, or the fact is rejected.
 6. **Period & unit discipline:** fiscal year is per company (most are Apr–Mar, but not all), quarters are normalised to Indian FY labels (Q1 FY26 = Apr–Jun 2025), and units (₹ crore/lakh/million) are normalised to ₹.
 7. **Basis discipline:** consolidated/standalone is part of every value's identity. Mixing bases in a comparison is rejected by code (D50, D51).
-8. **Never guess:** unnamed counterparties stay as text (D39); undefined ratios are null with a reason, never sentinel values (D52); estimates are labelled "estimate" (D72, D77).
+8. **Never guess:** unnamed or only-hinted counterparties stay as text (D39); undefined ratios are null with a reason, never sentinel values (D52); estimates are labelled "estimate" (D72, D77).
 9. **Explicit links only** in the relationship graph (D37). The single exception is labelled industry-default raw materials (D72).
 10. **Cards and data are factual.** Judgement appears only in labelled AI write-ups (D80, legal blocker before public). Predictions, scenarios/estimates and pre-announcement trading timing are **owner-only** (D53, D68, D73, D69, D82).
 11. **Nothing is lost silently.** Every announcement gets a timeline row. Triage misses are measured (D26, D27, D30).
@@ -289,8 +289,8 @@ relation      kind: supplier_of | customer_of | subsidiary_of | competitor_of | 
               + source filing, quote, confidence, valid_from/to, origin[explicit | industry_default]
 ```
 - **Explicit links only (D37).** Industry-default raw materials are allowed with `origin = industry_default`, always labelled (D72).
-- **One hop (D38):** linked companies get a context line. *Provisional:* a separate card only if named and ≥ 2% of the linked company's TTM revenue/market cap.
-- **Named** unlisted counterparties → entities; **unnamed** → text (D39, provisional).
+- **One hop (D38):** linked companies get a context line. A separate card only if named, amount disclosed, ≥ 2% of the linked company's TTM revenue (total income for banks/NBFCs/insurers; market cap for M&A/stake/fund-raise), and the linked company is in AI coverage (D111). Same event filed by both sides within 7 days → one merged card. Labelled "derived from <source company>'s filing".
+- **Named** unlisted counterparties → entities, name stored as filed; cross-filing merges only on exact alias match, otherwise to the owner's review queue; foreign companies carry `country` + `listed_abroad`; government buyers → `govt_body`; hinted identities stay text; CIN added with MCA data later (D39). *Open:* whether unlisted entities get public pages.
 - **Promoter groups** seeded from shareholding patterns (D40). **Tracked investors** = named holders ≥ 1% (D67).
 - **Entity resolution:** exact alias → fuzzy → LLM suggestion → review queue. A wrong merge is worse than a missing link.
 - **Plant registry (D77):**
@@ -661,7 +661,7 @@ probe/                throwaway reachability check
 
 **Name:** **Disclo** (`disclo.in`, bought, D118). Launch name may change (owner); trademark work paused (D119). Owner actions: (2) add `disclo.in` to Cloudflare (free plan, change nameservers at the registrar); (3) enable Email Routing to the owner's inbox (`info@`, `alerts@`).
 
-**Provisional decisions to confirm:** D38 (linked-company card threshold), D39 (unlisted counterparties).
+**Confirmed (#236):** D38, D39. **Open:** do unlisted entities get their own public pages, or appear only inside listed-company cards and trackers?
 
 ---
 
@@ -706,8 +706,8 @@ probe/                throwaway reachability check
 | D35 | Owner correction screen | Yes. Private; edits logged and shown as "corrected". |
 | D36 | Scope exclusions | Consensus estimates: out of scope. Non-NSE sources (news, rating rationales, BSE-only filings): later. |
 | D37 | Graph link sources | Explicit statements in filings only. (Exception: labelled industry-default raw materials, D72.) |
-| D38 | Graph impact reach | One hop; context line for linked company. *Provisional:* own card only if named **and** ≥ 2% of linked company's TTM revenue (or market cap for deals). *Refinements proposed by Claude (#235, awaiting owner):* (a) base = linked company's TTM revenue (total income for banks/NBFCs/insurers); market cap for M&A, stake and fund-raising deals; (b) amount must be disclosed; never estimated (no amount → context line only); (c) linked company must be in AI coverage (D111), else context line; (d) if the linked company files its own disclosure of the same event within 7 days, the two merge into one card (no double card); (e) linked card labelled "derived from <source company>'s filing". |
-| D39 | Unlisted counterparties | *Provisional:* named → entities with aliases; unnamed → text, never guessed. *Refinements proposed by Claude (#235, awaiting owner):* (a) store the name exactly as stated + source filing; merge across filings only on exact alias match or owner review (wrong merge worse than missing link, §5.6); (b) foreign companies use the same entity kind with `country` (+ `listed_abroad` flag), no separate kind; government customers (NHAI, Railways, ministries) → `govt_body`; (c) descriptions that hint at an identity ("a leading US bank", "a Maharatna PSU") stay text even when the identity seems obvious; (d) MCA CIN added later when MCA data arrives (D36 "later"). |
+| D38 | Graph impact reach | One hop; context line for linked company. **Confirmed by owner (#236):** own card only if named **and** ≥ 2% of linked company's TTM revenue (or market cap for deals), with: (a) base = linked company's TTM revenue (total income for banks/NBFCs/insurers); market cap for M&A, stake and fund-raising deals; (b) amount must be disclosed; never estimated (no amount → context line only); (c) linked company must be in AI coverage (D111), else context line; (d) if the linked company files its own disclosure of the same event within 7 days, the two merge into one card (no double card); (e) linked card labelled "derived from <source company>'s filing". |
+| D39 | Unlisted counterparties | **Confirmed by owner (#236):** named → entities with aliases; unnamed → text, never guessed, with: (a) store the name exactly as stated + source filing; merge across filings only on exact alias match or owner review (wrong merge worse than missing link, §5.6); (b) foreign companies use the same entity kind with `country` (+ `listed_abroad` flag), no separate kind; government customers (NHAI, Railways, ministries) → `govt_body`; (c) descriptions that hint at an identity ("a leading US bank", "a Maharatna PSU") stay text even when the identity seems obvious; (d) MCA CIN added later when MCA data arrives (D36 "later"). |
 | D40 | Group companies | Promoter-group structures from shareholding patterns from day 1. |
 | D41 | Prompt-injection defence | Filing text as data only; read-only tools; strict schema; quote + XBRL/identity checks; instruction-like text flagged. |
 | D42 | Public error reports | "Report an error" on every card → owner review queue. |
