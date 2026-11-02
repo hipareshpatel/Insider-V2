@@ -640,7 +640,7 @@ probe/                throwaway reachability check
 - card sections, after real output (D25)
 
 **Still to verify:**
-- every source from Cloudflare
+- every source from Cloudflare: **core sources verified ✅ (probe run #3)**; structured-filing endpoints (integrated filings, PIT, SAST, ratings, BRSR, shareholding) not yet probed from Cloudflare
 - bulk/block, F&O, ASM/GSM archive paths
 - SAST Reg 31 endpoint
 - RPT data location
@@ -718,7 +718,7 @@ probe/                throwaway reachability check
 | D51 | Basis in AI inputs | Basis-tagged numbers; primary basis only unless relevant; basis per PDF table; code rejects mixed comparisons; unclear commentary basis → unknown, not used numerically. |
 | D52 | Ratio conventions | Adjusted excludes exceptional items (reported alongside). TTM. ROE/ROCE on average capital; capital employed documented. No sentinel values. (Screener's "net of excise duty" adjustment is not needed: our history starts in the GST era.) |
 | D53 | Upcoming-results signals | Factual leading indicators (guidance revisions, order book ÷ TTM revenue, quarter-end provisional business updates, monthly volumes, capacity vs commitments due, insider/promoter buying, pledge changes, margin trend, **headcount growth from BRSR as an expansion indicator**) + outcome ledger. "Good results" = growth above own 8-quarter trend **and** guidance met. Ranking/prediction only after a point-in-time backtest beats a naive baseline, **owner-only**, never cached publicly. |
-| D54 | NSE-block fallback | Decide if it happens (owner-machine relay vs small VPS). |
+| D54 | NSE-block fallback | Decide if it happens (owner-machine relay vs small VPS). **Probe 2026-11-02: not needed** (all pipeline sources reachable from Cloudflare; only `quote-equity` blocked, handled by D8). Kept as contingency. |
 | D55 | Phase 2 backfill | Last 4 quarters of Nifty 50 results, concalls, presentations; cost estimated first. |
 | D56 | Shareholding pattern | Ingested quarterly for all covered stocks. |
 | D57 | Next index | Nifty Next 50 after the Nifty 50 PoC (together = Nifty 100). |
@@ -807,4 +807,5 @@ probe/                throwaway reachability check
 | FII/DII | `fiidiiTradeReact`: latest day only. |
 | Insider feed | 88 PIT rows for 27–31 Oct 2025 across all equities (completeness to verify). |
 | Nifty 50 composition | Current list: 12 financials (banks, NBFCs, insurers, BSE), 15 industries; **TMPV** = Tata Motors passenger-vehicle entity after the 2025 demerger. |
+| **Reachability from Cloudflare (probe run #3, 2026-11-02 17:43 UTC, Cloudflare colo DFW)** | **200:** UDiFF bhavcopy, PR bundle, Nifty 50 list, EQUITY_L, announcements RSS, announcements API (with and without cookies, incl. date range), announcement PDF; homepage 200 (Akamai bot cookies set). **403:** `quote-equity` (with and without cookies), as from other clouds, so D8 (owner's machine) stands. **Conclusion: NSE does not block Cloudflare for every source the pipeline needs; the D54 relay fallback is not needed.** Further scheduled runs (3×/day for ~2 days) check consistency across times of day. |
 | NSE EOD licence | Tariff (Apr 2026): Capital Market EOD ₹1,00,000 (domestic) per display medium; website and app are separate mediums. |
