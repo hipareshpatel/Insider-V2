@@ -399,6 +399,25 @@ probe/                throwaway Cloudflare reachability check
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
 
+## 9b. Proposed, awaiting owner decision — differentiating features (2026-11-02)
+Novelty in India is **not verified**; ranked by what our design makes cheap and hard to copy.
+**Tier 1, falls out of the existing design:**
+1. **Time machine:** any dossier/screen "as of" a past date, using only facts known then (D32).
+2. **Disclosure regression detector:** KPIs or segments a company **stopped disclosing**, new risk language, changed definitions, by diffing each filing against the company's prior equivalent.
+3. **Management credibility ledger:** guidance met/missed/dropped history per company and per **named executive**, following people across companies via the graph. Facts only.
+4. **Sector commentary map:** what all companies in an industry said this quarter on demand, pricing, costs, capex, with quotes, aggregated across peers.
+5. **"What changed since your last visit"** per stock/watchlist for signed-in users.
+6. **Disclosure timeliness & hygiene:** board-meeting end → filing delay, late filings vs LODR deadlines, corrigenda/revision frequency, results filed late on Friday/pre-holiday.
+7. **Unexplained-move panel:** price/volume move beyond threshold with **no disclosure** in the window; links any exchange clarification/rumour verification.
+**Tier 2, needs extra work:**
+8. **Concall audio → same-day summary:** process the recording link (often filed days before the transcript) with Gemini audio; marked provisional; replaced/validated when the transcript arrives.
+9. **Rule alerts over the query language:** e.g. "any capital-goods company with an order ≥ 5% of revenue" (on-site, D60).
+10. **Exposure queries over the graph:** "listed companies with disclosed orders from Indian Railways in the last 12 months"; "who supplies X".
+11. **Forensic panel (no score):** receivables vs revenue growth, CWIP ageing, contingent-liability growth, RPT growth vs revenue, auditor changes, OCF/PAT gap; each a sourced fact.
+12. **Verifiable data API:** every value with provenance (filing, page, version), for institutions (D23).
+**Owner-only (legal sensitivity):**
+13. **Pre-announcement trading timing:** insider/promoter trades in the N days before material announcements. Implies wrongdoing if public → owner-only, legal review before anything public.
+
 ## 9c. Legal consult checklist (before going public)
 1. **SEBI RA Regulations:** do cards (facts, comparisons with the company's own past, guidance tracking, red flags) count as a "research report" / research-analyst activity? Does the "statistical summaries of financial data" exclusion cover them?
 2. **Red flags naming people:** e.g. "insider traded during trading-window closure" names an individual. Defamation exposure? Required wording?
