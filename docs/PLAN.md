@@ -626,25 +626,29 @@ probe/                throwaway reachability check
 ---
 
 ## 16. Open items
+*Rewritten 2026-11-02 (#237): done and superseded items removed.*
+
+**Setup status (owner + Claude, 2026-11-02):**
+- ✅ Cloudflare account, **Free plan**.
+- ✅ `disclo.in` **active on Cloudflare**; GoDaddy leftover DNS records cleaned.
+- ✅ Email Routing: `info@`, `alerts@`, `paresh@disclo.in` → owner's Gmail. **Test email pending** (owner; send from a different account).
+- ✅ Workers subdomain set (`financialengineer-in.workers.dev`).
+- ✅ GitHub secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` added.
+- ✅ Probe working from GitHub Actions → Cloudflare (`.github/workflows/probe.yml`). **Remove the 3×/day schedule after ~2 days** (≈ 4 Nov 2026) of consistent results.
+
+**Upgrades needed before backfill/go-live:** Workers Paid; a paid Gemini API key. (At M0, check the existing Cloudflare API token's permissions cover D1/R2/Queues deploys; widen if not.)
 
 **Waiting on the owner:**
-1. Probe now runs **from GitHub Actions** (`.github/workflows/probe.yml`): owner adds two secrets (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`) per `docs/setup-guide.md` Part E; Claude reads results from the run logs. Schedule (3×/day) removed after ~2 days.
-2. Share 10–20 known failure cases for the gold set.
-3. Review `docs/field-catalogue.md`, especially the sector packs.
-4. Before backfill/go-live: Workers Paid, a paid Gemini API key, a Cloudflare API token for CI.
+1. Email test (above).
+2. Review `docs/field-catalogue.md`, especially the sector packs.
+3. Launch name (D99): `disclo.in` (bought, D118) stays the working domain; trademark work paused (D119).
+4. **[PARKED, #233] Sector classification** (D8/D120): BSE `ComHeadernew` and NSE `quote-equity` both 403 from GitHub and Cloudflare (Appendix B). Owner decides: (a) quarterly run on own machine OK? ⚠ vs #206 (no probes on the owner's computer), incl. a one-off laptop comparison (BSE vs NSE, ITC + INFY, #232); (b) BSE or NSE taxonomy; (c) fallback for NSE-only listings.
+5. Do unlisted entities (D39) get their own public pages? (Claude: no at launch.)
 
-**Still to discuss (Claude's open questions, 2026-11-02):** see `docs/discussion-log.md` open items Q1–Q12 (UX standards, brand, analytics, owner review time, repo visibility, languages, search scope, charts, app, exports, user data).
+**Still to discuss:** card sections, after real output (D25).
 
-**Still to discuss:**
-- performance targets (page-load and API latency) as part of milestones; the website must be fast, modern and expandable
-- card sections, after real output (D25)
-
-**Still to verify:**
-- `quote-equity` from a GitHub runner: **403** in our replication and in the V1 run of 22 Oct 2026 (Appendix B); never shown to work. Closed as a cloud option; stays the D8 fallback
-- **[PARKED by owner, #233: classification questions below stay pending]**
-- **BSE `ComHeadernew` (D120): 403 from GitHub and Cloudflare** (Appendix B). Owner decides: run on own machine OK? BSE or NSE taxonomy? fallback for NSE-only listings
-- ⚠ **Owner's machine vs #206** (owner asked that probes not run on their computer): a laptop comparison run (BSE vs NSE, ITC + INFY, log #232) and the quarterly classification job both need it; owner to confirm
-- every source from Cloudflare: **core sources verified ✅ (probe run #3); structured-filing endpoints verified ✅ (#234)**; sustained-volume rate limits not yet measured (M0)
+**Still to verify (during M0 unless noted):**
+- sustained-volume NSE rate limits from Cloudflare (all pipeline sources verified at low volume: probe run #3 + #234)
 - bulk/block, F&O, ASM/GSM archive paths
 - SAST Reg 31 endpoint
 - RPT data location
@@ -652,16 +656,7 @@ probe/                throwaway reachability check
 - Flex + cache discount stacking
 - employee-count fields in BRSR XBRL tables
 
-**Licence funding options** (explained 2026-11-02): A) owner funds the licence from public launch; B) launch public without NSE prices until revenue; C) ask licensed vendors (e.g. CMOTS, Accord) for quotes; D) keep the calculated risk until the paid tier and license before charging. **Owner chose D** (D88): keep the calculated risk until the paid tier; license before charging. *Claude's recommendation remains:* also ask vendors for quotes (C) since it costs nothing; never charge users before a licence is in place.
-
-**Unresolved:** funding for the NSE licence (EOD Capital Market ≈ ₹1,00,000 per display medium + GST ≈ $113/month for the website alone, above the $100 budget). No ads or sponsors (D22).
-
-**Resolved (D80):** ~~Open question from the owner's original brief:~~ Gemini was described as being used for **stock analysis of different types (technical, fundamental, stock research)**, not only announcement processing. The plan currently covers this as computed technical/fundamental data + cards + owner-only research chat. Is a **per-stock AI analysis write-up** (fundamental/technical) wanted, and if so public (factual) or owner-only?
-**Resolved (D81):** "credit increases" = rated bank-facility amount increases.
-
-**Name:** **Disclo** (`disclo.in`, bought, D118). Launch name may change (owner); trademark work paused (D119). Owner actions: (2) add `disclo.in` to Cloudflare (free plan, change nameservers at the registrar); (3) enable Email Routing to the owner's inbox (`info@`, `alerts@`).
-
-**Confirmed (#236):** D38, D39. **Open:** do unlisted entities get their own public pages, or appear only inside listed-company cards and trackers?
+**Licence (decided, D88 option D):** keep the calculated risk until the paid tier; license before charging. Cost: EOD Capital Market ≈ ₹1,00,000 per display medium + GST ≈ $113/month for the website alone, above the $100 budget (D18); no ads or sponsors (D22). *Claude's recommendation stands:* ask licensed vendors (e.g. CMOTS, Accord) for quotes now, since it costs nothing.
 
 ---
 
