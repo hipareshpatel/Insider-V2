@@ -168,6 +168,17 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 154 | #53 licence funding: "Explain". | Explained in reply; §16 | ❓ decision pending |
 | 155 | #20 performance targets and #35/#72 card sections: deferred as agreed. | §16, D25 | 🔶 |
 
+| 156 | "Please ensure everything is recorded correctly. Such lapses are giving me a headache." | Full consistency check run (see below); design sections updated for D79–D86; contradictions with D80 fixed | ✅ |
+
+## Consistency check procedure (run after every update)
+1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
+2. Every log entry 1…n is numbered once, with no gaps.
+3. Every D-reference in the log and the plan points to an existing decision.
+4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
+5. Open items in this log match §16 of the plan.
+6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
+*Last run 2026-11-02 after entry #156: all checks pass.*
+
 ## Open items from this log
 - **#150/#153** Pre-results commissioning: answers conflict (facts-only public vs everything public).
 - **#20** Performance targets (milestones discussion).
