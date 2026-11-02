@@ -119,6 +119,9 @@ Links are **populated** only once the layer below them is accurate.
 | D59 | Home page | **Market & indices dashboard** (best-in-class EOD KPIs) + latest important cards + results calendar + search. |
 | D60 | Accounts | Everything readable without an account. Account only for watchlists, saved filters/queries and on-site alerts. Prepares for the paid tier. |
 | D61 | Query builder | Required, and must be easy (design in §9b). |
+| D62 | Dashboard contents | EOD (not live). Index levels/trends across ~167 NSE indices; index P/E, P/B, yield vs own history (percentiles); breadth (advances/declines, % above 50/200-DMA, 52-week highs/lows on adjusted prices); sector/industry performance from our classification; FII/DII flows (history from go-live); results-season tracker; latest important cards; calendar; search. All precomputed nightly. More can be added later. Source verified: `ind_close_all_DDMMYYYY.csv` (archive, from 2024-01-01). |
+| D63 | Login | **Google sign-in only.** No magic links. |
+| D64 | Query builder design | Three ways in, one engine: **plain English** (Gemini translates into our query language, shown as editable chips; **the LLM never writes SQL**), **visual chips**, **text expression**. All compile to one validated query language → parameterised SQL over a **precomputed per-stock feature table**. Plain-English queries cost a Gemini call: signed-in users only, daily cap per user, identical questions cached. Saved screens + "what changed since last run". Field catalogue: `docs/field-catalogue.md` (Claude drafts, owner approves). |
 
 ---
 
@@ -391,20 +394,6 @@ probe/                throwaway Cloudflare reachability check
 2. **Run `probe/`** (see `probe/README.md`) 3–4 times, including once after 22:00 IST, and share the JSON output.
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
-
-## 9b. Proposed, awaiting owner decision (website)
-*Verified 2026-11-02:* `nsearchives…/content/indices/ind_close_all_DDMMYYYY.csv` is reachable, with history to 2024-01-01: ~167 NSE indices daily with OHLC, points/% change, volume, turnover, **P/E, P/B, dividend yield**. FII/DII cash-market flows (`/api/fiidiiTradeReact`) are reachable but **latest day only**, so history builds from go-live.
-**A. Dashboard (EOD, not live):** index levels/trends across ~167 indices; index P/E, P/B, yield vs their own history (percentile bands); breadth (advances/declines, % above 50/200-DMA, new 52-week highs/lows from adjusted prices); sector and industry performance computed from our classification; FII/DII flows; results-season tracker (reported so far, % beating own trend, guidance raised vs cut); latest important cards; upcoming calendar. Everything is precomputed nightly into snapshot tables (D1 cost rule).
-**B. Login:** magic-link email needs a **sending domain**, which `workers.dev` can't provide (conflicts with D58). Proposed: **Google sign-in** first (works on workers.dev, no email sending); magic link added once a domain exists (~₹1,000/yr).
-**C. Query builder ("easy"), three ways in, one engine:**
-   - (1) **Plain English → structured query**: Gemini translates the text into *our* query language, shown back as editable chips. The LLM never writes SQL.
-   - (2) **Visual chips**: field, operator, value, AND/OR groups.
-   - (3) **Text expression** for power users (`roce > 20 AND guidance_revisions_up_4q >= 2`).
-   - All three compile to one validated query language → parameterised SQL over a **precomputed feature table** (one row per stock, hundreds of fields incl. time-series features like "revenue growth > 15% for 4 consecutive quarters").
-   - Field catalogue drafted by Claude, approved by owner.
-   - Plain-English translation costs a Gemini call: limited to signed-in users with a daily cap, and identical questions are cached.
-   - Saved screens + "what changed since last run".
-**D. Legal add-on:** NSE **index** data is licensed by NSE Indices Ltd, separately from exchange price data. Add to the §9c checklist.
 
 ## 9c. Legal consult checklist (before going public)
 1. **SEBI RA Regulations:** do cards (facts, comparisons with the company's own past, guidance tracking, red flags) count as a "research report" / research-analyst activity? Does the "statistical summaries of financial data" exclusion cover them?
