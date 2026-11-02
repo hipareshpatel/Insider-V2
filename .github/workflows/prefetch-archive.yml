@@ -1,0 +1,34 @@
+name: prefetch-archive
+
+# D128: NSE archive history -> R2 (cache/ keys). The market Worker reads R2 first.
+on:
+  workflow_dispatch:
+    inputs:
+      from: { description: "from date", default: "2024-01-01" }
+      to: { description: "to date (blank = today IST)", default: "" }
+  push:
+    branches: [ccr-eb822347-c3zp4b]
+    paths: ["tools/prefetch_archive.py", ".github/workflows/prefetch-archive.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  prefetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm i -g wrangler@4.156.1 >/dev/null 2>&1
+      - name: Reachability (one file)
+        run: curl -s -o /dev/null -w "archive from GitHub runner: %{http_code}\n" -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_20240102_F_0000.csv.zip
+      - name: Prefetch
+        run: |
+          TO="${{ github.event.inputs.to }}"; [ -z "$TO" ] && TO=$(TZ=Asia/Kolkata date +%F)
+          FROM="${{ github.event.inputs.from }}"; [ -z "$FROM" ] && FROM=2024-01-01
+          python3 tools/prefetch_archive.py disclo-raw "$FROM" "$TO" 2>&1 | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email hidden>/g'
