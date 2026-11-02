@@ -219,6 +219,10 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 191 | Option B (tiered depth); market data for all stocks; Nifty 50 first. | D111, D112 | ✅ |
 | 192 | "$500 is too much, can't afford it; just give a rough estimate." | D112 (rough tiered estimate ≈ $65–115/month Gemini; daily cap enforces budget) | ✅ |
 
+| 193 | "Why don't you check a few random filings? I thought out of 10, maybe 4 or less are useful; the rest get filtered as you said." | D113 (60-filing sample: ~42% useful, ~25% card-worthy, ~45% noise) | ✅ |
+| 194 | None of the names liked. | D99 (round 1 rejected) | ✅ |
+| 195 | Do such sites exist globally? What are their names? Similar names for India? | D99 (landscape + round 2: Quarterwise, Boardnote, StockKunji) | 🔶 owner to choose |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -226,10 +230,10 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #192: all checks pass (112 decisions, 192 entries).*
+*Last run 2026-11-02 after entry #195: all checks pass (113 decisions, 195 entries).*
 
 ## Open items from this log
-- **#174/#186** Name: choose from D99 options; then trademark search.
+- **#174/#186/#195** Name: round 2 options in D99; then trademark search.
 **Claude's questions Q1–Q12:** answered in #171–#181; Q1 name choice pending (D99).
 - **#20** Performance targets: approved (§14, D94).
 - **#35/#72** Card sections after real output.
