@@ -386,7 +386,13 @@ probe/                throwaway Cloudflare reachability check
 2. **Versioned values:** key = (security, statement, line, period, consolidated/standalone, version). Versions: *original* (that period's own XBRL) and *restated* (comparative column in a later filing's PDF). Nothing is ever overwritten.
 3. **PDF table extraction with accounting identity checks in code:** e.g. Income = Revenue + Other income; PBT = Income − Expenses ± Exceptional; PAT = PBT − Tax; segment revenues sum to total. If an identity fails → rejected/review.
 4. **Restatement detection:** a later filing's comparative differs from our stored original by > 0.5% → restatement flagged, reason classified (merger/demerger, discontinued operations, accounting policy change, **error correction = red flag**).
-5. *Open:* EBITDA definition (proposed: excludes other income; the company's own reported EBITDA is stored separately). Default series (proposed: latest restated, with a marker; original always available). Default basis (proposed: consolidated where available, standalone also stored).
+5. **Consolidated vs standalone:**
+   - Both are always stored; **basis is part of every value's key**, and nothing is ever stored without it.
+   - Each company has a **primary basis**, set per company, not globally: consolidated for most corporates; **standalone for banks** (the bank is the standalone entity; subsidiaries are insurance/AMC etc.); **both** for holding companies (e.g. Bajaj Finserv, Grasim, where standalone income is largely dividends from subsidiaries).
+   - Basis changes are detected (e.g. a company starts consolidating after acquiring its first subsidiary) → series break marker, never silently joined.
+   - Consolidated profit always splits **attributable to owners** vs non-controlling interest. EPS/valuation use attributable profit.
+   - **AI inputs:** every number in a context pack carries its basis. The pack contains the primary basis only, unless the event is about the other one. PDF extraction records basis per table (from the table heading). **Code rejects any card comparison that mixes bases.** Management commentary is tagged with the basis it refers to when stated; when unclear it's marked unknown and never used in a numeric comparison.
+6. *Open:* EBITDA definition (proposed: excludes other income; the company's own reported EBITDA is stored separately). Default series (proposed: latest restated, with a marker; original always available). Default basis (proposed: consolidated where available, standalone also stored).
 
 ## 10. Open questions
 - **Funding gap:** NSE EOD licence ≈ ₹1.18 lakh/yr incl. GST per display medium (≈ $113/month for the website alone) > the $100/month budget. No ads or sponsors (D22).
