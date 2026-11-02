@@ -2,7 +2,7 @@
 
 One-off Worker that checks which NSE endpoints answer requests coming from
 Cloudflare's network. It decides whether the Phase 1/2 pipeline can poll NSE
-directly from Workers (see PLAN.md §0 and §9).
+directly from Workers (see PLAN.md §3 and §16).
 
 ```
 cd probe
