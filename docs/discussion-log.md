@@ -235,6 +235,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 | 202 | Name: **disclo.in**, bought. | D99 (final), D58, D116, D118 | ✅ |
 
+| 203 | "Do trademark search." | D119 (preliminary: official IP India search not accessible from Claude's environment; US HR-software company "Disclo" found; owner to run official searches and file) | 🔶 |
+
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
 2. Every log entry 1…n is numbered once, with no gaps.
@@ -242,10 +244,10 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #202: all checks pass (118 decisions, 202 entries).*
+*Last run 2026-11-02 after entry #203: all checks pass (119 decisions, 203 entries).*
 
 ## Open items from this log
-- **#202** Owner actions: trademark search for "Disclo"; add `disclo.in` to Cloudflare; enable Email Routing.
+- **#202/#203** Owner actions: official IP India + USPTO search for "Disclo" (D119), then file our own TM application; add `disclo.in` to Cloudflare; enable Email Routing.
 **Claude's questions Q1–Q12:** answered in #171–#181; Q1 name choice pending (D99).
 - **#20** Performance targets: approved (§14, D94).
 - **#35/#72** Card sections after real output.

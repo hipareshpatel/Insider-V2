@@ -1,6 +1,6 @@
 # Insider V2 — Plan (consolidated)
 
-**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D118** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`.
+**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D119** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`.
 No production code exists yet. The only code is `probe/`, a throwaway Worker for testing NSE reachability from Cloudflare.
 
 **Working agreement:** this is a discussion phase. No production code is written until the owner says so. Claude asks for the owner's input wherever a decision is theirs, records every decision here, and flags anything it can't verify.
@@ -655,7 +655,7 @@ probe/                throwaway reachability check
 **Resolved (D80):** ~~Open question from the owner's original brief:~~ Gemini was described as being used for **stock analysis of different types (technical, fundamental, stock research)**, not only announcement processing. The plan currently covers this as computed technical/fundamental data + cards + owner-only research chat. Is a **per-stock AI analysis write-up** (fundamental/technical) wanted, and if so public (factual) or owner-only?
 **Resolved (D81):** "credit increases" = rated bank-facility amount increases.
 
-**Name:** **Disclo** (`disclo.in`, bought). Owner actions: (1) IP India trademark search for "Disclo" (classes 36/42); (2) add `disclo.in` to Cloudflare (free plan, change nameservers at the registrar); (3) enable Email Routing to the owner's inbox (`info@`, `alerts@`).
+**Name:** **Disclo** (`disclo.in`, bought). Owner actions: (1) IP India + USPTO trademark search for "Disclo" (classes 9/36/42), then file our own Indian application if clear (D119; preliminary check found a US HR-software company named Disclo); (2) add `disclo.in` to Cloudflare (free plan, change nameservers at the registrar); (3) enable Email Routing to the owner's inbox (`info@`, `alerts@`).
 
 **Provisional decisions to confirm:** D38 (linked-company card threshold), D39 (unlisted counterparties).
 
@@ -783,6 +783,7 @@ probe/                throwaway reachability check
 | D116 | Email | **Cloudflare Email Routing (free):** unlimited custom addresses on `disclo.in` (e.g. `info@`, `support@`, `alerts@`) **forwarded to the owner's existing inbox**; it **receives only**, no mailbox and no sending from those addresses. **Owner alerts (D45)** are sent by Workers through Email Routing to the owner's verified address. Sending *as* `info@disclo.in` (replies to users) needs a mail provider later (e.g. Zoho Mail's free tier, terms to be checked at the time, or Google Workspace, paid); **only one service can own the domain's MX records**, so switching to a mailbox provider means owner alerts move to that provider's sending or an email API. |
 | D117 | Security headers | HTTPS only (HSTS), Content-Security-Policy, X-Frame-Options/frame-ancestors, Referrer-Policy, Permissions-Policy on every response; secure, HTTP-only, SameSite session cookies for Google sign-in. *(Gap found in document review.)* |
 | D118 | Domain timing | **Done: `disclo.in` bought by the owner (2026-11-02).** Optional: buy common misspellings as redirects (e.g. `disklo.in`, free when checked). Trademark search still pending. |
+| D119 | Trademark check "Disclo" (preliminary, 2026-11-02) | **Official IP India search could not be run from Claude's environment** (public search behind captcha / unavailable). Web-indexed sources show **no Indian "Disclo" mark**. **Conflict found:** `disclo.com` is **Disclo, a US workplace-accommodations (HR) software company**, VC-backed (seed led by General Catalyst; Y Combinator S22), active since ~2022, says it holds a software patent; a US trademark is likely but not verified. **Assessment:** different industry (HR disability accommodations vs equity research), and trademark rights are territorial, so risk in India is **low–moderate**, mainly **class 42 (software/SaaS)** overlap; higher if Disclo ever expands to the US. Also expect search-engine confusion with their brand. **Owner actions:** (1) run IP India public search for wordmark DISCLO (and DISKLO), *phonetic* + *starts with*, classes **9, 36, 42**; (2) USPTO search for DISCLO; (3) if clear in India, **file our own trademark application** (classes 36 + 42; e-filing fee roughly ₹4,500 per class for individuals/startups/small enterprises, about double otherwise; confirm current fees). Final view belongs to the legal consult (§12 #12). |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |
