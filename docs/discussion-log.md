@@ -296,6 +296,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 238 | Accepted Claude's recommendation: no public pages for unlisted entities at launch (thin, one-sided); may add later. | D39 (e), §5.6; removed from §16 | ✅ |
 | 239 | "Email test at last." "Explain what is the field catalogue." Name: "Disclo, https://disclo.in/". "Sector you will get in the CSV when you download it from NSE; we will use it." | Email test = last item (§16). Field catalogue explained in chat. D99 final (Disclo); D119 trademark check resumes. **D121** (NSE index CSV sector) supersedes D8/D120; classification un-parked; conflict with #206 resolved (no owner machine). Coverage measured: 22 sectors, 747 of 1,798 universe stocks; fill accepted in #240. Field catalogue §2 updated. | ✅ |
 | 240 | "Accept the smIndustry fill, and remove the old probe checks." On the field-catalogue review (missing/unwanted fields, sector packs §8): "Ok". | D121 fill confirmed; §6, §16, field catalogue §2. Probe: `quote-equity` + BSE checks removed (workflow jobs and Worker calls). "Ok" read as: owner will do the review (stays open in §16). | ✅ |
+| 241 | **"Build."** Build, test, fix, re-check everything needed to generate cards; owner may buy a Gemini API key for $20 tomorrow morning to start trials, or is it needed now? Or will Claude first collect/store data for dashboard, stock page etc.? Most discussion is recorded and is the owner's decision; Claude may override for better. Wants to know the plan for the next 6 hours with 30-minute check-ins (IST) so the owner can sleep. | D122 (build start, override rule, Gemini timing, Free-plan limits); §14 status. 6-hour M0 plan + 12 check-ins scheduled (00:30–06:00 IST). | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -304,7 +305,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #240: all checks pass (121 decisions, 240 entries); no open ⚠.*
+*Last run 2026-11-02 after entry #241: all checks pass (122 decisions, 241 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*

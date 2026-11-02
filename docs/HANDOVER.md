@@ -3,13 +3,13 @@
 **Repo:** `hipareshpatel/Insider-V2`, branch **`ccr-eb822347-c3zp4b`** (only branch). All documents are in `docs/`.
 
 ## Read first, in this order
-1. `docs/PLAN.md`: the consolidated design. Decisions D1–D121 are in Appendix A; live NSE evidence is in Appendix B.
+1. `docs/PLAN.md`: the consolidated design. Decisions D1–D122 are in Appendix A; live NSE evidence is in Appendix B.
 2. `docs/discussion-log.md`: every owner statement (#1–#227), mapped to where it's recorded, plus open items.
 3. `docs/field-catalogue.md`: query fields (v1).
 4. `docs/setup-guide.md`: owner's Cloudflare/GoDaddy/GitHub setup steps.
 
 ## Working rules (owner's instructions)
-- **Discussion phase:** no production code until the owner says "build" (milestones M0–M11 approved, §14).
+- **Build started 2026-11-03 (D122):** owner said "Build". M0 → M1 in §14 order. Overrides of owner decisions are allowed "for better" but always logged and reported; money/time/legal items are asked.
 - **Clean-slate rule:** never use or reference V1 code, data, outputs or designs. *Single exception below.*
 - Log **every** owner statement in `docs/discussion-log.md` **in the same turn**; record decisions in `PLAN.md` Appendix A **and** the design sections.
 - Run the consistency check after every update (procedure at the end of the discussion log) and report the result.
