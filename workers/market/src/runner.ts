@@ -1,6 +1,7 @@
 // Decides which dates to (re)run, in order, within a time budget. Used by both the nightly cron and the backfill.
 import { type Sql, batchAll, dec, insertRows, mul, round, toText } from "@disclo/core";
 import { type DayReport, type Deps, runDay } from "./daily.js";
+import { snapshotIndices } from "./snapshot.js";
 import { addDays, datesBetween, eligible, istNow } from "./dates.js";
 
 export const HISTORY_START = "2024-01-01"; // D2
@@ -35,7 +36,30 @@ export async function runPending(deps: Deps, opt: RunOptions): Promise<DayReport
     if (r.status === "failed" && r.reasons?.some((x) => x.includes("ArchiveStopped"))) break;
   }
   await deriveJanuary2024(deps.market);
+  await maybeSnapshot(deps);
   return out;
+}
+
+/** Once per IST day, after 22:00, and only when prices are caught up (index lists match on current ISINs). */
+export async function maybeSnapshot(deps: Deps): Promise<string> {
+  const now = deps.now();
+  const n = istNow(now);
+  if (n.minutes < 22 * 60) return "before 22:00 IST";
+  const [last] = await deps.market.all<{ d: string | null }>("SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session=1");
+  if (!last?.d || last.d < addDays(n.date, -5)) return "prices not caught up";
+  const done = await deps.market.all("SELECT 1 FROM pipeline_run WHERE pipeline='market.snapshot' AND run_key=? AND status='ok'", [n.date]);
+  if (done.length) return "already done";
+  const started = now.toISOString();
+  try {
+    const r = await snapshotIndices(n.date, deps.market, deps.fetch);
+    await deps.market.run("INSERT INTO pipeline_run (pipeline, run_key, started_at, finished_at, status, detail) VALUES ('market.snapshot', ?, ?, ?, 'ok', ?)",
+      [n.date, started, deps.now().toISOString(), JSON.stringify({ ...r, unmatched: r.unmatched.slice(0, 50), unmatchedCount: r.unmatched.length })]);
+    return "ok";
+  } catch (e) {
+    await deps.market.run("INSERT INTO pipeline_run (pipeline, run_key, started_at, finished_at, status, detail) VALUES ('market.snapshot', ?, ?, ?, 'failed', ?)",
+      [n.date, started, deps.now().toISOString(), JSON.stringify({ error: String(e) })]);
+    return "failed";
+  }
 }
 
 /** D6: January 2024 has no MCAP file; market cap = close × February's first share count,

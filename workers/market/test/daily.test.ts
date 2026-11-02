@@ -123,3 +123,25 @@ describe("universe filter (D4)", () => {
     expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM security_identifier WHERE value='INFY'"))[0]!.n).toBe(1);
   });
 });
+
+describe("index snapshot + sector (D9, D121)", () => {
+  it("records membership and sector from the Total Market list, matched by ISIN", async () => {
+    const { market, deps } = setup();
+    await runDay("2025-06-16", deps);
+    const { snapshotIndices } = await import("../src/snapshot.js");
+    const tm = new Uint8Array(readFileSync(join(FX, "ind_niftytotalmarket_list.csv")));
+    const f = async (u: string) => (u.endsWith("ind_niftytotalmarket_list.csv") ? { status: 200, bytes: tm, contentType: "text/csv" } : { status: 404, bytes: new Uint8Array(), contentType: null });
+    const r = await snapshotIndices("2026-11-03", market, f);
+    expect(r.indices["NIFTY TOTAL MARKET"]).toBe(4);
+    const rows = await market.all<{ value: string; sector: string }>(
+      `SELECT i.value, c.sector FROM classification c JOIN security_identifier i ON i.security_id=c.security_id AND i.id_type='nse_symbol' ORDER BY i.value`);
+    expect(rows).toEqual([
+      { value: "BAJFINANCE", sector: "Financial Services" }, { value: "HDFCBANK", sector: "Financial Services" },
+      { value: "INFY", sector: "Information Technology" }, { value: "ITC", sector: "Fast Moving Consumer Goods" },
+    ]);
+    // idempotent: same sector again adds no history row
+    await snapshotIndices("2026-11-04", market, f);
+    expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM classification"))[0]!.n).toBe(4);
+    expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM index_membership WHERE index_name='NIFTY TOTAL MARKET' AND valid_to IS NULL"))[0]!.n).toBe(4);
+  });
+});
