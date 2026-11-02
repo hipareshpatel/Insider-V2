@@ -26,7 +26,7 @@ Working domain: `disclo.in` (bought at GoDaddy). If the launch name changes late
 1. Sign in at **godaddy.com** → profile/menu → **My Products**.
 2. Find `disclo.in` → click **DNS** (or **Manage DNS**).
 3. **Check DNSSEC first:** on the domain's settings page look for **DNSSEC**. If it is **On**, turn it **Off** and save. (If left on, the site and email may stop resolving after the switch.)
-4. Find **Nameservers** → **Change Nameservers**.
+4. Find **Nameservers** → **Change Nameservers**. *GoDaddy's 2026 layout:* on the domain's **DNS** tab there's a second row of tabs (DNS Records · Forwarding · **Nameservers** · Hostnames · **DNSSEC** · Advanced). On a phone only part of it is visible, so use the **‹ ›** arrows in that row to reach **Nameservers**. **Don't** edit the two `NS` rows in the record list (they're locked), and **don't** use "Connect Domain" / Airo.
 5. Choose **"I'll use my own nameservers"** (wording may be "Enter my own nameservers (advanced)").
 6. Delete GoDaddy's nameservers and paste **the two Cloudflare nameservers** from Part A step 6, exactly as shown.
 7. Save. GoDaddy may warn that its DNS settings will no longer apply. That's expected; confirm.
