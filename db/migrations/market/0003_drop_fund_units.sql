@@ -1,4 +1,4 @@
--- ETFs/fund units (ISIN prefix INF) were loaded before the universe filter (D4, log #253). Remove them; companies untouched.
+-- ETFs/fund units (ISIN prefix INF) were loaded before the universe filter (D4, D126). Remove them; companies untouched.
 -- Order matters: D1 enforces foreign keys (children first, security last).
 CREATE TABLE _drop_ids AS SELECT DISTINCT security_id FROM security_identifier WHERE id_type='isin' AND value LIKE 'INF%';
 DELETE FROM price_daily WHERE security_id IN (SELECT security_id FROM _drop_ids);

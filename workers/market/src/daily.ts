@@ -86,7 +86,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   const reviews: ReviewItem[] = [];
   const reasons: string[] = [];
 
-  // Gate: price sanity. Bad rows are dropped to review; the date is rejected if > 0.1% are bad (override note in log #253).
+  // Gate: price sanity. Bad rows are dropped to review; the date is rejected if > 0.1% are bad (D125).
   const bad = equity.filter((r) => !saneRow(r));
   if (bad.length > Math.max(0, Math.floor(equity.length * 0.001))) reasons.push(`${bad.length} rows fail low<=open,close<=high or >0`);
   for (const r of bad) reviews.push({ kind: "bc_unparsed", subjectDb: "market", subjectRef: `price|${r.symbol}|${r.series}|${date}`, summary: `Bad OHLC row ${r.symbol} ${r.series} ${date}`, evidence: r });

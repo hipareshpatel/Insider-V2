@@ -1,6 +1,6 @@
 # Insider V2 — Plan (consolidated)
 
-**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D124** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`, `setup-guide.md` (owner's step-by-step setup: Cloudflare, GoDaddy nameservers, email routing, probe). **Next chat starts with `docs/HANDOVER.md`.**
+**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D126** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`, `setup-guide.md` (owner's step-by-step setup: Cloudflare, GoDaddy nameservers, email routing, probe). **Next chat starts with `docs/HANDOVER.md`.**
 Build started 2026-11-03 (D122). `probe/` is a throwaway Worker for testing NSE reachability from Cloudflare.
 
 **Working agreement:** this is a discussion phase. No production code is written until the owner says so. Claude asks for the owner's input wherever a decision is theirs, records every decision here, and flags anything it can't verify.
@@ -156,7 +156,7 @@ All NSE. "Verified" = fetched successfully from a cloud IP on 2026-11-02 (Append
 ### 4.1 Market data (archive host `nsearchives.nseindia.com`, daily 22:00 IST, D10)
 | Dataset | Path | Status |
 |---|---|---|
-| UDiFF bhavcopy (OHLC, volume, ISIN, series) | `/content/cm/BhavCopy_NSE_CM_0_0_0_{YYYYMMDD}_F_0000.csv.zip` | Verified; history from **2024-01-01** (D2, D3) |
+| UDiFF bhavcopy (OHLC, volume, ISIN, series; universe = EQ/BE/BZ minus `INF` fund units, D126) | `/content/cm/BhavCopy_NSE_CM_0_0_0_{YYYYMMDD}_F_0000.csv.zip` | Verified; history from **2024-01-01** (D2, D3) |
 | PR bundle: `MCAP*` (issue size, market cap), `Bc*` (corporate actions) | `/archives/equities/bhavcopy/pr/PR{DDMMYY}.zip` | Verified; MCAP from **2024-02-01**; Bc earlier |
 | Delivery (`sec_bhavdata_full`) | `/products/content/sec_bhavdata_full_{DDMMYYYY}.csv` | Verified (D65) |
 | Equity master | `/content/equities/EQUITY_L.csv` | Verified |
@@ -433,7 +433,7 @@ Not built now. Designed in: accounts, API keys, exports, per-plan limits. The we
 
 ## 9. Quality & evaluation
 
-### 9.1 Market-data gates (a date isn't written if any check fails)
+### 9.1 Market-data gates (a date isn't written if any check fails; row-level failures go to review unless above the D125 tolerance)
 - Row count within ±5% of 20-day median.
 - Exact schema.
 - `low ≤ open, close ≤ high`, all > 0.
@@ -789,6 +789,8 @@ probe/                throwaway reachability check
 | D122 | Build start | **Owner said "Build" (#241, 2026-11-03 00:00 IST).** Discussion phase ends; M0 starts, then M1, in the §14 order. Owner: decisions are recorded and Claude may override them "for better". **Rule:** every override is logged (what, why, which decision) and reported in the next check-in; anything that costs the owner money, time or legal exposure is asked, not overridden. **Gemini:** not needed until M5/M6 (announcement extraction, cards); trials can start on the **free AI Studio key** (public filings only); paid key when volume testing starts. The API is pay-per-token with a spending cap, not a $20 plan. **Cloudflare Free-plan limits during the build:** D1 ≈ 100k row writes/day (the full market backfill needs Workers Paid), Queues need Workers Paid, R2 needs enabling in the dashboard. *Update (#243): Workers Paid bought 2026-11-03; R2 still needs enabling.* |
 | D123 | Field catalogue | **Approved by owner (#242)** as v1. Claude keeps adding fields found during the build; each addition is noted in the catalogue's change list and logged. |
 | D124 | Archive download pace | **Owner (#252): the NSE archive host (`nsearchives`) doesn't rate-limit and is meant for bulk download, so fetch fast.** Archive files: up to **4 in parallel, no fixed pause**. **Safety kept:** any 403/429/503 from the archive drops that run to 1 request at a time with a 2 s pause and logs it (one refusal ≠ stop; three in a row = stop the run and resume later). The `www.nseindia.com/api/*` endpoints keep a gentler pace (sequential, ~1 s), since the owner's statement covers the archive only. |
+| D125 | Market gate tolerance (**Claude override of §9.1, per D122**) | §9.1 says a date isn't written if any check fails. Applied literally, one bad row in NSE's file would block a whole trading day for every stock. **Change:** row-level failures (bad OHLC, |mcap − issue × close| ≥ 0.5%) go to the review queue and are left out; the date is rejected only if > 0.1% of rows fail OHLC sanity or > 0.5% fail the market-cap check. Date-level gates (schema, ≥ 99% MCAP join, ±5% row count, file date) stay strict. *Reason:* one bad row must not hold up 2,900 stocks; the bad rows are still never published and are reviewed. |
+| D126 | Fund units excluded from the stock universe (clarifies D4) | ETFs trade in NSE's EQ series but carry `INF` ISINs (fund units) and have no MCAP row. Found on the first Cloudflare run: 355 of 2,703 EQ rows on 2026-10-30, all `INF`; **100% of company (`INE`) rows join MCAP.** The universe is EQ/BE/BZ **minus `INF` ISINs**. Cleanup migration removed the ETF rows loaded for Jan 2024. |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |
@@ -819,5 +821,6 @@ probe/                throwaway reachability check
 | BSE `ComHeadernew` (D120) probe, 2026-11-02 18:02 UTC, run 41496746561 | **GitHub runner:** ITC, INFY, HIKAL all **403** (Akamai "Access Denied"). **Cloudflare (colo ATL):** ITC, INFY **403**. Same run, Cloudflare: all NSE pipeline sources 200, NSE `quote-equity` 403 (consistent with run #3). **Conclusion: neither exchange's per-company classification answers from cloud IPs; it runs from the owner's (Indian residential) connection.** |
 | BSE `ComHeadernew` method, as described by owner (#232; not run in V2) | Per company, from a home connection: one cookie visit to a BSE web page, then `ComHeadernew?quotetype=EQ&scripcode=…` with browser-like `Origin`/`Referer` headers. Levels in fields `Sector`, `IndustryNew`, `IGroup`, `ISubGroup` (broad → narrow); BSE often repeats a name at two levels (e.g. ITC). 403 = network blocked (stop); 429/5xx = back off. Reported to have answered from a home connection on 16 Oct 2026. **Design note:** store the four raw levels as separate columns; joining them and dropping repeats loses which level a name belongs to. |
 | **Structured filings from Cloudflare** (#234; 2026-11-02 18:11 UTC, colo SJC, run 41498012085) | **All 14 → 200 with JSON:** `corporates-pit`, `corporate-sast-reg29`, `integrated-filing-results` (Financials), `corporate-share-holdings-master` (INFY, HDFCBANK), `corporate-governance-master`, `corporate-credit-rating`, `corporate-board-meetings`, `corporates-corporateActions`, `annual-reports`, `corporate-bussiness-sustainabilitiy`, `corporates-financial-results` (INFY; HDFCBANK, bank template `bank:"B"`), `fiidiiTradeReact`. Params: `index=equities&symbol=X` (+`period=Quarterly`; integrated needs `type=Integrated%20Filing-%20Financials`). Sent with homepage cookies, one call at a time, 0.4 s apart. **Finding:** `corporate-credit-rating` **ignores `symbol`** and returns all companies' ratings (~560 KB): use it as one bulk feed, filter by ISIN. **Not yet tested:** sustained volume (≈10 calls × 1,000+ companies per refresh) → NSE rate limits; to measure in M0 with a paced backfill. |
+| **First Cloudflare runs of the market Worker** (2026-11-03 00:50 IST) | Production loaded 2024-01-01, -03, -05 (≈2,130 stocks/day, delivery ≈2,600, ≈108 indices). **Archive refused (403) 2 of the first ~24 file requests at 4 parallel** from Cloudflare (2024-01-02 bhavcopy, 2024-01-04 PR bundle); back-off handled it, dates retried next run. So the archive does refuse some fast requests from Cloudflare (D124 back-off needed). Staging rejected 2026-10-21…30 on the MCAP-join gate → cause: ETFs (D126). |
 | V1 evidence supplied by owner (#231) | V1's own GitHub probe (22 Oct 2026) also got **403** on `quote-equity`. So `quote-equity` was never shown to work from GitHub; the earlier recollection likely referred to BSE's quote header run from a home connection. |
 | NSE EOD licence | Tariff (Apr 2026): Capital Market EOD ₹1,00,000 (domestic) per display medium; website and app are separate mediums. |
