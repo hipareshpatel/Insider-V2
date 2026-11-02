@@ -99,7 +99,7 @@ export async function runBatch(env: Env, now = new Date()) {
     sql: "UPDATE fetch_job SET status=?2, attempts=?3, http_status=?4, bytes=?5, sha256=?6, fetched_at=?7, error=?8 WHERE job_id=?1",
     params: r,
   })));
-  const [left] = await db.all<{ n: number }>("SELECT count(*) AS n FROM fetch_job WHERE status='todo' OR (status='failed' AND attempts < 4)");
+  const [left] = await db.all<{ n: number }>("SELECT count(*) AS n FROM fetch_job WHERE url LIKE 'https://www.nseindia.com/%' AND (status='todo' OR (status='failed' AND attempts < 4))");
   return { seeded, discovered, done: ok, empty, failed, refusals, left: left?.n ?? 0 };
 }
 

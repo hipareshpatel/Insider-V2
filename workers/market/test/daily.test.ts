@@ -214,3 +214,12 @@ describe("wrong-date PR bundle (NSE served 04-Jun-2024 files as PR060424.zip)", 
     expect((await runDay("2025-06-13", { ...deps, fetch: withBhav })).status).toBe("rejected");
   });
 });
+
+describe("corporate-action types", () => {
+  it("a meeting plus an unknown part is stored as 'other' and reviewed (never breaks the date)", async () => {
+    const { parsePurpose } = await import("@disclo/core");
+    const p = parsePurpose("AGM/SOMETHING NEW");
+    expect(p.components).toEqual([{ type: "meeting" }]);
+    expect(p.unparsed).toEqual(["SOMETHING NEW"]);
+  });
+});

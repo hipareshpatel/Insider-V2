@@ -6,7 +6,7 @@
   "observability": { "enabled": true },
   "limits": { "cpu_ms": 60000 },
   "triggers": { "crons": ["* * * * *"] },
-  "vars": { "ENVIRONMENT": "production", "PARALLEL": "8", "PER_RUN": "420" },
+  "vars": { "ENVIRONMENT": "production", "PARALLEL": "16", "PER_RUN": "640" },
   "d1_databases": [{ "binding": "DB_FILINGS", "database_name": "disclo-filings", "database_id": "${filings}" }],
   "r2_buckets": [{ "binding": "RAW", "bucket_name": "disclo-raw" }]
 }

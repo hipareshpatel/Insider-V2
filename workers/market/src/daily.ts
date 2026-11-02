@@ -283,11 +283,12 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
     const parsed = parsePurpose(r.purpose);
     const priceAffecting = affectsPrice(parsed);
     const status = parsed.unparsed.length ? "review" : "parsed";
-    const type = typeOf(parsed.components);
+    const t0 = typeOf(parsed.components);
+    const type = ["split", "bonus", "rights", "dividend", "demerger", "capital_reduction", "consolidation", "other", "meeting"].includes(t0) ? t0 : "other";
     if ((type === "meeting" || parsed.components.every((c) => c.type === "debt_service" || c.type === "meeting")) && !parsed.unparsed.length) continue;
     const amount = parsed.components.filter((c) => c.type === "dividend").map((c) => (c as { amount: string }).amount).join("+") || null;
     caStmts.push({ sql: `INSERT INTO corp_action (security_id,ex_date,type,raw_purpose,amount,status,file_id) VALUES (?,?,?,?,?,?,?)
-      ON CONFLICT (security_id,ex_date,raw_purpose) DO NOTHING`, params: [sid, r.exDate, type, r.purpose, amount, status, fileIds.pr_bundle] });
+      ON CONFLICT (security_id,ex_date,raw_purpose) DO NOTHING`, params: [sid, r.exDate, type === "meeting" ? "other" : type, r.purpose, amount, status, fileIds.pr_bundle] });
     if (parsed.unparsed.length) reviews.push({ kind: "bc_unparsed", subjectDb: "market", subjectRef: `${r.symbol}|${r.exDate}|${r.purpose}`, summary: `Unparsed corporate action: ${r.symbol} ex ${r.exDate}: "${r.purpose}"`, evidence: { unparsed: parsed.unparsed } });
     if (r.exDate === date && (priceAffecting || parsed.unparsed.length)) {
       const t = todays.get(sid) ?? { purposes: [], comps: [] };
