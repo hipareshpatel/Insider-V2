@@ -10,3 +10,4 @@ export * from "./ingest.js";
 export * from "./nse/index.js";
 export * from "./corpActions.js";
 export * from "./sql.js";
+export * from "./xbrl.js";
