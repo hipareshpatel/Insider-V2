@@ -1,0 +1,49 @@
+name: deploy-market
+
+# Test -> deploy staging -> deploy production for workers/market. Logs masked (public repo).
+on:
+  workflow_dispatch:
+  push:
+    branches: [ccr-eb822347-c3zp4b]
+    paths: ["workers/market/**", "packages/core/src/**", "db/migrations/market/**", ".github/workflows/deploy-market.yml", "tools/d1.mjs"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-market
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run check
+      - name: Mask filter
+        run: |
+          mkdir -p "$HOME/bin"
+          printf '%s\n' '#!/bin/sh' "sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/<email hidden>/g; s/│ [^│]*Account[^│]*│/│ <account hidden> │/g'" > "$HOME/bin/mask"
+          chmod +x "$HOME/bin/mask"; echo "$HOME/bin" >> "$GITHUB_PATH"
+      - name: Apply market migrations (staging, production)
+        run: |
+          set -o pipefail
+          for env in staging production; do
+            node tools/d1.mjs config . $env >/dev/null
+            npx wrangler d1 migrations apply DB_MARKET --remote -c wrangler.migrate.json 2>&1 | mask | tail -6
+          done
+      - name: Write wrangler.json
+        run: node tools/d1.mjs worker workers/market | mask
+      - name: Deploy staging
+        working-directory: workers/market
+        run: set -o pipefail; npx wrangler deploy --env staging 2>&1 | mask | tail -15
+      - name: Deploy production
+        working-directory: workers/market
+        run: set -o pipefail; npx wrangler deploy --env="" 2>&1 | mask | tail -15

@@ -3,7 +3,7 @@
 //   node tools/d1.mjs config <dir> <env>  write <dir>/wrangler.migrate.json for migrations of all domains
 // Database names: disclo-<domain>[-staging] (D43: staging has its own copies).
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const DOMAINS = ["market", "filings", "announce", "memory", "graph", "app"];
@@ -45,7 +45,18 @@ if (cmd === "ensure") {
   };
   writeFileSync(join(a, "wrangler.migrate.json"), JSON.stringify(cfg, null, 2));
   console.log(`wrote config for ${env}`);
+} else if (cmd === "worker") {
+  // node tools/d1.mjs worker <dir>: fill ${domain} / ${domain-staging} ids in <dir>/wrangler.template.json -> wrangler.json
+  const have = listDbs();
+  const tpl = readFileSync(join(a, "wrangler.template.json"), "utf8");
+  const out = tpl.replace(/\$\{([a-z]+)(-staging)?\}/g, (_m, d, st) => {
+    const id = have.get(dbName(d, st ? "staging" : "production"));
+    if (!id) throw new Error(`missing database for ${d}${st ?? ""}`);
+    return id;
+  });
+  writeFileSync(join(a, "wrangler.json"), out);
+  console.log(`wrote ${a}/wrangler.json`);
 } else {
-  console.error("usage: d1.mjs ensure|ids|config <dir> <env>");
+  console.error("usage: d1.mjs ensure|ids|config <dir> <env>|worker <dir>");
   process.exit(2);
 }

@@ -1,0 +1,27 @@
+{
+  "name": "disclo-market",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "limits": { "cpu_ms": 60000 },
+  "triggers": { "crons": ["*/10 * * * *"] },
+  "vars": { "ENVIRONMENT": "production" },
+  "d1_databases": [
+    { "binding": "DB_MARKET", "database_name": "disclo-market", "database_id": "${market}" },
+    { "binding": "DB_APP", "database_name": "disclo-app", "database_id": "${app}" }
+  ],
+  "r2_buckets": [{ "binding": "RAW", "bucket_name": "disclo-raw" }],
+  "env": {
+    "staging": {
+      "name": "disclo-market-staging",
+      "triggers": { "crons": ["*/10 * * * *"] },
+      "vars": { "ENVIRONMENT": "staging", "BACKFILL_FROM": "2026-10-20" },
+      "d1_databases": [
+        { "binding": "DB_MARKET", "database_name": "disclo-market-staging", "database_id": "${market-staging}" },
+        { "binding": "DB_APP", "database_name": "disclo-app-staging", "database_id": "${app-staging}" }
+      ],
+      "r2_buckets": [{ "binding": "RAW", "bucket_name": "disclo-raw-staging" }]
+    }
+  }
+}
