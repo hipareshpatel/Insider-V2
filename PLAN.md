@@ -109,6 +109,13 @@ Links are **populated** only once the layer below them is accurate.
 | D49 | EBITDA definition | Canonical EBITDA **excludes other income** (operating EBITDA). The company's own reported EBITDA is stored and shown alongside, with the difference visible. |
 | D50 | Consolidated vs standalone | Both stored; basis is part of every value's key. **Primary basis per company**: consolidated for most corporates, **standalone for banks**, **both** for holding companies (e.g. Bajaj Finserv, Grasim); editable on the correction screen. Basis switches → series-break marker. Consolidated profit is split into attributable to owners vs NCI; EPS/valuation use attributable profit. |
 | D51 | Basis in AI inputs | Every number in a context pack carries its basis; packs contain the primary basis only, unless the event concerns the other. PDF extraction records basis per table from its heading. **Code rejects card comparisons that mix bases.** Commentary with unclear basis → marked unknown, never used in numeric comparisons. |
+| D52 | Ratio conventions | Adjusted metrics exclude exceptional items, with reported shown alongside. TTM where available. ROE/ROCE on average opening/closing capital; capital-employed definition documented (Screener's guide used as one reference). **No sentinel values** (e.g. 999): undefined ratios are null with a reason. |
+| D53 | Upcoming-results signals | Per-stock **factual, sourced leading indicators** (guidance revisions, order book ÷ TTM revenue, quarter-end provisional business updates, monthly volumes, capacity vs commitments due, insider/promoter buying, pledge changes, margin trend) + an **outcome ledger** each results season. "Good results" = growth above the company's own 8-quarter trend **and** guidance met. Any ranking/prediction exists **only after a point-in-time backtest beats a naive baseline**, and is **owner-only (private, never public)**, behind Cloudflare Access on owner routes. Owner-only data is never cached publicly or exposed via public API routes. |
+| D54 | NSE-block fallback | Decide if/when it happens (relay on owner's machine vs small VPS). |
+| D55 | Phase 2 backfill | Confirmed: last 4 quarters of results, concalls and presentations for Nifty 50. Cost estimated before running. |
+| D56 | Shareholding pattern | Ingested **quarterly** for all covered stocks (pledge truth for D29, group structures for D40). |
+| D57 | Next index | **Nifty Next 50** after the Nifty 50 PoC (together = Nifty 100). |
+| D58 | Domain | `*.workers.dev` for now. |
 
 ---
 
@@ -382,9 +389,18 @@ probe/                throwaway Cloudflare reachability check
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
 
-## 9b. Proposed, awaiting owner decision (2026-11-02)
-**A. Ratio/adjustment conventions** (Screener "optimizations" guide used as one reference): adjusted metrics exclude exceptional items, with reported shown alongside; ratios on TTM where available; ROCE/ROE on average opening/closing capital, with capital employed definition documented. **No sentinel values** (Screener shows 999 for infinite): undefined ratios are null with a reason.
-**B. "Upcoming results" signals (new requirement):** a per-stock list of **factual, sourced leading indicators**, e.g. guidance revised up/down, order book ÷ TTM revenue, quarter-end provisional business updates (banks/NBFCs), monthly volumes (autos), capacity commissioned vs commitments due, insider buying, margin trend. **Not a prediction or ranking by default.** An outcome ledger records signals vs actual results each quarter; any ranking/prediction ships only if a point-in-time backtest beats a naive baseline. Needs legal review (forward-looking, stock-specific).
+## 9c. Legal consult checklist (before going public)
+1. **SEBI RA Regulations:** do cards (facts, comparisons with the company's own past, guidance tracking, red flags) count as a "research report" / research-analyst activity? Does the "statistical summaries of financial data" exclusion cover them?
+2. **Red flags naming people:** e.g. "insider traded during trading-window closure" names an individual. Defamation exposure? Required wording?
+3. **SEBI Jan-2025 circular** (price data < 3 months old alongside stock names): does it apply to an unregistered, non-educational platform? What changes if we later partner with a broker or other regulated entity?
+4. **AI-generated content:** liability for errors; is a visible correction process + disclaimers sufficient?
+5. **NSE data:** exposure from showing bhavcopy-derived EOD prices without a licence (D24). NSE website terms vs automated access to the announcements API. Status of **derived** numbers (ratios, 52-week position).
+6. **Company filings:** may we republish quotes/excerpts and extracted numbers from public LODR disclosures? Linking vs hosting PDFs.
+7. **Future paid tier (D23):** does charging institutions change regulatory status (RA vs Investment Adviser)? Does an API for institutions count as data redistribution needing a vendor licence?
+8. **Owner's own trading** in covered stocks: required disclosures or conflict-of-interest rules? Implications of the owner-only signals feature (D53).
+9. **DPDP Act:** obligations for accounts, emails and error reports.
+10. **Structure:** operate as an individual or a company (liability)? Terms of use, limitation of liability, jurisdiction, disclaimer wording.
+11. **Name/brand:** any issue with a name close to "insider" in a securities context?
 
 ## 10. Open questions
 - **Funding gap:** NSE EOD licence ≈ ₹1.18 lakh/yr incl. GST per display medium (≈ $113/month for the website alone) > the $100/month budget. No ads or sponsors (D22).
