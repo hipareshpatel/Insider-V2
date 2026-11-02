@@ -42,7 +42,7 @@ function fakeFetch(overrides: Record<string, Uint8Array> = {}) {
 function setup() {
   const market = sqlite("market"), app = sqlite("app");
   const stored: string[] = [];
-  const deps = { market, app, raw: { put: async (k: string) => { stored.push(k); } }, fetch: fakeFetch(), now: () => new Date("2026-11-03T00:00:00Z") };
+  const deps = { market, app, raw: { put: async (k: string) => { stored.push(k); } }, fetch: fakeFetch(), now: () => new Date("2026-11-03T00:00:00Z"), retryWaits: [0, 0] };
   return { market, app, deps, stored };
 }
 

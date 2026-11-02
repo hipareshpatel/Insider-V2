@@ -14,6 +14,8 @@ export interface Deps {
   raw: RawStore;
   fetch: Fetcher;
   now: () => Date;
+  /** waits before retrying a refused file (default 3 s, 6 s, 12 s) */
+  retryWaits?: number[];
 }
 
 export interface DayReport {
@@ -27,8 +29,17 @@ export interface DayReport {
 const iso = (d: Date) => d.toISOString();
 type Got = { url: string; res: FetchResult | null; error?: string };
 
-async function get(f: Fetcher, url: string): Promise<Got> {
-  try { return { url, res: await f(url) }; } catch (e) { return { url, res: null, error: String(e) }; }
+const REFUSED = new Set([403, 429, 503]);
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** One file; a refusal is retried up to 3 times (3 s, 6 s, 12 s) before the date is left pending (D124). */
+async function get(f: Fetcher, url: string, waits: number[] = [3000, 6000, 12000]): Promise<Got> {
+  for (let i = 0; ; i++) {
+    let res: FetchResult;
+    try { res = await f(url); } catch (e) { return { url, res: null, error: String(e) }; }
+    if (!REFUSED.has(res.status) || i >= waits.length) return { url, res };
+    await pause(waits[i]!);
+  }
 }
 
 /** Fetch, gate and load one trading date. */
@@ -54,8 +65,8 @@ export async function runDay(date: string, deps: Deps): Promise<DayReport> {
 
 async function load(date: string, deps: Deps): Promise<DayReport> {
   const [u, p, dl, ix] = await Promise.all([
-    get(deps.fetch, udiffUrl(ymd(date))), get(deps.fetch, prBundleUrl(ddmmyy(date))),
-    get(deps.fetch, deliveryUrl(ddmmyyyy(date))), get(deps.fetch, indexCloseUrl(ddmmyyyy(date))),
+    get(deps.fetch, udiffUrl(ymd(date)), deps.retryWaits), get(deps.fetch, prBundleUrl(ddmmyy(date)), deps.retryWaits),
+    get(deps.fetch, deliveryUrl(ddmmyyyy(date)), deps.retryWaits), get(deps.fetch, indexCloseUrl(ddmmyyyy(date)), deps.retryWaits),
   ]);
   for (const g of [u, p]) if (!g.res) return { date, status: "failed", reasons: [`${g.url}: ${g.error}`] };
   const us = u.res!.status, ps = p.res!.status;
