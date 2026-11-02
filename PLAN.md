@@ -98,6 +98,12 @@ Links are **populated** only once the layer below them is accurate.
 | D38 | Graph: impact reach | **One hop.** The linked company gets a context line in its dossier/timeline. *Provisional:* it gets its own card only if the filing names it **and** the amount is ≥ 2% of the linked company's TTM revenue (or market cap for deals). |
 | D39 | Graph: unlisted counterparties | *Provisional:* named counterparties → entities (with aliases); unnamed ("a leading European OEM") → kept as text, never guessed. |
 | D40 | Group companies | **Yes:** promoter-group structures seeded from shareholding-pattern disclosures, so group-level pledges, related-party deals and red flags show across group companies from day 1. |
+| D41 | Prompt-injection defence | Filing text is passed to Gemini as data, never as instructions. Gemini has **read-only** context tools only. Strict output schema, or rejected. Quote verification + XBRL/identity checks block invented numbers. Instruction-like text in PDFs is flagged for review. |
+| D42 | Public error reports | "Report an error" link on every card → owner review queue. |
+| D43 | Staging | Separate staging D1/R2/queues. Every prompt/model change runs on staging against the gold set before production. |
+| D44 | Backups | D1 Time Travel (30 days) + weekly full export to R2 kept 12 weeks. Full rebuild from raw files tested before launch. |
+| D45 | Alerts | Email to owner: pipeline stalled > 1 h, daily Gemini spend > 80% of cap, any dead-letter item, NSE error spike. |
+| D46 | Freshness indicator | Public "data updated HH:MM IST" status on the site. |
 
 ---
 
@@ -370,6 +376,17 @@ probe/                throwaway Cloudflare reachability check
 2. **Run `probe/`** (see `probe/README.md`) 3–4 times, including once after 22:00 IST, and share the JSON output.
 3. **Share 10–20 known failure cases** (announcement link + what went wrong) for the gold set.
 4. Before backfill/go-live: upgrade to **Workers Paid**, create a Gemini API key on a **paid** tier, and create a Cloudflare API token for CI deploys.
+
+## 9b. Proposed, awaiting owner decision — Financial statements & restatements (2026-11-02)
+**Verified:** NSE results XBRL (INFY Q3 FY25, consolidated, `in-bse-fin` taxonomy) has **only the current quarter and year-to-date**; there are **no comparative-period columns**. Restated prior-period figures therefore appear **only in the PDF**. NSE results metadata also distinguishes Ind-AS old/new formats and a separate bank format.
+1. **Three storage layers:**
+   - **As filed:** every XBRL fact (tag, context, value, unit, decimals, filing id), lossless and versioned per filing.
+   - **Canonical model:** our own standard line items, mapped from XBRL tags, with **four templates**: industrial (Schedule III), bank, NBFC, insurance.
+   - **Views:** any presentation (Screener-like summary, detailed statements) is computed from the canonical model. **No outside convention is the storage format.**
+2. **Versioned values:** key = (security, statement, line, period, consolidated/standalone, version). Versions: *original* (that period's own XBRL) and *restated* (comparative column in a later filing's PDF). Nothing is ever overwritten.
+3. **PDF table extraction with accounting identity checks in code:** e.g. Income = Revenue + Other income; PBT = Income − Expenses ± Exceptional; PAT = PBT − Tax; segment revenues sum to total. If an identity fails → rejected/review.
+4. **Restatement detection:** a later filing's comparative differs from our stored original by > 0.5% → restatement flagged, reason classified (merger/demerger, discontinued operations, accounting policy change, **error correction = red flag**).
+5. *Open:* EBITDA definition (proposed: excludes other income; the company's own reported EBITDA is stored separately). Default series (proposed: latest restated, with a marker; original always available). Default basis (proposed: consolidated where available, standalone also stored).
 
 ## 10. Open questions
 - **Funding gap:** NSE EOD licence ≈ ₹1.18 lakh/yr incl. GST per display medium (≈ $113/month for the website alone) > the $100/month budget. No ads or sponsors (D22).
