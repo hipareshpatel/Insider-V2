@@ -101,11 +101,14 @@ export async function securities(m: Sql) {
 
 const PL_LINES = ["revenue", "total_income", "interest_earned", "gross_premium", "net_premium", "pbt", "pat", "eps_basic", "operating_profit", "net_interest_income"];
 
-export async function stock(db: Dbs, symbol: string) {
+export async function stock(db: Dbs, symbol: string, timing: string[] = []) {
   const m = db.market;
+  let t = Date.now();
+  const lap = (name: string) => { const n = Date.now(); timing.push(`${name};dur=${n - t}`); t = n; };
   const [id] = await m.all<{ security_id: number }>(
     "SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=? ORDER BY valid_to IS NULL DESC, valid_from DESC LIMIT 1", [symbol]);
   if (!id) return null;
+  lap("id");
   const sid = id.security_id;
   const f = db.filings;
   // Round trip 2: every read that needs only the security id, in parallel.
@@ -131,6 +134,7 @@ export async function stock(db: Dbs, symbol: string) {
        ORDER BY period_end DESC, disclosed_at`, [sid, ...PL_LINES]),
     f.all<{ as_of: string; filing_id: number }>("SELECT as_of, filing_id FROM shareholding WHERE security_id=? ORDER BY as_of DESC LIMIT 1", [sid]),
   ]);
+  lap("main");
   const sec = secR[0], cls = clsR[0], sh = shR[0], shpDay = shpR[0];
   const indices = idxR.map((r) => r.index_name);
   const day = new Map<number, (typeof raw)[number]>();
@@ -156,6 +160,7 @@ export async function stock(db: Dbs, symbol: string) {
     f.all<Record<string, unknown>>(`SELECT meeting_d, purpose, announced_at FROM board_meeting WHERE symbol IN (${marksS}) ORDER BY meeting_d DESC LIMIT 8`, sym),
     f.all<Record<string, unknown>>(`SELECT agency, rating, outlook, action, rated_on, disclosed_at FROM credit_rating WHERE symbol IN (${marksS}) ORDER BY rated_on DESC LIMIT 8`, sym),
   ]);
+  lap("detail");
   const dl = dlR[0];
   const src = new Map<number, string>(srcParts.flat().map((r) => [r.filing_id, r.source_url]));
   const periods = new Map<string, { period_end: string; period_kind: string; basis: string; template: string; lines: Record<string, string | null>; restated: Record<string, string | null>; disclosed_at: string; source: string | null }>();

@@ -40,18 +40,19 @@ app.use("/api/*", async (c, next) => {
 });
 
 /** Edge cache: EOD data changes a few times a day; `ttl` seconds. */
-async function cached(c: { req: { url: string }; executionCtx: { waitUntil(p: Promise<unknown>): void } }, ttl: number, make: () => Promise<unknown>): Promise<Response> {
+async function cached(c: { req: { url: string }; executionCtx: { waitUntil(p: Promise<unknown>): void } }, ttl: number, make: (timing: string[]) => Promise<unknown>): Promise<Response> {
   const cache = (globalThis as unknown as { caches?: { default: Cache } }).caches?.default;
   const key = new Request(c.req.url);
   const hit = cache ? await cache.match(key) : undefined;
   if (hit) { const r = new Response(hit.body, hit); r.headers.set("x-cache", "hit"); return r; } // cached headers are immutable
   const t0 = Date.now();
-  const body = await make();
+  const timing: string[] = [];
+  const body = await make(timing);
   const ms = Date.now() - t0;
   if (body === null) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: { "content-type": "application/json" } });
   const res = new Response(JSON.stringify(body), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${ttl}` } });
   if (cache) c.executionCtx.waitUntil(cache.put(key, res.clone()));
-  res.headers.set("server-timing", `db;dur=${ms}`); // server time for the uncached answer (performance targets, M3)
+  res.headers.set("server-timing", [`db;dur=${ms}`, ...timing].join(", ")); // server time for the uncached answer (performance targets, M3)
   res.headers.set("x-cache", "miss");
   return res;
 }
@@ -62,7 +63,7 @@ app.get("/api/v1/securities", (c) => cached(c, 3600, () => securities(dbs(c.env)
 app.get("/api/v1/stocks/:symbol", (c) => {
   const s = c.req.param("symbol").toUpperCase();
   if (!/^[A-Z0-9&\-_.]{1,20}$/.test(s)) return c.json({ error: "bad symbol" }, 400);
-  return cached(c, 600, () => stock(dbs(c.env), s));
+  return cached(c, 600, (tm) => stock(dbs(c.env), s, tm));
 });
 app.get("/api/v1/health", (c) => cached(c, 60, () => health(dbs(c.env))));
 app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
