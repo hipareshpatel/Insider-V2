@@ -1,5 +1,3 @@
--- Parser now understands REIT/InvIT distributions, trust debt service and misspelt rights; duplicate "not understood" items removed.
-DELETE FROM review_item WHERE status='open' AND subject_db='market' AND (
-  summary LIKE 'Corporate action not understood, no adjustment made:%'
-  OR (summary LIKE 'Unparsed corporate action:%' AND (summary LIKE '%DISTRIB%' OR summary LIKE '%DISTRBUTN%' OR summary LIKE '%INT PAYMENT%' OR summary LIKE '%INTEREST/PART%' OR summary LIKE '%SP DIV%'))
-  OR (summary LIKE 'Corporate action needs review:%' AND summary LIKE '%INTEREST/PART REDEMPTION%'));
+-- Superseded by app/0008 (full market-review reset for the D130 reload). Kept as a no-op so the sequence stays intact.
+-- (The first version used a LIKE pattern longer than D1's 50-byte limit.)
+SELECT 1;

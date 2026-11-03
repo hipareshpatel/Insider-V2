@@ -65,10 +65,11 @@ describe("market daily job on real file samples", () => {
     ]);
     const factors = await market.all<{ ex_date: string; factor: string; method: string; status: string }>("SELECT ex_date, factor, method, status FROM adj_factor WHERE security_id=?", [sec!.security_id]);
     expect(factors).toEqual([{ ex_date: "2025-06-16", factor: "0.1", method: "share_ratio", status: "auto" }]);
-    const [p13] = await market.all<{ close: string }>("SELECT close FROM price_daily WHERE security_id=? AND trade_date='2025-06-13' AND series='EQ'", [sec!.security_id]);
-    expect(adjustPrice(p13!.close, "2025-06-13", factors.map((f) => ({ exDate: f.ex_date, factor: f.factor })))).toBe("933.1");
-    const [m] = await market.all<{ mcap_rs: string; mcap_source: string }>("SELECT mcap_rs, mcap_source FROM shares_daily WHERE security_id=? AND trade_date='2025-06-16'", [sec!.security_id]);
-    expect(m).toEqual({ mcap_rs: "5814461755760.00", mcap_source: "nse" });
+    const [p13] = await market.all<{ close: number }>("SELECT close FROM price_daily WHERE security_id=? AND d=20250613 AND series='EQ'", [sec!.security_id]);
+    expect(p13!.close).toBe(933100); // paise (D130)
+    expect(adjustPrice("9331", "2025-06-13", factors.map((f) => ({ exDate: f.ex_date, factor: f.factor })))).toBe("933.1");
+    const [m] = await market.all<{ mcap_paise: number; mcap_source: string }>("SELECT mcap_paise, mcap_source FROM shares_daily WHERE security_id=? AND d=20250616", [sec!.security_id]);
+    expect(m).toEqual({ mcap_paise: 581446175576000, mcap_source: "nse" }); // ₹5,814,461,755,760.00 exactly
     const ca = await market.all<{ type: string; status: string }>("SELECT type, status FROM corp_action WHERE security_id=? ORDER BY type", [sec!.security_id]);
     expect(ca).toEqual([{ type: "bonus", status: "parsed" }, { type: "split", status: "parsed" }]);
     // no unexplained-move / share-change review for BAJFINANCE (it was explained)

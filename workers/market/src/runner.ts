@@ -1,5 +1,5 @@
 // Decides which dates to (re)run, in order, within a time budget. Used by both the nightly cron and the backfill.
-import { type Sql, batchAll, dec, insertRows, mul, round, toText } from "@disclo/core";
+import { type Sql, batchAll, dec, diso, insertRows, mul, round, toText } from "@disclo/core";
 import { type DayReport, type Deps, runDay } from "./daily.js";
 import { snapshotIndices } from "./snapshot.js";
 import { addDays, datesBetween, eligible, istNow } from "./dates.js";
@@ -29,8 +29,10 @@ export async function runPending(deps: Deps, opt: RunOptions): Promise<DayReport
   for (const d of (await pendingDates(deps.market, deps.now(), opt.revisitSessions, opt.from)).slice(0, opt.maxDates)) {
     if (Date.now() - t0 > opt.budgetMs) break;
     if (await paused(deps.market)) break; // maintenance: a reset must not race a running load
+    if ((await budgetLeft(deps.market, deps.now())) <= 0) break; // D131: resume tomorrow (IST)
     const r = await runDay(d, deps);
     out.push(r);
+    await chargeBudget(deps.market, deps.now(), r.written ?? 0);
     // Strict date order: corporate-action factors compare with the previous session, so a date that didn't load
     // (refused, failed, rejected by a gate) stops this run; the next run retries it first.
     if (!["loaded", "unchanged", "no_session"].includes(r.status)) break;
@@ -67,26 +69,38 @@ export async function maybeSnapshot(deps: Deps): Promise<string> {
 /** D6: January 2024 has no MCAP file; market cap = close × February's first share count,
  *  scaled back through any split/bonus between the date and that February day. Marked mcap_source = 'derived'. */
 export async function deriveJanuary2024(db: Sql): Promise<number> {
-  const [feb] = await db.all<{ d: string | null }>("SELECT min(trade_date) AS d FROM shares_daily WHERE trade_date >= '2024-02-01' AND mcap_source='nse'");
+  const [feb] = await db.all<{ d: number | null }>("SELECT min(d) AS d FROM shares_daily WHERE d >= 20240201 AND mcap_source='nse'");
   if (!feb?.d) return 0;
-  const todo = await db.all<{ security_id: number; trade_date: string; close: string; issue_size: number; face_value: string | null }>(
-    `SELECT p.security_id, p.trade_date, p.close, s.issue_size, s.face_value
-     FROM price_daily p JOIN shares_daily s ON s.security_id = p.security_id AND s.trade_date = ?
-     WHERE p.trade_date < '2024-02-01' AND p.series = 'EQ'
-       AND NOT EXISTS (SELECT 1 FROM shares_daily x WHERE x.security_id = p.security_id AND x.trade_date = p.trade_date)
+  const todo = await db.all<{ security_id: number; d: number; close: number; issue_size: number; face_value_paise: number | null }>(
+    `SELECT p.security_id, p.d, p.close, s.issue_size, s.face_value_paise
+     FROM price_daily p JOIN shares_daily s ON s.security_id = p.security_id AND s.d = ?
+     WHERE p.d < 20240201 AND p.series = 'EQ'
+       AND NOT EXISTS (SELECT 1 FROM shares_daily x WHERE x.security_id = p.security_id AND x.d = p.d)
      LIMIT 5000`, [feb.d]);
   if (!todo.length) return 0;
   const factors = await db.all<{ security_id: number; ex_date: string; factor: string }>(
-    "SELECT security_id, ex_date, factor FROM adj_factor WHERE ex_date < ? AND ex_date > '2023-12-31'", [feb.d]);
+    "SELECT security_id, ex_date, factor FROM adj_factor WHERE status IN ('auto','confirmed') AND ex_date < ? AND ex_date > '2023-12-31'", [diso(feb.d)]);
   const rows = todo.map((t) => {
     let issue = dec(t.issue_size);
-    for (const f of factors) if (f.security_id === t.security_id && f.ex_date > t.trade_date) issue = mul(issue, dec(f.factor));
-    const shares = toText(round(issue, 0));
-    return [t.security_id, t.trade_date, Number(shares), t.face_value, toText(round(mul(dec(shares), dec(t.close)), 2)), "derived", null];
+    const iso = diso(t.d);
+    for (const f of factors) if (f.security_id === t.security_id && f.ex_date > iso) issue = mul(issue, dec(f.factor));
+    const shares = round(issue, 0);
+    const mcapPaise = Number(toText(round(mul(shares, dec(t.close)), 0))); // close is in paise
+    return [t.security_id, t.d, Number(toText(shares)), mcapPaise, "derived", t.face_value_paise];
   });
-  await batchAll(db, insertRows("INSERT INTO shares_daily (security_id,trade_date,issue_size,face_value,mcap_rs,mcap_source,file_id)", 7, rows,
-    "ON CONFLICT (security_id,trade_date) DO NOTHING"));
+  await batchAll(db, insertRows("INSERT INTO shares_daily (security_id,d,issue_size,mcap_paise,mcap_source,face_value_paise)", 6, rows,
+    "ON CONFLICT (security_id,d) DO NOTHING"));
   return rows.length;
+}
+
+/** D131 daily write budget (rows written per IST day). */
+export const DAILY_WRITE_BUDGET = 3_000_000;
+export async function budgetLeft(db: Sql, now: Date): Promise<number> {
+  const [r] = await db.all<{ rows: number }>("SELECT rows FROM write_budget WHERE day = ?", [istNow(now).date]);
+  return DAILY_WRITE_BUDGET - (r?.rows ?? 0);
+}
+export async function chargeBudget(db: Sql, now: Date, rows: number): Promise<void> {
+  if (rows > 0) await db.run("INSERT INTO write_budget (day, rows) VALUES (?, ?) ON CONFLICT (day) DO UPDATE SET rows = rows + excluded.rows", [istNow(now).date, rows]);
 }
 
 /** Maintenance pause: a row 'paused' in job_lock stops runs before the next date. */

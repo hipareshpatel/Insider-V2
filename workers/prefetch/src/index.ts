@@ -34,7 +34,7 @@ async function discover(env: Env, db: Sql): Promise<number> {
   for (const l of lists) {
     const obj = await env.RAW.get(l.r2_key);
     if (!obj) continue;
-    for (const u of attachments(l.kind, await obj.text(), "2021-04-01")) rows.push([`xbrl_${l.kind}`, l.symbol, u, attachmentKey(u), l.job_id]);
+    for (const u of attachments(l.kind, await readText(obj), "2021-04-01")) rows.push([`xbrl_${l.kind}`, l.symbol, u, attachmentKey(u), l.job_id]);
   }
   const stmts = insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key, parent_id)", 5, rows);
   for (let i = 0; i < lists.length; i += 90) {
@@ -51,6 +51,15 @@ async function cookies(): Promise<string> {
     await r.body?.cancel();
     return r.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
   } catch { return ""; }
+}
+
+/** D131: gzip text objects in R2 (marked with customMetadata.enc = "gzip"); readers accept both. */
+async function gzip(bytes: Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
+}
+export async function readText(obj: R2ObjectBody): Promise<string> {
+  if (obj.customMetadata?.enc !== "gzip") return obj.text();
+  return new Response(obj.body.pipeThrough(new DecompressionStream("gzip"))).text();
 }
 
 export async function runBatch(env: Env, now = new Date()) {
@@ -85,7 +94,7 @@ export async function runBatch(env: Env, now = new Date()) {
         if (r.status !== 200) { failed++; results.push([j.job_id, "failed", j.attempts + 1, r.status, bytes.length, null, now.toISOString(), `HTTP ${r.status}`]); continue; }
         const sha = await sha256Hex(bytes);
         const isEmpty = bytes.length <= 4 || /^\s*(\[\s*\]|\{\s*"data"\s*:\s*\[\s*\]\s*\})/.test(new TextDecoder().decode(bytes.subarray(0, 64)));
-        await env.RAW.put(j.r2_key, bytes, { httpMetadata: { contentType: r.headers.get("content-type") ?? "application/json" }, customMetadata: { url: j.url, fetched_at: now.toISOString() } });
+        await env.RAW.put(j.r2_key, await gzip(bytes), { httpMetadata: { contentType: r.headers.get("content-type") ?? "application/json" }, customMetadata: { url: j.url, fetched_at: now.toISOString(), enc: "gzip" } });
         if (isEmpty) empty++; else ok++;
         results.push([j.job_id, isEmpty ? "empty" : "done", j.attempts + 1, 200, bytes.length, sha, now.toISOString(), null]);
       } catch (e) {
@@ -130,7 +139,7 @@ export default {
       const [job] = await d1Sql(env.DB_FILINGS).all<{ r2_key: string; url: string; attempts: number }>("SELECT r2_key, url, attempts FROM fetch_job WHERE job_id=?", [id]);
       if (!job) return new Response("no job", { status: 404 });
       const bytes = new Uint8Array(await req.arrayBuffer());
-      if (status === "done") await env.RAW.put(job.r2_key, bytes, { customMetadata: { url: job.url, fetched_at: new Date().toISOString() } });
+      if (status === "done") await env.RAW.put(job.r2_key, await gzip(bytes), { customMetadata: { url: job.url, fetched_at: new Date().toISOString(), enc: "gzip" } });
       await env.DB_FILINGS.prepare("UPDATE fetch_job SET status=?2, attempts=attempts+1, http_status=?3, bytes=?4, sha256=?5, fetched_at=?6 WHERE job_id=?1")
         .bind(id, status, Number(url.searchParams.get("http") ?? 200), bytes.length, status === "done" ? await sha256Hex(bytes) : null, new Date().toISOString()).run();
       return new Response("ok");

@@ -1,6 +1,6 @@
 // Phase 1 acceptance checks (§9.2) on live data, read-only. Tests 4 (re-run = 0 rows) and 5 (rebuild from R2)
 // are covered by CI / a separate rebuild job; the rest are computed here.
-import { type Sql, adjustPrice, dec, div, sub, toText } from "@disclo/core";
+import { type Sql, adjustPrice, dec, diso, div, fromPaise, sub, toText } from "@disclo/core";
 
 export interface Check { id: string; name: string; pass: boolean | null; detail: string }
 
@@ -12,7 +12,8 @@ export async function acceptance(db: Sql, app: Sql): Promise<Check[]> {
   if (!baj) out.push({ id: "1", name: "BAJFINANCE adjusted close 2025-06-13 = 933.10", pass: null, detail: "not loaded yet" });
   else {
     const f = await db.all<{ ex_date: string; factor: string }>("SELECT ex_date, factor FROM adj_factor WHERE security_id=? AND status IN ('auto','confirmed')", [baj.security_id]);
-    const p = await db.all<{ trade_date: string; close: string }>("SELECT trade_date, close FROM price_daily WHERE security_id=? AND series='EQ' AND trade_date IN ('2025-06-13','2025-06-16')", [baj.security_id]);
+    const p = (await db.all<{ d: number; close: number }>("SELECT d, close FROM price_daily WHERE security_id=? AND series='EQ' AND d IN (20250613, 20250616)", [baj.security_id]))
+      .map((x) => ({ trade_date: diso(x.d), close: fromPaise(x.close)! }));
     const c13 = p.find((x) => x.trade_date === "2025-06-13"), c16 = p.find((x) => x.trade_date === "2025-06-16");
     if (!c13 || !c16) out.push({ id: "1", name: "BAJFINANCE adjusted close 2025-06-13 = 933.10", pass: null, detail: "2025-06 not loaded yet" });
     else {
@@ -29,7 +30,8 @@ export async function acceptance(db: Sql, app: Sql): Promise<Check[]> {
   else {
     const ids = members.map((m) => m.security_id);
     const marks = ids.map(() => "?").join(",");
-    const prices = await db.all<{ security_id: number; trade_date: string; close: string }>(`SELECT security_id, trade_date, close FROM price_daily WHERE series='EQ' AND security_id IN (${marks}) ORDER BY security_id, trade_date`, ids);
+    const prices = (await db.all<{ security_id: number; d: number; close: number }>(`SELECT security_id, d, close FROM price_daily WHERE series='EQ' AND security_id IN (${marks}) ORDER BY security_id, d`, ids))
+      .map((x) => ({ security_id: x.security_id, trade_date: diso(x.d), close: fromPaise(x.close)! }));
     const factors = await db.all<{ security_id: number; ex_date: string; factor: string }>(`SELECT security_id, ex_date, factor FROM adj_factor WHERE status IN ('auto','confirmed') AND security_id IN (${marks})`, ids);
     const jumps: string[] = [];
     let prev: { id: number; adj: string; d: string } | null = null;
@@ -47,7 +49,7 @@ export async function acceptance(db: Sql, app: Sql): Promise<Check[]> {
 
   // 3. Market cap equals NSE MCAP to the rupee from 2024-02-01 (stored as published; derived only before).
   const [m] = await db.all<{ nse: number; derived_after: number; derived_before: number }>(
-    "SELECT sum(mcap_source='nse') AS nse, sum(mcap_source='derived' AND trade_date >= '2024-02-01') AS derived_after, sum(mcap_source='derived' AND trade_date < '2024-02-01') AS derived_before FROM shares_daily");
+    "SELECT sum(mcap_source='nse') AS nse, sum(mcap_source='derived' AND d >= 20240201) AS derived_after, sum(mcap_source='derived' AND d < 20240201) AS derived_before FROM shares_daily");
   out.push({ id: "3", name: "Market cap = NSE MCAP from 2024-02-01", pass: (m?.derived_after ?? 0) === 0 && (m?.nse ?? 0) > 0, detail: `${m?.nse ?? 0} NSE rows, ${m?.derived_after ?? 0} derived after Feb 2024 (must be 0), ${m?.derived_before ?? 0} derived Jan 2024 (D6)` });
 
   // 6. Corporate-action review queue empty.

@@ -4,7 +4,7 @@ import {
   EQUITY_SERIES, type BhavRow, type DeliveryRow, type FetchResult, type Fetcher, type IdentifierRow, type IndexCloseRow,
   type McapRow, type RawStore, type ReviewItem, type Sql, type Stmt, affectsPrice, batchAll, decideFactor, dedupeBc, dec, diffIdentities,
   div, deliveryUrl, indexCloseUrl, insertRows, mul, parseDelivery, parseIndexClose, parsePrBundle, parsePurpose, parseUdiffZip,
-  prBundleMatchesDate, prBundleUrl, reviewUpsert, sha256Hex, sub, toText, udiffUrl, withinRatio,
+  dnum, fromPaise, prBundleMatchesDate, prBundleUrl, reviewUpsert, toPaise, sha256Hex, sub, toText, udiffUrl, withinRatio,
 } from "@disclo/core";
 import { addDays, ddmmyy, ddmmyyyy, settledNoSession, ymd } from "./dates.js";
 
@@ -27,6 +27,7 @@ export interface DayReport {
   reasons?: string[];
   reviews?: number;
   ms?: Record<string, number>;
+  written?: number;
 }
 
 const iso = (d: Date) => d.toISOString();
@@ -69,6 +70,7 @@ export async function runDay(date: string, deps: Deps): Promise<DayReport> {
 async function load(date: string, deps: Deps): Promise<DayReport> {
   const t0 = Date.now();
   const ms: Record<string, number> = {};
+  let written = 0;
   const lap = (k: string) => { ms[k] = Date.now() - t0; };
   // PR bundle first: every session has one, so a settled 404 means no session and nothing else is fetched
   // (the archive answers 403, not 404, for some missing bhavcopies, and refusals stop a run).
@@ -156,14 +158,23 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
     }
   }
 
-  // Gate: row count within ±5% of the 20-session median (needs 20 sessions of history).
+  // Gate: row count within ±5% of the 20-session median (needs 20 sessions). Counts come from trading_calendar (D131).
+  // Extension (D125): symbols absent the previous session don't count, so a wave of new listings doesn't block a day.
   const counts = await deps.market.all<{ n: number }>(
-    `SELECT n FROM (SELECT p.trade_date, count(*) AS n FROM price_daily p JOIN security s ON s.security_id = p.security_id
-       WHERE p.trade_date < ? AND s.kind = 'equity' AND p.series IN ('EQ','BE','BZ') GROUP BY p.trade_date ORDER BY p.trade_date DESC LIMIT 20)`, [date]);
+    "SELECT universe_rows AS n FROM trading_calendar WHERE is_session=1 AND universe_rows IS NOT NULL AND trade_date < ? ORDER BY trade_date DESC LIMIT 20", [date]);
   if (counts.length >= 20) {
     const sorted = counts.map((c) => c.n).sort((a, b) => a - b);
     const median = (sorted[9]! + sorted[10]!) / 2;
-    if (Math.abs(good.length - median) / median > 0.05) reasons.push(`row count ${good.length} vs 20-session median ${median} (> ±5%)`);
+    if (Math.abs(good.length - median) / median > 0.05) {
+      const [pd] = await deps.market.all<{ d: string | null }>("SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session=1 AND trade_date < ?", [date]);
+      const prevSyms = new Set(pd?.d ? (await deps.market.all<{ value: string }>(
+        `SELECT DISTINCT i.value FROM price_daily p JOIN security_identifier i ON i.security_id = p.security_id AND i.id_type = 'nse_symbol'
+         WHERE p.d = ? AND p.series IN ('EQ','BE','BZ')`, [dnum(pd.d)])).map((r) => r.value) : []);
+      const carried = good.filter((r) => prevSyms.has(r.symbol)).length;
+      const fresh = good.length - carried;
+      if (Math.abs(carried - median) / median > 0.05) reasons.push(`row count ${good.length} (${carried} carried over) vs 20-session median ${median} (> ±5%)`);
+      else if (fresh > 0) reviews.push({ kind: "corp_action", subjectDb: "market", subjectRef: `newsymbols|${date}`, summary: `${fresh} symbols began trading on ${date} (row count ${good.length} vs median ${median}); information only` });
+    }
   }
   if (reasons.length) {
     await writeReviews(deps, reviews);
@@ -241,34 +252,35 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
 
   // Prices, shares, delivery, index closes.
   const stmts: Stmt[] = [];
+  const D = dnum(date);
   stmts.push(...insertRows(
-    "INSERT INTO price_daily (security_id,trade_date,series,open,high,low,close,last,prev_close,volume,turnover_rs,trades,isin,file_id)", 14,
-    rowsAll.map((r) => [secOf.get(r.symbol), date, r.series, r.open, r.high, r.low, r.close, r.last, r.prevClose, r.volume, r.turnoverRs, r.trades, r.isin, fileIds.udiff_bhavcopy]),
-    "ON CONFLICT (security_id,trade_date,series) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,last=excluded.last,prev_close=excluded.prev_close,volume=excluded.volume,turnover_rs=excluded.turnover_rs,trades=excluded.trades,isin=excluded.isin,file_id=excluded.file_id"));
+    "INSERT INTO price_daily (security_id,d,series,open,high,low,close,prev_close,volume,turnover_paise,trades,file_id)", 12,
+    rowsAll.map((r) => [secOf.get(r.symbol), D, r.series, toPaise(r.open), toPaise(r.high), toPaise(r.low), toPaise(r.close), toPaise(r.prevClose), r.volume, toPaise(r.turnoverRs), r.trades, fileIds.udiff_bhavcopy]),
+    "ON CONFLICT (security_id,d,series) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,prev_close=excluded.prev_close,volume=excluded.volume,turnover_paise=excluded.turnover_paise,trades=excluded.trades,file_id=excluded.file_id"));
   // One shares row per security per day: prefer the EQ series' MCAP row.
   const bySec = new Map<number, unknown[]>();
   for (const r of [...rowsAll].sort((x, y) => (x.series === "EQ" ? 0 : 1) - (y.series === "EQ" ? 0 : 1))) {
     const sid = secOf.get(r.symbol)!;
     const m = mcapBy.get(`${r.symbol}|${r.series}`);
-    if (m && !bySec.has(sid)) bySec.set(sid, [sid, date, m.issueSize, m.faceValue, m.mcapRs, "nse", fileIds.pr_bundle]);
+    if (m && !bySec.has(sid)) bySec.set(sid, [sid, D, m.issueSize, toPaise(m.mcapRs), "nse", toPaise(m.faceValue)]);
   }
   const shareRowsUnique = [...bySec.values()];
-  stmts.push(...insertRows("INSERT INTO shares_daily (security_id,trade_date,issue_size,face_value,mcap_rs,mcap_source,file_id)", 7, shareRowsUnique,
-    "ON CONFLICT (security_id,trade_date) DO UPDATE SET issue_size=excluded.issue_size,face_value=excluded.face_value,mcap_rs=excluded.mcap_rs,mcap_source=excluded.mcap_source,file_id=excluded.file_id"));
+  stmts.push(...insertRows("INSERT INTO shares_daily (security_id,d,issue_size,mcap_paise,mcap_source,face_value_paise)", 6, shareRowsUnique,
+    "ON CONFLICT (security_id,d) DO UPDATE SET issue_size=excluded.issue_size,mcap_paise=excluded.mcap_paise,mcap_source=excluded.mcap_source,face_value_paise=excluded.face_value_paise"));
   if (fileIds.delivery) {
     const dRows = delivery.filter((d) => secOf.has(d.symbol) && d.tradeDate === date)
-      .map((d) => [secOf.get(d.symbol), date, d.series, d.deliverableQty, d.deliveryPct, fileIds.delivery]);
-    stmts.push(...insertRows("INSERT INTO delivery_daily (security_id,trade_date,series,deliverable_qty,delivery_pct,file_id)", 6, dRows,
-      "ON CONFLICT (security_id,trade_date,series) DO UPDATE SET deliverable_qty=excluded.deliverable_qty,delivery_pct=excluded.delivery_pct,file_id=excluded.file_id"));
+      .filter((d) => d.deliverableQty !== null).map((d) => [secOf.get(d.symbol), D, d.series, d.deliverableQty]);
+    stmts.push(...insertRows("INSERT INTO delivery_daily (security_id,d,series,deliverable_qty)", 4, dRows,
+      "ON CONFLICT (security_id,d,series) DO UPDATE SET deliverable_qty=excluded.deliverable_qty"));
   }
   if (fileIds.index_close) {
-    const iRows = indices.filter((i) => i.tradeDate === date).map((i) => [i.indexName, date, i.open, i.high, i.low, i.close, i.pe, i.pb, i.divYield, fileIds.index_close]);
-    stmts.push(...insertRows("INSERT INTO index_daily (index_name,trade_date,open,high,low,close,pe,pb,div_yield,file_id)", 10, iRows,
-      "ON CONFLICT (index_name,trade_date) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,pe=excluded.pe,pb=excluded.pb,div_yield=excluded.div_yield,file_id=excluded.file_id"));
+    const iRows = indices.filter((i) => i.tradeDate === date).map((i) => [i.indexName, D, i.open, i.high, i.low, i.close, i.pe, i.pb, i.divYield]);
+    stmts.push(...insertRows("INSERT INTO index_daily (index_name,d,open,high,low,close,pe,pb,div_yield)", 9, iRows,
+      "ON CONFLICT (index_name,d) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,pe=excluded.pe,pb=excluded.pb,div_yield=excluded.div_yield"));
   }
-  stmts.push({ sql: "INSERT OR REPLACE INTO trading_calendar (trade_date, is_session, note) VALUES (?, 1, NULL)", params: [date] });
+  stmts.push({ sql: "INSERT OR REPLACE INTO trading_calendar (trade_date, is_session, note, universe_rows) VALUES (?, 1, NULL, ?)", params: [date, rows.length] });
   lap("identity");
-  await batchAll(deps.market, stmts, 250);
+  written += await batchAll(deps.market, stmts, 250);
   lap("prices_written");
 
   // Corporate actions (D6, D7): record every Bc row; decide factors for actions whose ex-date is today.
@@ -298,18 +310,18 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
       todays.set(sid, t);
     }
   }
-  await batchAll(deps.market, caStmts);
+  written += await batchAll(deps.market, caStmts);
 
   const prevDate = (await deps.market.all<{ d: string | null }>("SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session=1 AND trade_date < ?", [date]))[0]?.d ?? null;
   const prevShares = new Map<number, number>();
   const prevClose = new Map<number, string>();
   const prevFv = new Map<number, string>();
   if (prevDate) {
-    for (const r of await deps.market.all<{ security_id: number; issue_size: number; face_value: string | null }>("SELECT security_id, issue_size, face_value FROM shares_daily WHERE trade_date=?", [prevDate])) {
+    for (const r of await deps.market.all<{ security_id: number; issue_size: number; face_value_paise: number | null }>("SELECT security_id, issue_size, face_value_paise FROM shares_daily WHERE d=?", [dnum(prevDate)])) {
       prevShares.set(r.security_id, r.issue_size);
-      if (r.face_value) prevFv.set(r.security_id, r.face_value);
+      if (r.face_value_paise !== null) prevFv.set(r.security_id, fromPaise(r.face_value_paise)!);
     }
-    for (const r of await deps.market.all<{ security_id: number; close: string; series: string }>("SELECT security_id, close, series FROM price_daily WHERE trade_date=? ORDER BY series='EQ'", [prevDate])) prevClose.set(r.security_id, r.close);
+    for (const r of await deps.market.all<{ security_id: number; close: number; series: string }>("SELECT security_id, close, series FROM price_daily WHERE d=? ORDER BY series='EQ'", [dnum(prevDate)])) prevClose.set(r.security_id, fromPaise(r.close)!);
   }
   const todayShares = new Map<number, number>(shareRowsUnique.map((r) => [r[0] as number, r[2] as number]));
   const factorStmts: Stmt[] = [];
@@ -329,7 +341,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
     }
     if (d.status === "review") reviews.push({ kind: "corp_action", subjectDb: "market", subjectRef: `${sid}|${date}`, summary: `Corporate action needs review: ${t.purposes.join(" + ")} (${d.reason})`, proposed: d });
   }
-  await batchAll(deps.market, factorStmts);
+  written += await batchAll(deps.market, factorStmts);
 
   // Review checks: unexplained share-count change > 2%, unexplained move > ±35% (§9.1).
   const factored = new Set(todays.keys());
@@ -360,6 +372,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
     date, status: "loaded",
     counts: { prices: rows.length, stored_all: rowsAll.length, shares: shareRowsUnique.length, delivery: fileIds.delivery ? delivery.length : 0, indices: fileIds.index_close ? indices.length : 0, corp_actions: caStmts.length, factors: factorStmts.length, new_securities: changes.filter((c) => c.kind === "new_security").length },
     reviews: reviews.length,
+    written,
     ms: { ...ms, total: Date.now() - t0 },
   } as DayReport;
 }
