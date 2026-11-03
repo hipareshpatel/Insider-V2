@@ -79,6 +79,8 @@ export default {
         fy_not_loaded: await q("SELECT substr(detail, instr(detail, 'FY not loaded: ') + 15, 50) AS reason, count(*) AS n FROM fin_load WHERE instr(detail, 'FY not loaded: ') > 0 GROUP BY 1 ORDER BY 2 DESC LIMIT 15"),
         failed: await q("SELECT substr(detail, 1, 70) AS reason, count(*) AS n FROM fin_load WHERE status='failed' GROUP BY 1 ORDER BY 2 DESC LIMIT 15"),
         backfill: await q("SELECT at, detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'"),
+        // event loader: the next event-kind jobs after its cursor (it waits at the first one not finished, C47)
+        events_next: await q("SELECT job_id, kind, status, attempts, http_status, substr(error, 1, 60) AS error FROM fetch_job WHERE job_id > CAST(json_extract((SELECT detail FROM daily_refresh WHERE day='once' AND slot='events_cursor'), '$.after') AS INTEGER) AND kind IN ('pit','sast29','board_meetings','credit_rating') ORDER BY job_id LIMIT 5"),
       }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/held") {
