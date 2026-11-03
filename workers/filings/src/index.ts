@@ -14,7 +14,7 @@ async function getText(bucket: R2Bucket, key: string): Promise<string | null> {
 export default {
   async scheduled(_e: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil((async () => {
-      const out = await loadBatch({ filings: d1Sql(env.DB_FILINGS), market: d1Sql(env.DB_MARKET), getText: (k) => getText(env.RAW, k), now: () => new Date() });
+      const out = await loadBatch({ filings: d1Sql(env.DB_FILINGS), market: d1Sql(env.DB_MARKET), getText: (k) => getText(env.RAW, k), now: () => new Date() }, 250);
       const by: Record<string, number> = {};
       for (const o of out) by[o.status] = (by[o.status] ?? 0) + 1;
       console.log(JSON.stringify({ env: env.ENVIRONMENT, processed: out.length, by }));
