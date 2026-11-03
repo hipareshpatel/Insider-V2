@@ -2,6 +2,22 @@
 
 **Repo:** `hipareshpatel/Insider-V2`, branch **`ccr-eb822347-c3zp4b`** (only branch). All documents are in `docs/`.
 
+## Build state — hourly update 2026-11-03 08:00 IST
+| Area | State |
+|---|---|
+| Market history (compact, D130) | reloading from R2: 528 sessions to 2026-02-12, 1,420,182 price rows; reviews: 189 open; finish ≈ 08:30 |
+| API lists (D128) | all 31,656 done |
+| XBRL attachments (D128) | 138,323 downloaded, 47,058 queued (GitHub job, gzip from now on) |
+| Results + shareholding loader (`disclo-filings`, M2) | 2,300 filings loaded (40,145 result values; 860 shareholding patterns), 24 held, 61 waiting for market identity; ≈ 140 files/min |
+| Tests | 123 pass; consistency check passes |
+
+**To-do (ordered):**
+1. When the reload catches up: first index snapshot → Phase 1 test 2; market cron back to every 10 min; measure D1 size.
+2. After the full XBRL load: one pass over each company's complete series for 10× jumps (load order isn't period order, FMEA C6 note); review held items by class (C7 expense breakdowns).
+3. Compress older R2 text objects (D131) — optional, saves ~8 GB.
+4. Remove the probe's 3×/day schedule (≈ 4 Nov).
+5. Owner: trademark check for Disclo; email test (last).
+
 ## Morning summary — 2026-11-03 06:00 IST
 **Built and tested overnight (109 tests pass; CI green):**
 - M0 foundations: npm-workspace monorepo, TypeScript, vitest, CI; 12 D1 databases (6 domains × production/staging) with migrations; building blocks B1–B5 (identity history, provenance, exact decimals, Indian FY labels, ₹ crore, ingestion framework, review queue).

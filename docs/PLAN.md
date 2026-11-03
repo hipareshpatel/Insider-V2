@@ -649,7 +649,7 @@ probe/                throwaway reachability check
 - M0 foundations ✅ (monorepo, CI, 12 D1 databases with migrations, building blocks B1–B5 with tests, deploy workflows).
 - M1 market data: history 2024-01-01 → today loading/loaded on Cloudflare (every instrument stored, D127); Phase 1 tests 1 and 3 pass on live data; test 2 needs the first index snapshot; test 6 (review queue empty) needs owner review; M1 "done" also needs 10 consecutive clean daily runs (≈ mid-November).
 - D128 prefetch: archive history in R2; NSE API lists for every company in R2; XBRL attachments downloading.
-- M2 started: XBRL reader + canonical results templates (industrial, NBFC, bank, life insurer) with identity checks.
+- M2 in progress: XBRL reader; canonical results (industrial, NBFC, bank, life insurer) + shareholding readers; `disclo-filings` loading results and shareholding from R2 into the filings DB with FMEA guards (see HANDOVER for live numbers).
 
 **Decided (D132):** as-filed XBRL facts live in R2 (gzip), D1 keeps canonical lines + checks.
 
