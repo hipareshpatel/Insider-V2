@@ -37,6 +37,7 @@
 | ASM, GSM, FII/DII (no history at NSE) | daily snapshots from today's evening slot |
 | Corporate actions, second source (D138) | ✅ per-company lists + daily date-range feed |
 | R2 compression (D147, never deletes) | running: 9,871 packed, 430 MB saved, 0 verify failures |
+| **Full history for 20-row-capped lists (D149, C40)** — PIT, SAST, board meetings, corporate actions, credit ratings, governance, BRSR | queued 16:00 IST (≈ 8,200 calls) + their XBRL |
 | Still to verify (no download yet): SAST Reg 31 endpoint; RPT data location; insider-feed completeness | open (§16) |
 
 **Pending by milestone (owner #284):**

@@ -3,7 +3,7 @@ import { EQUITY_SERIES, type Sql, batchAll, insertRows, parseEquityList, sha256H
 import { d1Sql } from "./d1.js";
 import { attachmentKey, attachments } from "./discover.js";
 import { bulkJobs, companyJobs } from "./jobs.js";
-import { dailyRefresh, dueSlot, seedStructureHistory } from "./daily.js";
+import { dailyRefresh, dueSlot, seedFullHistory, seedStructureHistory } from "./daily.js";
 import { compressStep } from "./compress.js";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; PARALLEL?: string; PER_RUN?: string; INGEST_TOKEN?: string }
@@ -145,6 +145,8 @@ export default {
           // Daily freshness (plan item 2): once per IST slot; NSE API answers Cloudflare.
           const db = d1Sql(env.DB_FILINGS), now = new Date();
           const compressed = await compressStep(db, env.RAW, gzip, gunzip); // D147: older objects → gzip, ~200/min until done
+          const full = await seedFullHistory(db, now); // C40: complete history for the 20-row-capped lists, once
+          if (full) return { ...b, full_history_queued: full };
           const seeded = await seedStructureHistory(db, now); // D144: once; fetched by the normal runs
           if (seeded) return { ...b, structure_history_queued: seeded, compressed };
           const slot = await dueSlot(db, now);

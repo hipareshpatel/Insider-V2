@@ -56,3 +56,16 @@ describe("daily freshness (plan item 2)", () => {
     expect(await seedStructureHistory(db, now)).toBe(0); // once
   });
 });
+
+describe("full history for the 20-row-capped lists (C40)", () => {
+  it("queues monthly all-company feeds and one dated PIT/governance/BRSR call per company, once", async () => {
+    const db = sqlite("filings");
+    await db.run("INSERT INTO fetch_job (kind, symbol, url, r2_key, status) VALUES ('pit','INFY','u1','k1','done'), ('pit','TCS','u2','k2','done')");
+    const { seedFullHistory } = await import("../src/daily.js");
+    const n = await seedFullHistory(db, new Date("2026-11-03T05:00:00Z"));
+    const months = (2026 - 2021) * 12 + 11;
+    expect(n).toBe(months * 4 + 2 * 3);
+    expect((await db.all("SELECT 1 FROM fetch_job WHERE kind='pit' AND url LIKE '%from_date=01-01-2021%'")).length).toBe(2);
+    expect(await seedFullHistory(db, new Date("2026-11-03T05:00:00Z"))).toBe(0);
+  });
+});

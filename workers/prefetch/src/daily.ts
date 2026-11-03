@@ -73,6 +73,31 @@ export async function seedStructureHistory(db: Sql, now: Date): Promise<number> 
   return rows.length;
 }
 
+/** Owner #289 / C40: several per-company lists return only the latest 20 rows (PIT, SAST, board meetings, corporate
+ *  actions, governance; BRSR only 1). Queue the full history once: all-company monthly feeds where NSE supports them
+ *  (SAST, board meetings, corporate actions, credit ratings; checked uncapped), and one dated call per company for PIT,
+ *  governance and BRSR. Same ledger (unique URLs: nothing held is fetched again); discover() queues their XBRL. */
+export async function seedFullHistory(db: Sql, now: Date): Promise<number> {
+  if ((await db.all("SELECT 1 FROM daily_refresh WHERE day='once' AND slot='full_history'")).length) return 0;
+  const day = istDay(now), rows: unknown[][] = [];
+  for (let y = 2021, m = 1; `${y}-${String(m).padStart(2, "0")}` <= day.slice(0, 7); m === 12 ? (y++, (m = 1)) : m++) {
+    const mm = String(m).padStart(2, "0"), last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const from = `01-${mm}-${y}`, to = `${last}-${mm}-${y}`;
+    for (const [kind, ep] of [["sast29", "corporate-sast-reg29"], ["board_meetings", "corporate-board-meetings"], ["corp_actions", "corporates-corporateActions"], ["credit_rating", "corporate-credit-rating"]] as const)
+      rows.push([kind, null, `${API}${ep}?index=equities&from_date=${from}&to_date=${to}`, `api/${kind}/all/${y}-${mm}.json`]);
+  }
+  const syms = (await db.all<{ symbol: string }>("SELECT DISTINCT symbol FROM fetch_job WHERE kind='pit' AND symbol IS NOT NULL")).map((r) => r.symbol);
+  const to = dmy(day);
+  for (const s of syms) {
+    rows.push(["pit", s, `${API}corporates-pit?index=equities&symbol=${encodeURIComponent(s)}&from_date=01-01-2021&to_date=${to}`, `api/pit/${s}/full-${day}.json`]);
+    rows.push(["governance", s, `${API}corporate-governance-master?index=equities&symbol=${encodeURIComponent(s)}&from_date=01-01-2021&to_date=${to}`, `api/governance/${s}/full-${day}.json`]);
+    rows.push(["brsr", s, `${API}corporate-bussiness-sustainabilitiy?index=equities&symbol=${encodeURIComponent(s)}&from_date=01-01-2021&to_date=${to}`, `api/brsr/${s}/full-${day}.json`]);
+  }
+  await batchAll(db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key)", 4, rows));
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once', 'full_history', ?, ?)", [now.toISOString(), JSON.stringify({ queued: rows.length })]);
+  return rows.length;
+}
+
 export async function dailyRefresh(d: Deps, slot: "evening" | "morning") {
   const day = istDay(d.now), tag = `${day}-${slot}`;
   const out: Record<string, number | string> = { slot };
