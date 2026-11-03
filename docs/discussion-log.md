@@ -313,6 +313,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 255 | "Hope we are not overshooting any Cloudflare limits (not only storage); what was the failure due to Cloudflare? Why? What did we do?" | Answered in chat: all Cloudflare limits checked (Workers requests/CPU/subrequests/cron, D1, R2, logs, API); CPU time during the backfill is the only one that may exceed the included amount (cents); market cron to drop to every 10 min after the backfill. Cloudflare-caused failures tonight: API rate limit (code 971) on parallel workflows → serialized + retry; Python User-Agent blocked on workers.dev (error 1010) → explicit UA; D1 100-parameter limit → chunking; D1 foreign keys in a cleanup migration → reordered. NSE (not Cloudflare) refusing Cloudflare IPs → GitHub prefetch into R2. | ✅ |
 | 256 | "D1 database storage: in V1 even more data was saved but it hardly crossed 100 MB, so we must be storing things the wrong way." | Measured: correct but wasteful (text numbers/dates, double storage, repeated ISIN); compact layout = 31% of the space; MCAP can't be derived (≈⅓ of rows differ from issue × close). D130 (compact storage, reload from R2 cache); §5.2. | ✅ |
 | 257 | "I said everything about stocks; remove bonds first; ETF, REIT will be used in future if needed." | D127 clarified: store equities (all series incl. SME) + ETFs + REITs/InvITs; drop bonds/debentures/G-secs/SGBs/T-bills (raw files stay in R2). Applied in the D130 reload. Read as: keep ETFs and REITs. | ✅ |
+| 258 | Owner pasted V1 storage notes (cards ≈ 80 MB; V1 keeps no price history in D1; heavy data gzipped in R2; write-changed-rows-only; daily write budget; snapshot-served feed; pruning with backup) and a note that D130's "31%" should read as size remaining (69% saving). "Take only what you feel is useful. Don't bloat things unnecessarily." | D131: adopted gzip in R2, daily write budget, snapshot-served pages; not adopted: no-history-in-D1 (V2 features need history). 31% = remaining, confirmed. | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -321,7 +322,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #257 (06:05 IST, morning summary): all checks pass (130 decisions, 257 entries); no open ⚠.*
+*Last run 2026-11-02 after entry #258: all checks pass (131 decisions, 258 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
