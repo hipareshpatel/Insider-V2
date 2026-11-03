@@ -6,7 +6,7 @@ import { addDays, datesBetween, eligible, istNow } from "./dates.js";
 
 export const HISTORY_START = "2024-01-01"; // D2
 
-export interface RunOptions { maxDates: number; budgetMs: number; revisitSessions: number; from?: string }
+export interface RunOptions { maxDates: number; budgetMs: number; revisitSessions: number; from?: string; writeBudget?: number }
 
 export async function pendingDates(db: Sql, now: Date, revisit: number, from = HISTORY_START): Promise<string[]> {
   const today = istNow(now).date;
@@ -29,7 +29,7 @@ export async function runPending(deps: Deps, opt: RunOptions): Promise<DayReport
   for (const d of (await pendingDates(deps.market, deps.now(), opt.revisitSessions, opt.from)).slice(0, opt.maxDates)) {
     if (Date.now() - t0 > opt.budgetMs) break;
     if (await paused(deps.market)) break; // maintenance: a reset must not race a running load
-    if ((await budgetLeft(deps.market, deps.now())) <= 0) break; // D131: resume tomorrow (IST)
+    if ((await budgetLeft(deps.market, deps.now(), opt.writeBudget)) <= 0) break; // D131: resume tomorrow (IST)
     const r = await runDay(d, deps);
     out.push(r);
     await chargeBudget(deps.market, deps.now(), r.written ?? 0);
@@ -94,10 +94,10 @@ export async function deriveJanuary2024(db: Sql): Promise<number> {
 }
 
 /** D131 daily write budget (rows written per IST day). */
-export const DAILY_WRITE_BUDGET = 3_000_000;
-export async function budgetLeft(db: Sql, now: Date): Promise<number> {
+export const DAILY_WRITE_BUDGET = 3_000_000; // default; WRITE_BUDGET env var overrides (e.g. during a reload)
+export async function budgetLeft(db: Sql, now: Date, budget = DAILY_WRITE_BUDGET): Promise<number> {
   const [r] = await db.all<{ rows: number }>("SELECT rows FROM write_budget WHERE day = ?", [istNow(now).date]);
-  return DAILY_WRITE_BUDGET - (r?.rows ?? 0);
+  return budget - (r?.rows ?? 0);
 }
 export async function chargeBudget(db: Sql, now: Date, rows: number): Promise<void> {
   if (rows > 0) await db.run("INSERT INTO write_budget (day, rows) VALUES (?, ?) ON CONFLICT (day) DO UPDATE SET rows = rows + excluded.rows", [istNow(now).date, rows]);
