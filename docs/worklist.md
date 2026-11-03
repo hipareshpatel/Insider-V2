@@ -23,7 +23,7 @@ Legend: ✅ done and verified (how) · 🔶 in progress · ⬜ not started · �
 | 1.8 | Market structure (D148) | ✅ loading; gaps known: bulk/block days capped at 70 rows (480 of 704), ASM/GSM + FII/DII from 3 Nov only (no NSE history) | Test splitting the bulk/block history call by symbol (focus 250) |
 | 1.9 | Corporate actions vs complete monthly lists (D138 re-run, D149) | ⬜ | Re-run the comparison for the 250 |
 | 1.10 | Stale-Bc rule multi-day test (C28 test gap) | ⬜ | Add the test |
-| 1.11 | Scale-guard re-check released lasting changes (C45, ABCAPITAL) | 🔶 | Verify after the 6-hour window |
+| 1.11 | Scale-guard re-check released lasting changes (C45, ABCAPITAL) | ✅ 3 Nov 21:00: ABCAPITAL holds 7 → 3 (lasting change released); COROMANDEL's 3 one-off ÷100 files still held (correct) | Recheck the remaining 3 at the freeze |
 
 ## M2 — Filings & financials (§14 gate; scope = 250, D155)
 | # | Item (source) | Status | Next action |
@@ -37,7 +37,7 @@ Legend: ✅ done and verified (how) · 🔶 in progress · ⬜ not started · �
 | 2.7 | Restatement + basis rules on known cases (§14) | ✅ tests (INFY standalone vs consolidated, either load order) | — |
 | 2.8 | Shareholding live (§14) | ✅ loading | Coverage + count check vs NSE for the 250 |
 | 2.9 | PIT / SAST / board meetings live (§14) | ✅ 29/29 counts match NSE (3 Nov) | — |
-| 2.10 | Credit ratings live (§14) | ✅ loading | Count check vs NSE (not yet compared) |
+| 2.10 | Credit ratings live (§14) | ✅ loading | Count check by month (NSE's ratings list ignores the symbol: all-company feed) — needs a small endpoint, next deploy |
 | 2.11 | Classification run once (§14, D150) | ✅ 1,342 classified; the 250 are all index members (index-CSV sector) | Confirm all 250 have a sector |
 | 2.12 | Held classes | 🔶 Ind AS 117 insurers (5), insurer balance sheets, BSE Ltd pre-2024 shareholding (10), 58 FY failures (49 expense breakdown, 9 Dec/Sep year ends), CONSOFINVT | Work class by class for the 250 |
 | 2.13 | Temporary-error retry list (C48) | 🔶 "Network connection lost" not yet on it | Add with the next deploy |
@@ -47,10 +47,10 @@ Legend: ✅ done and verified (how) · 🔶 in progress · ⬜ not started · �
 |---|---|---|---|
 | 16.1 | Sustained-volume NSE rate limits | ✅ measured during the backfill (≈ 0.3% refusals at 16 parallel) | — |
 | 16.2 | Bulk/block, F&O, ASM/GSM archive paths | ✅ loading (D148) | — |
-| 16.3 | SAST Reg 31 endpoint | ⬜ | Find and test |
-| 16.4 | RPT (related-party transactions) data location | ⬜ (Integrated Filing governance carries RPT) | Confirm in stored files |
+| 16.3 | SAST Reg 31 endpoint | ✅ 3 Nov: no Reg 31 list API (`corporate-sast-reg31` 404). Pledge facts come from the shareholding-pattern XBRL (loaded quarterly, `promoter_encumbrance`); Reg 31 disclosures themselves are announcement PDFs (M5). `corporate-pledgedata` exists (latest quarter only, 1,558 companies) — duplicates the SHP data, not downloaded (freeze) | — |
+| 16.4 | RPT (related-party transactions) data location | ✅ 3 Nov: in the **standalone Integrated Filing – Financials XBRL**, half-yearly (INFY Sep 2026: 513 transactions — counterparty, relationship, type, amount, audit-committee-approved value); not in the governance XBRL. Already downloaded. ⚠ rows carry counterparty PAN — never shown publicly | RPT reader (later, with the graph, D37) |
 | 16.5 | Insider-feed completeness | ✅ 29/29 vs NSE dated lists | — |
-| 16.6 | Employee-count fields in BRSR XBRL | ⬜ | Check stored BRSR files |
+| 16.6 | Employee-count fields in BRSR XBRL | ✅ 3 Nov: present (INFY FY26 BRSR: employees/workers by permanent/other, male/female, differently abled; training, wellbeing, minimum-wage counts) — input for D53 headcount growth | BRSR reader (later, M9) |
 | 16.7 | Gemini Flex + cache discount stacking | ⬜ M5/M6 (no AI before freeze, D155) | Later |
 
 ## M3 — before any site work (D152)
