@@ -5,6 +5,7 @@ name: prefetch-archive
 on:
   schedule:
     - cron: "37 13 * * 1-5"   # 19:07 IST weekdays: today's market + structure files + bulk/block snapshots (D144)
+    - cron: "37 17 * * 1-5"   # 23:07 IST retry (V1 lesson #280: a missed bulk/block snapshot is lost for good)
   workflow_dispatch:
     inputs:
       from: { description: "from date (blank = today IST)", default: "" }

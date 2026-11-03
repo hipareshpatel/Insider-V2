@@ -4,6 +4,7 @@ import { d1Sql } from "./d1.js";
 import { attachmentKey, attachments } from "./discover.js";
 import { bulkJobs, companyJobs } from "./jobs.js";
 import { dailyRefresh, dueSlot, seedStructureHistory } from "./daily.js";
+import { compressStep } from "./compress.js";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; PARALLEL?: string; PER_RUN?: string; INGEST_TOKEN?: string }
 
@@ -130,10 +131,11 @@ export default {
           const b = await runBatch(env);
           // Daily freshness (plan item 2): once per IST slot; NSE API answers Cloudflare.
           const db = d1Sql(env.DB_FILINGS), now = new Date();
+          const compressed = await compressStep(db, env.RAW, gzip); // D147: older objects → gzip, ~200/min until done
           const seeded = await seedStructureHistory(db, now); // D144: once; fetched by the normal runs
-          if (seeded) return { ...b, structure_history_queued: seeded };
+          if (seeded) return { ...b, structure_history_queued: seeded, compressed };
           const slot = await dueSlot(db, now);
-          if (!slot) return b;
+          if (!slot) return compressed ? { ...b, compressed } : b;
           const ck = await cookies();
           const headers = { "User-Agent": UA, Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", Referer: "https://www.nseindia.com/", Cookie: ck };
           const get = async (url: string) => {
@@ -182,7 +184,7 @@ export default {
       // Owner #278: what is stored, by kind (raw bytes before gzip) and whether any PDF was downloaded.
       storage_by_kind: await q("SELECT kind, count(*) AS n, sum(bytes) AS bytes FROM fetch_job WHERE status='done' GROUP BY kind ORDER BY 3 DESC"),
       pdf_files: (await q("SELECT count(*) AS n FROM fetch_job WHERE lower(url) LIKE '%.pdf'"))[0],
-      daily_refresh: await q("SELECT day, slot, at, detail FROM daily_refresh ORDER BY day DESC, slot DESC LIMIT 4"),
+      daily_refresh: await q("SELECT day, slot, at, detail FROM daily_refresh ORDER BY day DESC, slot DESC LIMIT 6"),
       sweep_misses: (await q("SELECT count(*) AS n FROM fetch_job a JOIN fetch_job p ON p.job_id = a.parent_id WHERE p.r2_key LIKE '%-sweep.json'"))[0],
       last_runs: await q("SELECT at, detail FROM prefetch_log ORDER BY id DESC LIMIT 5"),
     }, { headers: { "cache-control": "no-store" } });
