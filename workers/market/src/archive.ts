@@ -55,7 +55,9 @@ export function archiveFileDate(url: string): string | null {
 /** D128: read prefetched archive files from R2 (cache/<url path>) first; go to NSE only when missing.
  *  `authoritativeUntil`: the prefetch covered every date up to here with 0 refusals, so a miss there means the
  *  file doesn't exist (404). Cloudflare gets 403, not 404, for missing archive files, so asking NSE would stall. */
-export function r2FirstFetcher(bucket: R2Bucket, fallback: Fetcher, authoritativeUntil?: string): Fetcher & { hits: number; misses: number } {
+/** `writeBucket` (default: the read bucket) receives write-through copies. Staging's re-run test reads production's
+ *  cache through a separate binding and writes only to its own bucket (Phase 1 test 4). */
+export function r2FirstFetcher(bucket: R2Bucket, fallback: Fetcher, authoritativeUntil?: string, writeBucket: R2Bucket = bucket): Fetcher & { hits: number; misses: number } {
   const f = Object.assign(async (url: string): Promise<FetchResult> => {
     const u = new URL(url);
     if (u.hostname === "nsearchives.nseindia.com") {
@@ -69,7 +71,7 @@ export function r2FirstFetcher(bucket: R2Bucket, fallback: Fetcher, authoritativ
     // Write-through (owner #265: never download the same file twice): a live archive file is kept at the same key the
     // prefetch uses, before any gate runs, so a later reload or retry reads it from R2 instead of NSE.
     if (u.hostname === "nsearchives.nseindia.com" && res.status === 200 && res.bytes.length > 0)
-      await bucket.put(`cache${u.pathname}`, res.bytes, { customMetadata: { url, fetched_at: new Date().toISOString() } });
+      await writeBucket.put(`cache${u.pathname}`, res.bytes, { customMetadata: { url, fetched_at: new Date().toISOString() } });
     return res;
   }, { hits: 0, misses: 0 });
   return f;

@@ -21,7 +21,7 @@
         { "binding": "DB_MARKET", "database_name": "disclo-market-staging", "database_id": "${market-staging}" },
         { "binding": "DB_APP", "database_name": "disclo-app-staging", "database_id": "${app-staging}" }
       ],
-      "r2_buckets": [{ "binding": "RAW", "bucket_name": "disclo-raw-staging" }]
+      "r2_buckets": [{ "binding": "RAW", "bucket_name": "disclo-raw-staging" }, { "binding": "CACHE_RO", "bucket_name": "disclo-raw" }]
     }
   }
 }

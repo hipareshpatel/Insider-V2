@@ -15,6 +15,7 @@ export interface Env {
   DB_MARKET: D1Database;
   DB_APP: D1Database;
   RAW: R2Bucket;
+  CACHE_RO?: R2Bucket; // staging only: production's archive cache, read by the re-run test (never written)
   ENVIRONMENT: string;
   BACKFILL_FROM?: string; // staging loads recent dates only
   MONTHLY_WRITE_CAP?: string;  // owner #266: billed D1 rows per IST month (market + filings); bulk work stops at the cap
@@ -93,7 +94,7 @@ export default {
       const date = url.searchParams.get("date") ?? "";
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return Response.json({ error: "date=YYYY-MM-DD" }, { status: 400 });
       const meter = { rows: 0 };
-      const deps = { market: d1Sql(env.DB_MARKET, meter), app: d1Sql(env.DB_APP, meter), raw: r2Raw(env.RAW), fetch: r2FirstFetcher(env.RAW, archiveFetcher(), env.CACHE_AUTHORITATIVE_UNTIL), now: () => new Date(), cachedFromR2: true };
+      const deps = { market: d1Sql(env.DB_MARKET, meter), app: d1Sql(env.DB_APP, meter), raw: r2Raw(env.RAW), fetch: r2FirstFetcher(env.CACHE_RO ?? env.RAW, archiveFetcher(), "2026-11-02", env.RAW), now: () => new Date(), cachedFromR2: true };
       const before = await digestDay(d1Sql(env.DB_MARKET), date);
       const out = await withLock(env.DB_MARKET, 10 * 60_000, () => runDay(date, deps));
       if (out === null) return Response.json({ error: "job running, try later" }, { status: 409 });
