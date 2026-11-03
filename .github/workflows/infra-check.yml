@@ -30,3 +30,9 @@ jobs:
         run: wrangler r2 bucket list 2>&1 | mask | tail -20 || true
       - name: Queues
         run: wrangler queues list 2>&1 | mask | tail -20 || true
+      - name: Sizes (D1 databases, R2 buckets)
+        run: |
+          for db in disclo-market disclo-filings disclo-app disclo-announce disclo-memory disclo-graph disclo-market-staging disclo-app-staging; do
+            echo "== $db"; wrangler d1 info $db 2>&1 | mask | grep -iE "size|rows|tables" || true
+          done
+          for b in disclo-raw disclo-raw-staging; do echo "== $b"; wrangler r2 bucket info $b 2>&1 | mask | grep -iE "size|object|count" || true; done
