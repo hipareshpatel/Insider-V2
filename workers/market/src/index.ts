@@ -8,7 +8,7 @@ import { chargeBudget, gapDates, runPending } from "./runner.js";
 import { loadStructure } from "./structure.js";
 import { buildSectors } from "./sectors.js";
 import { digestDay } from "./digest.js";
-import { loadIndexHistory } from "./indexhist.js";
+import { loadIndexHistory, loadIndexWeekends } from "./indexhist.js";
 import { runDay } from "./daily.js";
 import { istNow } from "./dates.js";
 
@@ -54,6 +54,8 @@ export default {
         // D156: 10-year index history from stored daily index files (R2 only). Runs before the sector job (owner #325:
         // it only got leftover seconds after it); once the range is loaded this returns at once.
         indexHist = await loadIndexHistory(deps.market, env.RAW, Math.max(0, 11.5 * 60_000 - (Date.now() - t0)));
+        const weekends = await loadIndexWeekends(deps.market, env.RAW, Math.max(0, 11.5 * 60_000 - (Date.now() - t0)));
+        if (weekends) indexHist = { ...(indexHist as object), weekends };
         // D150: sector history from the stored announcement lists (R2 only), with what is left.
         sectors = await buildSectors({ market: deps.market, raw: env.RAW, today: istNow(deps.now()).date }, Math.max(0, 12 * 60_000 - (Date.now() - t0)));
         return r;
@@ -91,7 +93,7 @@ export default {
     // Phase 1 tests 4–5 (§9.2): per-table checksums of one date; staging can re-run a date to prove it changes nothing.
     if (url.pathname === "/index-check") {
       // D156 verification (read-only): per year, days loaded / no file, indices per day, days without Nifty 50; plus closes asked for
-      const years = (await env.DB_MARKET.prepare(`SELECT substr(m.d,1,4) AS y, sum(m.rows > 0) AS days, sum(m.rows = -1) AS no_file, sum(m.rows = -2) AS unreadable,
+      const years = (await env.DB_MARKET.prepare(`SELECT substr(m.d,1,4) AS y, sum(m.rows > 0) AS days, sum(m.rows = -1) AS no_file, sum(m.rows > 0 AND m.note = 'weekend session') AS weekend_sessions, sum(m.rows = -2) AS unreadable,
           min(CASE WHEN m.rows > 0 THEN m.rows END) AS min_idx, max(m.rows) AS max_idx,
           sum(m.rows > 0 AND NOT EXISTS (SELECT 1 FROM index_daily i WHERE i.d = m.d AND lower(i.index_name) = 'nifty 50')) AS no_nifty50
         FROM ms_day m WHERE m.source = 'index_hist' GROUP BY 1 ORDER BY 1`).all()).results;

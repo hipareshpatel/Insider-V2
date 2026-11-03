@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
-import { loadIndexHistory } from "../src/indexhist.js";
+import { WEEKEND_MARKER, loadIndexHistory, loadIndexWeekends } from "../src/indexhist.js";
 
 const MIG = join(import.meta.dirname, "..", "..", "..", "db", "migrations", "market");
 const FILE = readFileSync(join(import.meta.dirname, "..", "..", "..", "packages", "core", "test", "fixtures", "nse", "ind_close_all_04012016.csv"), "utf8");
@@ -56,5 +56,17 @@ describe("index history (D156)", () => {
     expect((await m.all<{ n: number }>("SELECT count(*) AS n FROM ms_day WHERE source='index_hist'"))[0]?.n).toBe(2086);
     const again = await loadIndexHistory(m, bucket(objs), 60_000);
     expect(again).toEqual({ days: 0, rows: 0 }); // finished: returns at once
+  });
+  it("weekend special sessions (C52): loaded once the weekend download is complete; empty weekends not recorded", async () => {
+    const m = sqlite();
+    // Sat 1 Feb 2020 (Budget day) — fixture re-dated
+    const objs: Record<string, string> = { "cache/content/indices/ind_close_all_01022020.csv": FILE.replaceAll("04-01-2016", "01-02-2020") };
+    expect(await loadIndexWeekends(m, bucket(objs), 60_000)).toBeNull(); // download not complete → wait
+    objs[WEEKEND_MARKER] = "{}";
+    expect(await loadIndexWeekends(m, bucket(objs), 60_000)).toEqual({ days: 1, rows: 57 });
+    expect(await m.all("SELECT d, rows, note FROM ms_day WHERE source='index_hist' ORDER BY d")).toEqual([{ d: 20200201, rows: 57, note: "weekend session" }]);
+    expect(await m.all("SELECT count(*) AS n FROM index_daily WHERE d=20200201")).toEqual([{ n: 57 }]);
+    expect(await m.all("SELECT rows, note FROM ms_day WHERE source='index_hist_weekends'")).toEqual([{ rows: 1, note: "836 weekend days checked" }]);
+    expect(await loadIndexWeekends(m, bucket(objs), 60_000)).toBeNull(); // once
   });
 });

@@ -68,3 +68,35 @@ export async function loadIndexHistory(m: Sql, raw: R2Bucket, budgetMs: number):
   }
   return { days, rows };
 }
+
+// C52: weekend special sessions (Diwali muhurat, Budget-day Saturdays). Their files were downloaded by the GitHub set
+// "indices_weekends", which writes WEEKEND_MARKER when complete. Once: every stored weekend file in the range is loaded;
+// a weekend without a file is not recorded (no session); one ms_day row (source 'index_hist_weekends') marks it done.
+export const WEEKEND_MARKER = `cache/content/indices/_weekends_${INDEX_HISTORY_FROM}_${INDEX_HISTORY_TO}.done`;
+export async function loadIndexWeekends(m: Sql, raw: R2Bucket, budgetMs: number): Promise<{ days: number; rows: number } | null> {
+  const t0 = Date.now();
+  if ((await m.all("SELECT 1 FROM ms_day WHERE source='index_hist_weekends'")).length) return null; // done
+  if (!(await raw.head(WEEKEND_MARKER).catch(() => null))) return null; // download not complete yet
+  const ends: string[] = [];
+  for (let t = Date.parse(INDEX_HISTORY_FROM + "T00:00:00Z"); t <= Date.parse(INDEX_HISTORY_TO + "T00:00:00Z"); t += 86400_000) {
+    const d = new Date(t); if (d.getUTCDay() === 0 || d.getUTCDay() === 6) ends.push(d.toISOString().slice(0, 10));
+  }
+  let days = 0, rows = 0;
+  for (let i = 0; i < ends.length; i += CHUNK) {
+    if (Date.now() - t0 > budgetMs) return { days, rows }; // not marked: the next run redoes it (INSERT OR IGNORE)
+    const got = await Promise.all(ends.slice(i, i + CHUNK).map(async (iso) => ({ iso, text: await r2Text(raw, `cache/content/indices/ind_close_all_${iso.slice(8, 10)}${iso.slice(5, 7)}${iso.slice(0, 4)}.csv`) })));
+    const stmts: Stmt[] = [], progress: unknown[][] = [];
+    for (const { iso, text } of got) {
+      if (text === null) continue;
+      let rs: ReturnType<typeof parseIndexClose>;
+      try { rs = parseIndexClose(text).filter((r) => r.tradeDate === iso); } catch (e) { progress.push(["index_hist", dnum(iso), -2, `unreadable: ${String(e).slice(0, 80)}`]); continue; }
+      if (!rs.length) continue;
+      stmts.push({ sql: DAY_SQL, params: [dnum(iso), JSON.stringify(rs.map((r) => [r.indexName, r.open, r.high, r.low, r.close, r.pe, r.pb, r.divYield]))] });
+      progress.push(["index_hist", dnum(iso), rs.length, "weekend session"]);
+      days++; rows += rs.length;
+    }
+    if (progress.length) await batchAll(m, [...stmts, ...insertRows("INSERT OR REPLACE INTO ms_day (source, d, rows, note)", 4, progress)], 500);
+  }
+  await m.run("INSERT OR REPLACE INTO ms_day (source, d, rows, note) VALUES ('index_hist_weekends', ?, ?, ?)", [dnum(INDEX_HISTORY_TO), days, `${ends.length} weekend days checked`]);
+  return { days, rows };
+}
