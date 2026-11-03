@@ -6,7 +6,7 @@
   "observability": { "enabled": true },
   "limits": { "cpu_ms": 60000 },
   "triggers": { "crons": ["*/10 * * * *"] },
-  "vars": { "ENVIRONMENT": "production", "MONTHLY_WRITE_CAP": "30000000", "CACHE_AUTHORITATIVE_UNTIL": "2026-11-02" },
+  "vars": { "ENVIRONMENT": "production", "MONTHLY_WRITE_CAP": "45000000", "CACHE_AUTHORITATIVE_UNTIL": "2026-11-02" },
   "d1_databases": [
     { "binding": "DB_MARKET", "database_name": "disclo-market", "database_id": "${market}" },
     { "binding": "DB_APP", "database_name": "disclo-app", "database_id": "${app}" }

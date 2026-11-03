@@ -97,7 +97,7 @@ export async function deriveJanuary2024(db: Sql): Promise<number> {
 
 /** Owner #266 monthly write cap (D1 billed rows across market + filings, per IST month). Rows are kept per IST day;
  *  a 'YYYY-MM-00' row holds the month-to-date baseline measured from Cloudflare analytics. */
-export const MONTHLY_WRITE_CAP = 30_000_000; // MONTHLY_WRITE_CAP env var overrides
+export const MONTHLY_WRITE_CAP = 45_000_000; // MONTHLY_WRITE_CAP env var overrides
 export async function monthUsed(db: Sql, now: Date): Promise<number> {
   const [r] = await db.all<{ rows: number | null }>("SELECT sum(rows) AS rows FROM write_budget WHERE day LIKE ?", [istNow(now).date.slice(0, 7) + "-%"]);
   return r?.rows ?? 0;

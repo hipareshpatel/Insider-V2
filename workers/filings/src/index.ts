@@ -10,7 +10,7 @@ export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Buc
 const istDay = (d: Date) => new Date(d.getTime() + 330 * 60_000).toISOString().slice(0, 10);
 async function capReached(env: Env, now: Date): Promise<boolean> {
   const r = await env.DB_MARKET.prepare("SELECT sum(rows) AS rows FROM write_budget WHERE day LIKE ?1").bind(istDay(now).slice(0, 7) + "-%").first<{ rows: number | null }>();
-  return (r?.rows ?? 0) >= Number(env.MONTHLY_WRITE_CAP ?? 30_000_000);
+  return (r?.rows ?? 0) >= Number(env.MONTHLY_WRITE_CAP ?? 45_000_000);
 }
 
 async function getText(bucket: R2Bucket, key: string): Promise<string | null> {
