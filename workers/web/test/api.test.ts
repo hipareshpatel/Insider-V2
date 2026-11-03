@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vitest";
-import { app, type Env } from "../src/index.js";
+import { app, precompute, type Env } from "../src/index.js";
 import { resetSymbolCache } from "../src/data.js";
 
 beforeEach(() => resetSymbolCache());
@@ -15,7 +15,10 @@ function d1(domain: string): D1Database & { raw: DatabaseSync } {
   const db = new DatabaseSync(":memory:");
   for (const f of readdirSync(join(MIG, domain)).sort()) db.exec(readFileSync(join(MIG, domain, f), "utf8"));
   const norm = (p: unknown[]) => p.map((x) => (x === undefined ? null : x)) as (string | number | null)[];
-  return { raw: db, prepare: (sql: string) => ({ bind: (...p: unknown[]) => ({ all: async () => ({ results: db.prepare(sql).all(...norm(p)) }) }) }),
+  return { raw: db, prepare: (sql: string) => {
+      const bound = (...p: unknown[]) => ({ all: async () => ({ results: db.prepare(sql).all(...norm(p)) }), first: async () => db.prepare(sql).get(...norm(p)) ?? null, run: async () => db.prepare(sql).run(...norm(p)) });
+      return { bind: bound, ...bound() };
+    },
     batch: async (list: { all(): Promise<unknown> }[]) => { batches.push(list.length); return Promise.all(list.map((x) => x.all())); } } as unknown as D1Database & { raw: DatabaseSync };
 }
 
@@ -81,6 +84,17 @@ describe("site v0 API", () => {
     await get("/api/v1/stocks/INFY");
     expect(batches.length).toBeLessThanOrEqual(4); // market, filings, app (+ the symbol map on a cold isolate)
     expect(Math.max(...batches)).toBeGreaterThanOrEqual(8);
+  });
+  it("dashboard is served from the precomputed copy when fresh; identical recompute does not rewrite it", async () => {
+    const e = env();
+    await precompute(e, new Date());
+    const [row] = e.a.prepare("SELECT at, length(body) AS n FROM site_cache WHERE key='dashboard'").all() as { at: string; n: number }[];
+    expect(row!.n).toBeGreaterThan(100);
+    const r = await app.request("/api/v1/dashboard", {}, e, ctx);
+    expect(r.headers.get("server-timing")).toContain("precomputed");
+    expect(((await r.json()) as { as_of: string }).as_of).toBe("2026-10-30");
+    await precompute(e, new Date(Date.parse(row!.at) + 60_000)); // same body, 1 minute later: no write
+    expect((e.a.prepare("SELECT at FROM site_cache").get() as { at: string }).at).toBe(row!.at);
   });
   it("rate limit answers 429", async () => {
     const e = { ...env(), RATE: { limit: async () => ({ success: false }) } };

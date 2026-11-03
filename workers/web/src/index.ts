@@ -72,7 +72,14 @@ async function cached(c: { req: { url: string }; executionCtx: { waitUntil(p: Pr
 }
 
 app.get("/robots.txt", (c) => c.text("User-agent: *\nDisallow: /\n"));
-app.get("/api/v1/dashboard", (c) => cached(c, 600, () => dashboard(dbs(c.env))));
+// Dashboard: the precomputed copy (≤ 30 min old) when present, else computed live.
+app.get("/api/v1/dashboard", (c) => cached(c, 600, async (tm) => {
+  const t0 = Date.now();
+  let r: { body: string; at: string } | null = null;
+  try { r = await c.env.DB_APP.prepare("SELECT body, at FROM site_cache WHERE key='dashboard'").first<{ body: string; at: string }>(); } catch { r = null; } // table missing → live
+  if (r && Date.now() - Date.parse(r.at) < 30 * 60_000) { tm.push(`precomputed;dur=${Date.now() - t0}`); return JSON.parse(r.body) as unknown; }
+  return dashboard(dbs(c.env));
+}));
 app.get("/api/v1/securities", (c) => cached(c, 3600, () => securities(dbs(c.env).market)));
 app.get("/api/v1/stocks/:symbol", (c) => {
   const s = c.req.param("symbol").toUpperCase();
@@ -89,4 +96,14 @@ app.all("*", async (c) => {
   return out;
 });
 
-export default app;
+/** Every 10 minutes: precompute the dashboard into app.site_cache (one row, upserted). */
+export async function precompute(env: Env, now = new Date()): Promise<void> {
+  const body = JSON.stringify(await dashboard(dbs(env)));
+  await env.DB_APP.prepare("INSERT INTO site_cache (key, body, at) VALUES ('dashboard', ?1, ?2) ON CONFLICT (key) DO UPDATE SET body = excluded.body, at = excluded.at WHERE site_cache.body <> excluded.body OR site_cache.at < ?3")
+    .bind(body, now.toISOString(), new Date(now.getTime() - 20 * 60_000).toISOString()).run();
+}
+
+export default {
+  fetch: app.fetch,
+  async scheduled(_e: ScheduledController, env: Env, ctx: ExecutionContext) { ctx.waitUntil(precompute(env)); },
+};
