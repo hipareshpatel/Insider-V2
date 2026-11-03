@@ -38,4 +38,23 @@ describe("index history (D156)", () => {
     const bad = await m.all<{ rows: number; note: string }>("SELECT rows, note FROM ms_day WHERE source='index_hist' AND d=20231229");
     if (bad.length) expect(bad[0]).toMatchObject({ rows: -2, note: expect.stringContaining("unreadable") }); // a broken file is recorded, never blocks
   });
+  it("loads many days per batch, in order, and stops at the first day still waiting for the prefetch (owner #325)", async () => {
+    const m = sqlite();
+    const day = (dd: string) => FILE.replaceAll("04-01-2016", `${dd}-01-2016`);
+    const objs: Record<string, string> = {};
+    for (const dd of ["04", "05", "06", "08"]) objs[`cache/content/indices/ind_close_all_${dd}012016.csv`] = day(dd); // 7 Jan not yet stored
+    const r = await loadIndexHistory(m, bucket(objs), 60_000);
+    expect(r).toEqual({ days: 0, rows: 0 }); // 1 Jan missing, prefetch not done → nothing recorded out of order
+    objs["cache/content/indices/ind_close_all_01012016.csv"] = day("01");
+    const r2 = await loadIndexHistory(m, bucket(objs), 60_000);
+    expect(r2.days).toBe(4); // 1, 4, 5, 6 Jan; stops before 7 Jan (missing, prefetch not done) even though 8 Jan exists
+    expect(await m.all("SELECT d, count(*) AS n FROM index_daily GROUP BY d ORDER BY d")).toEqual([20160101, 20160104, 20160105, 20160106].map((d) => ({ d, n: 57 })));
+    objs["cache/content/indices/ind_close_all_29122023.csv"] = "x"; // prefetch finished → later missing weekdays are holidays
+    const r3 = await loadIndexHistory(m, bucket(objs), 60_000);
+    expect(r3.rows).toBe(57); // 8 Jan
+    expect(await m.all("SELECT rows FROM ms_day WHERE source='index_hist' AND d=20160107")).toEqual([{ rows: -1 }]);
+    expect((await m.all<{ n: number }>("SELECT count(*) AS n FROM ms_day WHERE source='index_hist'"))[0]?.n).toBe(2086);
+    const again = await loadIndexHistory(m, bucket(objs), 60_000);
+    expect(again).toEqual({ days: 0, rows: 0 }); // finished: returns at once
+  });
 });

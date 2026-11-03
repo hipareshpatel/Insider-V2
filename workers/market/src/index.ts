@@ -51,10 +51,11 @@ export default {
         const r = await runPending(deps, { maxDates: 40, budgetMs: 8 * 60_000, revisitSessions: 5, from: env.BACKFILL_FROM, monthlyCap: env.MONTHLY_WRITE_CAP ? Number(env.MONTHLY_WRITE_CAP) : undefined });
         // M1 market structure (D144): R2 only, in date order, within what is left of this run.
         structure = await loadStructure({ market: deps.market, raw: env.RAW, now: deps.now }, Math.max(0, 11 * 60_000 - (Date.now() - t0)));
+        // D156: 10-year index history from stored daily index files (R2 only). Runs before the sector job (owner #325:
+        // it only got leftover seconds after it); once the range is loaded this returns at once.
+        indexHist = await loadIndexHistory(deps.market, env.RAW, Math.max(0, 11.5 * 60_000 - (Date.now() - t0)));
         // D150: sector history from the stored announcement lists (R2 only), with what is left.
         sectors = await buildSectors({ market: deps.market, raw: env.RAW, today: istNow(deps.now()).date }, Math.max(0, 12 * 60_000 - (Date.now() - t0)));
-        // D156: 10-year index history from stored daily index files (R2 only).
-        indexHist = await loadIndexHistory(deps.market, env.RAW, Math.max(0, 12.5 * 60_000 - (Date.now() - t0)));
         return r;
       });
       // runPending already charged each date's price/factor rows; charge the rest (identity, ledger, reviews, snapshot).
