@@ -2,7 +2,7 @@
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { backfillBsCf, loadBatch, versionBackfill } from "./load.js";
-import { census } from "./census.js";
+import { census, tagCensus } from "./census.js";
 import { loadEvents } from "./events.js";
 import { caLists } from "./calists.js";
 
@@ -96,6 +96,7 @@ export default {
     }
     if (path === "/census") {
       const u = new URL(req.url);
+      if (u.searchParams.get("mode") === "tags") return Response.json(await tagCensus(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), Number(u.searchParams.get("after") ?? 0), Math.min(50, Number(u.searchParams.get("limit") ?? 40))), { headers: { "cache-control": "no-store" } });
       const after = Number(u.searchParams.get("after") ?? 0), limit = Math.min(50, Math.max(1, Number(u.searchParams.get("limit") ?? 40)));
       return Response.json(await census(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), after, limit), { headers: { "cache-control": "no-store" } });
     }

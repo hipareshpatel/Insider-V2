@@ -56,3 +56,39 @@ export async function census(db: Sql, getText: (k: string) => Promise<string | n
   }));
   return { rows, next: hi < (mx?.m ?? 0) ? hi : null };
 }
+
+/** D154 line-item census: for each results file, which tags carry a value (entity level, no dimensions) in the quarter
+ *  (OneD → P&L), the balance-sheet date (OneI) and year to date (FourD → cash flow), counted per template. Aggregated per
+ *  call, so the whole population can be read. */
+export interface TagCensus { files: number; next: number | null; by: Record<string, { files: number; pl: Record<string, number>; bs: Record<string, number>; ytd: Record<string, number> }> }
+export async function tagCensus(db: Sql, getText: (k: string) => Promise<string | null>, after: number, limit: number): Promise<TagCensus> {
+  const marks = RESULT_KINDS.map(() => "?").join(",");
+  const [mx] = await db.all<{ m: number | null }>("SELECT max(job_id) AS m FROM fetch_job");
+  const hi = after + limit * 6;
+  const jobs = await db.all<{ job_id: number; r2_key: string }>(
+    `SELECT job_id, r2_key FROM fetch_job WHERE job_id > ? AND job_id <= ? AND status='done' AND kind IN (${marks}) ORDER BY job_id`, [after, hi, ...RESULT_KINDS]);
+  const out: TagCensus = { files: 0, next: hi < (mx?.m ?? 0) ? hi : null, by: {} };
+  await Promise.all(jobs.map(async (j) => {
+    const xml = await getText(j.r2_key);
+    if (!xml) return;
+    let inst;
+    try { inst = parseXbrl(xml); } catch { return; }
+    let t = "unknown";
+    try { t = canonicalResult(inst).template; } catch { /* not a results layout */ }
+    const pf = inst.facts.find((x) => /:DateOfEndOfReportingPeriod$/.test(x.tag))?.tag.split(":")[0] ?? "";
+    const key = `${t}|${pf}`;
+    const b = (out.by[key] ??= { files: 0, pl: {}, bs: {}, ytd: {} });
+    b.files++; out.files++;
+    const seen = { pl: new Set<string>(), bs: new Set<string>(), ytd: new Set<string>() };
+    for (const f of inst.facts) {
+      if (f.nil || f.value === null || f.value === "" || !/^-?\d/.test(f.value)) continue;
+      const c = inst.contexts.get(f.contextRef);
+      if (c && Object.keys(c.dims).length) continue;
+      const id = f.contextRef;
+      const name = f.tag.split(":")[1] ?? f.tag;
+      if (id === "OneD") seen.pl.add(name); else if (id === "OneI") seen.bs.add(name); else if (id === "FourD") seen.ytd.add(name);
+    }
+    for (const k of ["pl", "bs", "ytd"] as const) for (const n of seen[k]) b[k][n] = (b[k][n] ?? 0) + 1;
+  }));
+  return out;
+}
