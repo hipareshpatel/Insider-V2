@@ -47,6 +47,12 @@ export default {
   // Read-only status (no data beyond counts and run states). Useful from a phone: /status
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+    if (url.pathname === "/closes") {
+      // D141 second cycle: one security's closes in a window (read-only).
+      const rows = (await env.DB_MARKET.prepare("SELECT d, series, open, close FROM price_daily WHERE security_id=?1 AND d BETWEEN ?2 AND ?3 ORDER BY d, series='EQ' DESC")
+        .bind(Number(url.searchParams.get("sid")), Number(url.searchParams.get("from")), Number(url.searchParams.get("to"))).all()).results;
+      return Response.json(rows, { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname === "/evidence") {
       return Response.json(await evidence(d1Sql(env.DB_MARKET), Number(url.searchParams.get("sid")), String(url.searchParams.get("d"))), { headers: { "cache-control": "no-store" } });
     }
