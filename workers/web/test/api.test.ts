@@ -9,12 +9,14 @@ import { resetSymbolCache } from "../src/data.js";
 
 beforeEach(() => resetSymbolCache());
 
+const batches: number[] = [];
 const MIG = join(import.meta.dirname, "..", "..", "..", "db", "migrations");
 function d1(domain: string): D1Database & { raw: DatabaseSync } {
   const db = new DatabaseSync(":memory:");
   for (const f of readdirSync(join(MIG, domain)).sort()) db.exec(readFileSync(join(MIG, domain, f), "utf8"));
   const norm = (p: unknown[]) => p.map((x) => (x === undefined ? null : x)) as (string | number | null)[];
-  return { raw: db, prepare: (sql: string) => ({ bind: (...p: unknown[]) => ({ all: async () => ({ results: db.prepare(sql).all(...norm(p)) }) }) }) } as unknown as D1Database & { raw: DatabaseSync };
+  return { raw: db, prepare: (sql: string) => ({ bind: (...p: unknown[]) => ({ all: async () => ({ results: db.prepare(sql).all(...norm(p)) }) }) }),
+    batch: async (list: { all(): Promise<unknown> }[]) => { batches.push(list.length); return Promise.all(list.map((x) => x.all())); } } as unknown as D1Database & { raw: DatabaseSync };
 }
 
 function env(): Env & { m: DatabaseSync; f: DatabaseSync; a: DatabaseSync } {
@@ -73,6 +75,12 @@ describe("site v0 API", () => {
     expect((await get("/api/v1/stocks/NOPE")).status).toBe(404);
     expect((await get("/api/v1/stocks/%3Cscript%3E")).status).toBe(400);
     expect((await get("/api/v1/nothing")).status).toBe(404);
+  });
+  it("a page's parallel reads go to each database as one batch (one round trip per database)", async () => {
+    batches.length = 0;
+    await get("/api/v1/stocks/INFY");
+    expect(batches.length).toBeLessThanOrEqual(4); // market, filings, app (+ the symbol map on a cold isolate)
+    expect(Math.max(...batches)).toBeGreaterThanOrEqual(8);
   });
   it("rate limit answers 429", async () => {
     const e = { ...env(), RATE: { limit: async () => ({ success: false }) } };

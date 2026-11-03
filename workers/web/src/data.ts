@@ -106,8 +106,16 @@ const PL_LINES = ["revenue", "total_income", "interest_earned", "gross_premium",
 let symCache: { at: number; bySymbol: Map<string, number>; symbols: Map<number, string[]> } | null = null;
 async function symbolMap(m: Sql, now = Date.now()) {
   if (symCache && now - symCache.at < 600_000) return symCache;
-  const rows = await m.all<{ security_id: number; value: string; valid_to: string | null; valid_from: string }>(
-    "SELECT security_id, value, valid_to, valid_from FROM security_identifier WHERE id_type='nse_symbol' ORDER BY valid_to IS NULL, valid_from");
+  // Second level: the edge cache (shared by isolates in a data centre), then D1.
+  type R = { security_id: number; value: string; valid_to: string | null; valid_from: string };
+  const edge = (globalThis as unknown as { caches?: { default: Cache } }).caches?.default;
+  const key = "https://disclo.internal/symbol-map/v1";
+  let rows: R[] | null = null;
+  if (edge) { const hit = await edge.match(key); if (hit) rows = await hit.json() as R[]; }
+  if (!rows) {
+    rows = await m.all<R>("SELECT security_id, value, valid_to, valid_from FROM security_identifier WHERE id_type='nse_symbol' ORDER BY valid_to IS NULL, valid_from");
+    if (edge) await edge.put(key, new Response(JSON.stringify(rows), { headers: { "content-type": "application/json", "cache-control": "public, max-age=3600" } }));
+  }
   const bySymbol = new Map<string, number>(), symbols = new Map<number, string[]>();
   for (const r of rows) { bySymbol.set(r.value, r.security_id); const l = symbols.get(r.security_id) ?? []; l.push(r.value); symbols.set(r.security_id, l); } // current rows last, so they win
   symCache = { at: now, bySymbol, symbols };

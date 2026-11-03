@@ -11,10 +11,24 @@ export interface Env {
   ENVIRONMENT: string;
 }
 
-/** Read-only D1 → Sql (the site never writes). */
-function ro(db: D1Database): Sql {
+/** Read-only D1 → Sql (the site never writes). Reads issued in the same tick (a Promise.all) are sent as ONE D1
+ *  batch: one network round trip per database instead of one per query (M3 performance targets). */
+export function ro(db: D1Database): Sql {
+  let queue: { sql: string; params: unknown[]; ok: (r: unknown[]) => void; fail: (e: unknown) => void }[] = [];
+  const flush = async () => {
+    const q = queue; queue = [];
+    try {
+      const rs = q.length === 1 ? [await db.prepare(q[0]!.sql).bind(...q[0]!.params).all()] : await db.batch(q.map((x) => db.prepare(x.sql).bind(...x.params)));
+      rs.forEach((r, i) => q[i]!.ok(r.results as unknown[]));
+    } catch (e) { for (const x of q) x.fail(e); }
+  };
   return {
-    async all<T>(sql: string, params: unknown[] = []) { return (await db.prepare(sql).bind(...params).all<T>()).results; },
+    all<T>(sql: string, params: unknown[] = []) {
+      return new Promise<T[]>((ok, fail) => {
+        if (!queue.length) queueMicrotask(() => { void flush(); });
+        queue.push({ sql, params, ok: ok as (r: unknown[]) => void, fail });
+      });
+    },
     async run() { throw new Error("read-only"); },
     async batch() { throw new Error("read-only"); },
   };
