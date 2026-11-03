@@ -249,7 +249,7 @@ latest_snapshot  precomputed for the site
 - **Basis (D50):** primary basis per company — consolidated (most), **standalone (banks)**, both (holding companies). Basis switches create series breaks. Profit is split into attributable to owners vs NCI.
 - **Conventions:** EBITDA excludes other income (company figure stored alongside) (D49). Adjusted metrics exclude exceptional items; TTM; average capital for ROE/ROCE; no sentinel values (D52).
 - **Also stored:**
-  - shareholding pattern (incl. pledges, named holders ≥ 1%)
+  - shareholding pattern (incl. pledges, named holders ≥ 1%). **Percent basis:** the filed % (SCRR 1957 base, excludes ADR custodian / employee-trust holdings) is the default; % of all shares is kept alongside. Promoter encumbrance % is of the *promoter holding*, not of the company.
   - insider (PIT) and Reg 29 transactions, promoter pledges/encumbrance (D28)
   - credit ratings
   - governance facts

@@ -39,3 +39,10 @@ Each mitigation is in code with a test unless marked *process*.
 | B12 | D1 size/writes | Filings loader writes too much | Budget hit | M | L | L | Canonical lines only (D132); write budget per job |
 | B13 | Deploy order | New code before its migration (or the reverse) | Errors for a few minutes | M | M | L | Deploy workflow applies migrations first; schema changes behind a pause (*process*) |
 | B14 | Docs drift | Plan/log/to-do out of date | Wrong decisions next chat | M | M | M | Hourly doc update (*process*); consistency check each update |
+
+## C. Found while building (2026-11-03 morning)
+| # | Failure mode | Guard |
+|---|---|---|
+| C1 | Shareholding % on the wrong base (SCRR base excludes ADR/employee-trust shares; INFY promoters 13.9% filed vs 12.73% of all shares; HDFCBANK public 100% filed) | Store both; filed % is the display default, labelled |
+| C2 | Promoter encumbrance % read as % of the company (VEDL: 100% of the *promoter holding* is encumbered) | Field named `pctOfPromoterHolding`; test on VEDL |
+| C3 | Pledge confused with other encumbrances (VEDL: 0 pledged, NDU + other) | Pledge = encumbered − NDU − other unless tagged; three numbers kept |

@@ -13,3 +13,4 @@ export * from "./sql.js";
 export * from "./xbrl.js";
 export * from "./results.js";
 export * from "./compact.js";
+export * from "./shareholding.js";
