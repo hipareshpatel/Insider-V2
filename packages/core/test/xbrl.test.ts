@@ -89,3 +89,13 @@ describe("malformed filing: facts reference an undefined context (20MICRONS Q1 F
     expect(r.checks.filter((c) => !c.ok)).toEqual([]);
   });
 });
+
+describe("old Indian GAAP (NONINDAS) results, SME company (AFFORDABLE, real file)", async () => {
+  const { canonicalResult } = await import("../src/index.js");
+  it("reads total income, depreciation and PAT under their non-Ind AS names; identities hold", () => {
+    const r = canonicalResult(parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_AFFORDABLE_nonIndAS.xml"), "utf8")));
+    expect(r.lines).toMatchObject({ revenue: "413933000", total_income: "414604000", depreciation: "5749000", pat: "-79120000" });
+    expect(r.checks.filter((c) => !c.ok)).toEqual([]);
+    expect(r.checks.length).toBeGreaterThanOrEqual(4);
+  });
+});

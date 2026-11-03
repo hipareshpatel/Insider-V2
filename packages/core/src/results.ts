@@ -107,6 +107,17 @@ export const LIFE_TAGS: Record<string, string> = {
   pat: "ProfitLossAfterTaxAndExtraordinaryItems",
 };
 
+/** Alternative tags (old Indian GAAP "NONINDAS" filings, SME companies), tried in order after the main tag. */
+export const PL_ALIASES: Record<string, string[]> = {
+  total_income: ["Revenue"],
+  depreciation: ["DepreciationAndAmortisationExpense"],
+  pbt_before_exceptional: ["ProfitBeforeExceptionalAndExtraordinaryItemsAndTax"],
+  exceptional_items: ["ExceptionalItems"],
+  pat_continuing: ["ProfitLossForThePeriodFromContinuingOperations"],
+  pat_discontinued: ["ProfitLossFromDiscontinuingOperationAfterTax"],
+  pat: ["ProfitLossForThePeriod"],
+};
+
 export interface CanonicalResult {
   symbol: string | null;
   periodStart: string;
@@ -152,7 +163,8 @@ export function canonicalResult(inst: XbrlInstance): CanonicalResult {
   const template: CanonicalResult["template"] = has("InterestExpended") ? "bank" : has("IncomeFirstYearPremium") ? "life_insurance" : "industrial";
   const tags = template === "bank" ? BANK_TAGS : template === "life_insurance" ? LIFE_TAGS : PL_TAGS;
   for (const [line, tag] of Object.entries(tags)) {
-    const f = inst.facts.find((x) => x.tag === P + tag && x.contextRef === ctx.id && !x.nil);
+    const candidates = [tag, ...(template === "industrial" ? PL_ALIASES[line] ?? [] : [])];
+    const f = candidates.map((t) => inst.facts.find((x) => x.tag === P + t && x.contextRef === ctx!.id && !x.nil)).find((x) => x);
     if (f?.value !== undefined && f.value !== null && f.value !== "") lines[line] = toText(dec(f.value));
     else missing.push(line);
   }
