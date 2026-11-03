@@ -343,6 +343,8 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   }
   const todayShares = new Map<number, number>(shareRowsUnique.map((r) => [r[0] as number, r[2] as number]));
   const factorStmts: Stmt[] = [];
+  const staleStmts: Stmt[] = [];
+  const supersede: string[] = [];
   for (const [sid, t] of todays) {
     if (t.unknown && !t.comps.length) {
       continue; // already raised once as "Unparsed corporate action" (no duplicate item)
@@ -358,8 +360,18 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
         params: [sid, date, d.factor, d.method, d.status] });
     }
     if (d.status === "review") reviews.push({ kind: "corp_action", subjectDb: "market", subjectRef: `${sid}|${date}`, summary: `Corporate action needs review: ${t.purposes.join(" + ")} (${d.reason})`, proposed: d });
+    if (d.status === "auto" && d.factor) {
+      // Stale Bc ex-dates (V1 hint #276; INOXWIND, VSTIND, POWERMECH…): the same action listed days earlier left a
+      // review factor with the same ratio. Applied now on its true date → the earlier one is a duplicate (no double adjustment).
+      for (const st of await deps.market.all<{ ex_date: string }>("SELECT ex_date FROM adj_factor WHERE security_id=? AND status='review' AND factor=? AND ex_date BETWEEN ? AND ?", [sid, d.factor, addDays(date, -15), addDays(date, -1)])) {
+        staleStmts.push({ sql: "DELETE FROM adj_factor WHERE security_id=? AND ex_date=? AND status='review'", params: [sid, st.ex_date] });
+        supersede.push(`${sid}|${st.ex_date}`);
+      }
+    }
   }
   written += await batchAll(deps.market, factorStmts);
+  written += await batchAll(deps.market, staleStmts);
+  if (supersede.length) await batchAll(deps.app, supersede.map((ref) => ({ sql: "UPDATE review_item SET status='superseded', decided_at=? WHERE status='open' AND kind='corp_action' AND subject_ref=?", params: [iso(deps.now()), ref] })));
 
   // Review checks: unexplained share-count change > 2%, unexplained move > ±35% (§9.1).
   const factored = new Set(todays.keys());

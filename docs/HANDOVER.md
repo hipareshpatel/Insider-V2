@@ -25,6 +25,7 @@
 | 6 | M2 remainder: restatement/basis on known cases; PIT/SAST readers | M2 | tests on known cases pass |
 | 7 | M3 site v0 | M3 | performance targets |
 
+**V1 hints adopted later (D142, #276):** profit ÷ EPS implied share count as a split/bonus cross-check + no double adjustment when filings restate comparatives; owners vs minorities test; excise duty separate; filler zeros in annual-report XBRL. **Test gap:** stale-Bc rule (C28) needs a multi-day test.
 **Parked (counted, not chased, D140):** 16 stock jumps and ETF unit-split proposals → owner queue; scale-guard anchor class; R2 compression; probe schedule removal (≈ 4 Nov); Workers CPU check (≈ 5 Nov); D1 reads re-measure (≈ 5 Nov).
 **Owner:** review-screen access choice (item 1); Budget Alert $5 (optional); trademark check; email test (last).
 
