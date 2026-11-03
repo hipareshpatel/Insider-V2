@@ -1,74 +1,135 @@
-# Work list — M0–M3, line by line from the documents (owner #321)
+# Work list — full trace of the documents (owner #321, rebuilt #323)
 
-**Rule (owner #321):** Claude works through this list in order without waiting for instructions; the owner is asked only for decisions that are the owner's (money, legal, design, trademark). Scope: **freeze and prove what we have** — 250 focus companies (D155), no more stock history (D156, owner "NO" to 10-year prices). Each line: source → status → next action. Updated as items close.
+**Rule (D158):** Claude works this list in order without waiting for instructions; the owner is asked only for owner decisions (money, legal, design, trademark). Scope now: **freeze and prove** M0–M3 for the 250 focus companies (D155), no more stock history (D156/D158). **Rebuilt (owner #323: "D158 missing many items, check all the documentation"):** every decision D1–D158 has a row below (milestone, status, next action), plus §5.8, §6, §9.1, §10, §11, the field catalogue, `website.md` §10–§11 and open FMEA items, so an item can't drop out unnoticed (checked mechanically: every D-number appears).
 
-Legend: ✅ done and verified (how) · 🔶 in progress · ⬜ not started · 👤 owner's decision
+Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · 👤 owner's decision · ⏭ later milestone (listed so it isn't lost)
 
-## M0 — Foundations (§14; signed off D143)
-| # | Item (source) | Status | Next action |
+## A. Active scope — M0–M3 (order: A1 ops gaps → A2 M1 → A3 M2 → A4 M3 data prerequisites)
+
+### A1. Foundations, operations, cost (M0 / §10 / §11)
+| Ref | Item | Status | Next action |
 |---|---|---|---|
-| 0.1 | Probe from Cloudflare / D54 (§14) | ✅ probe runs, all Cloudflare checks 200 | Remove the 3×/day schedule (§16, due ≈ 4 Nov) |
-| 0.2 | Monorepo, CI, D1 migrations, B1–B5 (§14) | ✅ (B5 review screen moved to M3, D141) | — |
+| D11, D14, D97 | Storage split; public repo; docs only in `docs/`; no data or secrets in git | ✅ | — |
+| D12 | TypeScript everywhere | ✅ (prefetch helpers are Python on GitHub runners) | — |
+| D43 | Staging D1/R2 | ✅ (staging DBs + bucket; used by Phase 1 test 4) | — |
+| **D44** | **Backups: D1 Time Travel 30 days + weekly export to R2 kept 12 weeks; full rebuild from raw tested** | 🔶 Time Travel on by default; rebuild proven for market data (test 5). **Weekly export not built** | Build the weekly D1 export (market, filings, app) → R2, keep 12 weeks |
+| **D45** | **Owner alerts by email: pipeline stalled > 1 h, Gemini spend > 80%, dead-letter item, NSE error spike** | 🔶 only the daily cost guard (GitHub email) | Stall + NSE-error-spike alerts to `alerts@` |
+| D79 | Occasional downtime acceptable; freshness shows staleness | ✅ | — |
+| D96 | Owner review ≤ 30 min/day | ✅ (D141) | — |
+| D116 | Email routing info@ / alerts@ / paresh@ | ✅ tested (#285) | — |
+| §10 | Secrets in Cloudflare/GitHub, `.dev.vars` ignored | ✅ | — |
+| D18, §11 | $100/month; hard Gemini daily cap in code | ⏭ M5 (no AI before freeze) | — |
+| D136, D137, D154 | Write cap 54M; $10 ceiling; daily cost guard | ✅ | Projection at each check-in |
+| D130, D131, D132, D135, D147 | Compact storage; gzip; as-filed XBRL in R2; one ledger; never delete | ✅ (compression: 0 verify failures) | — |
+| D124, D128, D144 | Fast archive pace; downloads ahead of need | ✅ (index history 🔶) | — |
+| D133, D134, D140, D142, D158 | V1 lessons as rules; census first; one item at a time; V1 when stuck; this list | ✅ in use | — |
+| §16 | Remove the probe's 3×/day schedule | ⬜ due ≈ 4 Nov | Remove |
+| C18 | D1 rows-read re-measure; Workers CPU check | ⬜ ≈ 5 Nov | Measure |
 
-## M1 — Market data (§14 gate: Phase 1 tests, backfill, 10 clean sessions, delivery/indices/market structure)
-| # | Item (source) | Status | Next action |
+### A2. M1 — market data (§14 gate; §9.1; §9.2)
+| Ref | Item | Status | Next action |
 |---|---|---|---|
-| 1.1 | Phase 1 tests 1, 2, 3, 6 (§9.2) | ✅ live `/acceptance` | Re-run at freeze |
-| 1.2 | Phase 1 test 4 (re-run changes 0 rows) | ✅ 3 Nov, staging re-run, 0 data rows changed | — |
-| 1.3 | Phase 1 test 5 (rebuild from R2 identical) | ✅ 3 Nov, 8 sessions × 5 tables identical (C49 fixed) | — |
-| 1.4 | Backfill complete (§14) | ✅ prices 2024 → for every instrument (D127) | — |
-| 1.5 | 10 consecutive clean daily sessions (§14, D143 non-blocking) | 🔶 0/10, counted weekdays 21:43 IST | Daily check |
-| 1.6 | Delivery loading | ✅ `/gaps` = 0 days missing | — |
-| 1.7 | Indices loading | ✅ 2024 →; 🔶 10-year history (D156) downloading | Load 2016–2023 after the download, verify counts |
-| 1.8 | Market structure (D148) | ✅ loading; gaps known: bulk/block days capped at 70 rows (480 of 704), ASM/GSM + FII/DII from 3 Nov only (no NSE history) | Test splitting the bulk/block history call by symbol (focus 250) |
-| 1.9 | Corporate actions vs complete monthly lists (D138 re-run, D149) | ✅ 3 Nov 21:00: 12,644 actions in NSE's complete lists (2024 →) vs Bc — **no price-affecting action missing** for the 250; outside them only 2 IRBIT InvIT rights ("₹0 premium"); the rest missing from Bc are non-price items (1,568 other, 94 dividends — D7) | — |
-| 1.10 | Stale-Bc rule multi-day test (C28 test gap) | ⬜ | Add the test |
-| 1.11 | Scale-guard re-check released lasting changes (C45, ABCAPITAL) | ✅ 3 Nov 21:00: ABCAPITAL holds 7 → 3 (lasting change released); COROMANDEL's 3 one-off ÷100 files still held (correct) | Recheck the remaining 3 at the freeze |
+| D1, D2, D3, D10 | NSE archive; 2024 →; UDiFF; daily job | ✅ | — |
+| D4, D126, D127 | Universe EQ/BE/BZ, no SME, no fund units; store everything | ✅ | — |
+| D5 | Market cap as published (exact; shown ₹ cr, no decimals) | ✅ stored | Display rule → data map |
+| D6, D138, D139 | Factors from share counts; second official source; rights entitlements / ETF splits | ✅ (test 2: 0 unexplained jumps) | — |
+| D7 | Dividends recorded, not adjusted | ✅ | — |
+| D9 | Index membership history from go-live | ✅ daily | — |
+| D62 | FII/DII history from go-live | ✅ from 3 Nov | — |
+| D65 | Delivery file | ✅ `/gaps` = 0 | — |
+| D76, D148 | Market structure loaded from R2 with a day ledger | ✅ | — |
+| 1.8 | Bulk/block history capped at 70 rows on 480 of 704 days | ⬜ | Test the history call split by symbol (250) |
+| D125, D129, §9.1 | Market gates | ✅ code + tests | — |
+| D141 | Review queue decided with evidence | ✅ empty | — |
+| **D146** | Series breaks | 🔶 recorded only as review decisions | Own table for the site/API |
+| §9.2 | Phase 1 tests 1–6 | ✅ all six | Re-run at freeze |
+| §14 | 10 consecutive clean sessions | 🔶 counting | Daily |
+| D156 | Index history 2016–2023 | 🔶 download running; loader deployed | Load, verify days and index counts |
+| C28 | Stale-Bc multi-day test | ⬜ | Add the test |
 
-## M2 — Filings & financials (§14 gate; scope = 250, D155)
-| # | Item (source) | Status | Next action |
+### A3. M2 — filings and financials (§14 gate; scope = the 250, D155)
+| Ref | Item | Status | Next action |
 |---|---|---|---|
-| 2.1 | 5-year statements (D90) for the 250 | 🔶 loading | Coverage per company vs NSE's lists (quarters, FY, BS/CF half-years) |
-| 2.2 | ≥ 99.5% of filings parse + identity checks (§14) | 🔶 99.66% on the part loaded | Measure on the 250 when loaded |
-| 2.3 | Full-year figures (D90) | ✅ census 99.68%, loader live | Re-measure on the 250 |
-| 2.4 | Balance sheet + cash flow totals | 🔶 backfill running (250 only) | Verify per company (2.1) |
-| 2.5 | Every reported line, three statements (D154) | 🔶 deployed 21:01: P&L +17 lines; BS detail (census 99.58%); CF detail loads only where all sums pass (first census 55.9% — fair-value sign fixed, re-census running); backfill restarted | CF residual classes from the re-census; banks/NBFC/insurer detail maps |
-| 2.6 | Heads with sub-rows layout (D157) | ⬜ | Layout tree per format (Schedule III order) |
-| 2.7 | Restatement + basis rules on known cases (§14) | ✅ tests (INFY standalone vs consolidated, either load order) | — |
-| 2.8 | Shareholding live (§14) | ✅ loading | Coverage + count check vs NSE for the 250 |
-| 2.9 | PIT / SAST / board meetings live (§14) | ✅ 29/29 counts match NSE (3 Nov) | — |
-| 2.10 | Credit ratings live (§14) | ✅ loading | Count check by month (NSE's ratings list ignores the symbol: all-company feed) — needs a small endpoint, next deploy |
-| 2.11 | Classification run once (§14, D150) | ✅ 1,342 classified; the 250 are all index members (index-CSV sector) | Confirm all 250 have a sector |
-| 2.12 | Held classes | 🔶 Ind AS 117 insurers (5), insurer balance sheets, BSE Ltd pre-2024 shareholding (10), 58 FY failures (49 expense breakdown, 9 Dec/Sep year ends), CONSOFINVT | Work class by class for the 250 |
-| 2.13 | Temporary-error retry list (C48) | ✅ "Network connection lost" added (21:01 deploy) | — |
+| D28, D56, D149 | PIT, SAST Reg 29, pledges (shareholding), full history | ✅ 29/29 vs NSE | — |
+| D32 | `period` + `disclosed_at` on every fact | ✅ | — |
+| D47, D132 | As filed (R2) → canonical → computed views | ✅ first two; computed ⬜ (A4) | — |
+| D48 | Restatements versioned, > 0.5% flagged | ✅ | — |
+| **D50, D51** | **Primary basis per company** (consolidated most, standalone banks, both for holding cos); **basis switch → series break**; basis on every number | 🔶 both bases stored + tagged; primary basis and switch detection ⬜ | Derive and detect |
+| D76 | Integrated Filing primary; ratings structured | ✅ | — |
+| D90 | 5 years of statements for the 250 | 🔶 loading | Coverage per company vs NSE's lists |
+| §14 | ≥ 99.5% parse + identity checks | 🔶 99.66% (part) | Measure on the 250 |
+| D90 FY | Full-year figures | ✅ census 99.68% | Re-measure on the 250 |
+| D154 | Every reported line, three statements | 🔶 deployed; BS 99.58%; CF re-census running | CF residual classes; bank/NBFC/insurer maps |
+| **D157** | Heads with sub-rows (Schedule III layout per format) | ⬜ | Build the layout trees |
+| D121, D150 | Sector | ✅ | Confirm all 250 have one |
+| 2.8 | Shareholding coverage + counts vs NSE (250) | ⬜ | Check |
+| 2.10 | Credit ratings vs NSE by month | ⬜ | Small endpoint + check |
+| **D40** | **Promoter-group structures from shareholding** | ⬜ | Derive per company |
+| D47 | Segment results | ⬜ | Census + reader (stock page "segments") |
+| D145 | Old bank files without period excluded | ✅ | — |
+| 2.12 | Held classes (Ind AS 117 insurers, insurer BS, BSE Ltd pre-2024 SHP, 58 FY failures, CONSOFINVT, scale-guard holds) | 🔶 | Class by class for the 250 |
+| 16.3–16.6 | Reg 31, RPT, insider completeness, BRSR employees | ✅ located (readers ⏭ M9) | — |
 
-## §16 "Still to verify"
-| # | Item | Status | Next action |
+### A4. M3 — before any site work (D152): computed views + data map
+| Ref | Item | Status | Next action |
 |---|---|---|---|
-| 16.1 | Sustained-volume NSE rate limits | ✅ measured during the backfill (≈ 0.3% refusals at 16 parallel) | — |
-| 16.2 | Bulk/block, F&O, ASM/GSM archive paths | ✅ loading (D148) | — |
-| 16.3 | SAST Reg 31 endpoint | ✅ 3 Nov: no Reg 31 list API (`corporate-sast-reg31` 404). Pledge facts come from the shareholding-pattern XBRL (loaded quarterly, `promoter_encumbrance`); Reg 31 disclosures themselves are announcement PDFs (M5). `corporate-pledgedata` exists (latest quarter only, 1,558 companies) — duplicates the SHP data, not downloaded (freeze) | — |
-| 16.4 | RPT (related-party transactions) data location | ✅ 3 Nov: in the **standalone Integrated Filing – Financials XBRL**, half-yearly (INFY Sep 2026: 513 transactions — counterparty, relationship, type, amount, audit-committee-approved value); not in the governance XBRL. Already downloaded. ⚠ rows carry counterparty PAN — never shown publicly | RPT reader (later, with the graph, D37) |
-| 16.5 | Insider-feed completeness | ✅ 29/29 vs NSE dated lists | — |
-| 16.6 | Employee-count fields in BRSR XBRL | ✅ 3 Nov: present (INFY FY26 BRSR: employees/workers by permanent/other, male/female, differently abled; training, wellbeing, minimum-wage counts) — input for D53 headcount growth | BRSR reader (later, M9) |
-| 16.7 | Gemini Flex + cache discount stacking | ⬜ M5/M6 (no AI before freeze, D155) | Later |
+| **D49** | EBITDA excludes other income; company EBITDA alongside | ⬜ | Computed views |
+| **D52** | Ratio conventions (adjusted ex exceptional, TTM, ROE/ROCE on average capital) | ⬜ | Computed views |
+| D66 | Catalogue conventions (rising trend, large order ≥ 2% TTM revenue) | ⬜ | Computed views |
+| §5.8, §6 | **Feature table** + nightly derived job (adjusted series, dashboard snapshots, trackers) | ⬜ | Build for the 250 |
+| D123, field catalogue | 114 fields (§2–§14 public, §15 owner-only ⏭) | ⬜ readiness per field unknown | **Data-readiness map**: field → source, computed?, verified |
+| D59, D62, D67 | Dashboard (indices + valuation vs history, breadth, sectors, FII/DII, results season, calendar, search) | 🔶 v0 part (offline) | Data map; nightly precompute |
+| D91, D92 | Stock page sections 0–13 | 🔶 v0 part | Data map (sections 1–2 need AI ⏭ M6) |
+| D93, D94, D108, D110 | One API; milestones; aggregated cached endpoints; scale on Cloudflare | 🔶 v0 API (offline) | Redesign with the data map |
+| D13, D58, D118 | Owner routes behind Access; `disclo.in` on the site | ⬜ | Site phase |
+| D60, D63 | Accounts, Google sign-in | ⬜ | Site phase |
+| D98 | Cloudflare Web Analytics | ⬜ | Site phase |
+| D104 | Search (companies ✅ v0; people, investors, products, plants, full text ⏭) | 🔶 | — |
+| D106, D107 | Exports owner-only; deletion/export on request | ⬜ | Site phase |
+| D115 | Legal pages | 🔶 drafts (v0) | Legal consult |
+| D117 | Security headers + secure cookies | 🔶 partial | HSTS, CSP, frame-ancestors, Permissions-Policy |
+| D35, B5 | Owner correction / review screen | ⬜ | Site phase |
+| D46, D114 | Freshness in IST; UTC stored | ✅ (v0) | — |
+| D100–D103, D105 | Light theme; mobile-first; basic accessibility; English; charts with notice | ✅ (v0) | — |
+| D95, D153 | UX standards; design brief for the audience | 👤 | After the data map |
 
-## M3 — before any site work (D152)
-| # | Item | Status | Next action |
-|---|---|---|---|
-| 3.1 | Data-readiness map: every D91 stock-page and D62/D67 dashboard element → source table, completeness, verified | ⬜ | After M2 items above |
-| 3.2 | Design brief questions (audience, references, first screen) | 👤 | Ask when 3.1 is done |
-| 3.3 | Mockups → owner approval → build | 👤 | After 3.2 |
-
-## Owner items
-| # | Item | Status |
+## B. Later milestones (⏭, listed so nothing is lost)
+| Ref | Item | Milestone |
 |---|---|---|
-| O.1 | Trademark check for Disclo (D119) | 👤 pending |
-| O.2 | Earlier design discussion (Gen Z / MF houses / PMS, visual style) — not in any record | 👤 restate when design starts |
+| D15, D16, D26, D27, D30, D41 | Gemini pinned models; ≤ 15 min cards; triage lanes; zero misses; weekly triage audit; prompt-injection defence | M5–M6 |
+| D17 | PDFs not stored long-term (URL + hash + page text) | M5 |
+| D20, D84 | Gold set (owner labels); private period | M4 |
+| D21, D22, D25, D29, D38, D42, D80, D82, D92 | Cards: no score, clean site, layered + shareable, insider thresholds, one-hop links, error reports; AI write-ups; commissioning estimates; latest quarter in brief | M6 |
+| D24 | Prices public before a licence (owner's risk) | decided |
+| D31 | KPI dictionary + sector packs (financial packs from day 1) | M6 |
+| D33, D34, D39 | Commitment tracking; lifecycle; unlisted counterparties | M6 / M9 |
+| D36 | Scope exclusions | decided |
+| D37, D70, D72, D74, D75, D77, D78, D81, D83 | Graph; business mix; raw materials; annual-report scope; niche indices; plants; trackers; rated facilities; facility sources | M9 |
+| D53, D68, D73 | Owner-only signals, research chat, scenarios | M10 |
+| D55, D57, D111, D112, D113 | Phase 2 backfill; Nifty Next 50; coverage tiers; usefulness sample | M6–M11 |
+| D61, D64 | Query builder | M8 |
+| D69 | Differentiators | M8–M9 |
+| D71 | BRSR ingestion | M9 |
+| D85, D86 | Error detectors per class (unit detector partly live: scale guard); daily random card audit | M6 |
+| D19 | Commodity prices | later |
+| D23, D88 | Paid tier; licence before charging | later |
 
-## Operations
-| # | Item | Due |
+## C. Owner and legal
+| Ref | Item | Status |
 |---|---|---|
-| X.1 | D1 rows-read re-measure (C18) | ≈ 5 Nov |
-| X.2 | Workers CPU check | ≈ 5 Nov |
-| X.3 | Write budget projection before widening (D155 checklist) | at widening |
+| D87, D88, D89, D151, D152 | Regulatory posture; licence funding; launch mode | 👤 decided; NSE data owner-managed |
+| §12 | Legal consult questions 1–14 | 👤 before public launch |
+| D99, D118, D119 | Name final; trademark check (IP India, classes 36/42) | 👤 trademark pending |
+| D153 | Earlier design discussion — not in any record | 👤 restate at design time |
+| D8, D54, D109, D120, D122, D143, D155, D156 | Superseded or one-time decisions (quote-equity sector, relay, hosting, BSE source, build start, M0 sign-off, focus, history windows) | ✅ recorded |
+
+## D. Open failure modes (FMEA)
+| Ref | Open part |
+|---|---|
+| C28 | Multi-day test for the stale-Bc rule |
+| C44 | Insurer balance sheets not read; Ind AS 117 layout |
+| C45 | Remaining scale-guard holds (recheck at freeze) |
+| C46 | EXPLAIN QUERY PLAN check for every new read path (site phase) |
+
+## E. Website brief (`docs/website.md`, owned by the planning chat)
+§10 (pending), §10b–§10c (accepted items), §11 (conflicts): design inputs, layering, card sections, coverage-depth display, launch checklist — folded into A4 and C; the brief stays the source.
