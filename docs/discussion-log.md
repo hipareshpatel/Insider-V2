@@ -316,7 +316,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 258 | Owner pasted V1 storage notes (cards ≈ 80 MB; V1 keeps no price history in D1; heavy data gzipped in R2; write-changed-rows-only; daily write budget; snapshot-served feed; pruning with backup) and a note that D130's "31%" should read as size remaining (69% saving). "Take only what you feel is useful. Don't bloat things unnecessarily." | D131: adopted gzip in R2, daily write budget, snapshot-served pages; not adopted: no-history-in-D1 (V2 features need history). 31% = remaining, confirmed. | ✅ |
 | 259 | "We have the Workers Paid plan, or something for $5." On keeping raw XBRL figures in storage rather than the database: "you take the decision which is best." | Confirmed: Workers Paid ($5/month, active since #243). D132 (as-filed XBRL in R2 gzip; D1 canonical lines + checks + filing index); §5.3, §16. | ✅ |
 | 260 | "Go ahead with the compact storage reload and other tasks." | Done 2026-11-03 06:15–06:45 IST: pause → compact schema (market/0011) + new code → pause lifted; reload from the R2 cache running (no NSE calls). Gate extension (D125), no-debt (D127/#257), write budget 8M today (D131), gzip for new R2 text objects (D131). Pending: first index snapshot when caught up; market cron back to 10 min after the reload. | 🔶 reload running |
-| 261 | Owner pasted a fuller V1 role prompt with lessons learned (success measures, constraints, data rules on basis/units/periods/restatements/profit lines/PDF traps/events/classification/timing, AI models, storage, change process, owner communication), noting V1 numbers are V1's, and V1 was a $0 build. Offers to ask V1 for more details. | D133 (lessons adopted / not adopted with reasons); §7.3 pointer. Owner questions asked in chat: Screener as referee, EPS, card error bar. | ❓ owner: 3 questions |
+| 261 | Owner pasted a fuller V1 role prompt with lessons learned (success measures, constraints, data rules on basis/units/periods/restatements/profit lines/PDF traps/events/classification/timing, AI models, storage, change process, owner communication), noting V1 numbers are V1's, and V1 was a $0 build. Offers to ask V1 for more details. | D133 (lessons adopted / not adopted with reasons); §7.3 pointer. Owner answered in #262. | ✅ |
+| 262 | "1. Screener — later. 2. Keep EPS. 3. Keep the V2 bar, else why would we do V2." | D133 updated: Screener Later; EPS kept (XBRL, adjusted); M7 gate unchanged, measured blind. | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -325,7 +326,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #261: all checks pass (133 decisions, 261 entries); no open ⚠.*
+*Last run 2026-11-02 after entry #262: all checks pass (133 decisions, 262 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
