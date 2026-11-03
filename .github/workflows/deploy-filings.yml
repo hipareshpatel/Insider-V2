@@ -1,0 +1,44 @@
+name: deploy-filings
+
+# Test -> filings migrations (production) -> deploy disclo-filings. Separate from deploy-market so a market reload isn't interrupted.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ccr-eb822347-c3zp4b]
+    paths: ["workers/filings/**", "db/migrations/filings/**", ".github/workflows/deploy-filings.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run check
+      - name: Mask filter
+        run: |
+          mkdir -p "$HOME/bin"
+          printf '%s\n' '#!/bin/sh' "sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/<email hidden>/g; s/│ [^│]*Account[^│]*│/│ <account hidden> │/g'" > "$HOME/bin/mask"
+          chmod +x "$HOME/bin/mask"; echo "$HOME/bin" >> "$GITHUB_PATH"
+      - name: Apply filings migrations (production)
+        run: |
+          set -o pipefail
+          node tools/d1.mjs config . production >/dev/null
+          npx wrangler d1 migrations apply DB_FILINGS --remote -c wrangler.migrate.json 2>&1 | mask | tail -6
+      - name: Write wrangler.json
+        run: node tools/d1.mjs worker workers/filings | mask
+      - name: Deploy disclo-filings
+        working-directory: workers/filings
+        run: set -o pipefail; npx wrangler deploy 2>&1 | mask | tail -12

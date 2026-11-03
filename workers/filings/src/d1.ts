@@ -1,0 +1,27 @@
+// Cloudflare adapters: D1 -> Sql, R2 -> RawStore.
+import type { RawStore, Sql, Stmt } from "@disclo/core";
+
+export function d1Sql(db: D1Database): Sql {
+  return {
+    async all<T>(sql: string, params: unknown[] = []) {
+      return (await db.prepare(sql).bind(...params).all<T>()).results;
+    },
+    async run(sql: string, params: unknown[] = []) {
+      const r = await db.prepare(sql).bind(...params).run();
+      return { changes: r.meta.changes ?? 0 };
+    },
+    async batch(stmts: Stmt[]) {
+      if (!stmts.length) return 0;
+      const rs = await db.batch(stmts.map((s) => db.prepare(s.sql).bind(...s.params)));
+      return rs.reduce((n, r) => n + (r.meta.changes ?? 0), 0);
+    },
+  };
+}
+
+export function r2Raw(bucket: R2Bucket): RawStore {
+  return {
+    async put(key, bytes, contentType) {
+      await bucket.put(key, bytes, contentType ? { httpMetadata: { contentType } } : undefined);
+    },
+  };
+}

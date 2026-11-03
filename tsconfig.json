@@ -9,6 +9,9 @@
     },
     {
       "path": "workers/prefetch"
+    },
+    {
+      "path": "workers/filings"
     }
   ]
 }
