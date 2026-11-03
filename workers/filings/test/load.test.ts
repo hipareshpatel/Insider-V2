@@ -198,3 +198,27 @@ describe("balance sheet + cash flow loading (M2)", () => {
     expect(cfo).toEqual({ value: "164580000000", period_end: "2024-09-30" });
   });
 });
+
+import { loadEvents } from "../src/events.js";
+describe("M2 event loader (PIT, SAST, board meetings, credit ratings)", () => {
+  it("loads lists in ledger order, collapses NSE's duplicate rows, stops at a list not yet downloaded", async () => {
+    const filings = sqlite("filings");
+    const fxd = (n: string) => readFileSync(join(ROOT, "packages/core/test/fixtures/nse", n), "utf8");
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES
+      (10,'pit','INFY','p1','k/pit','done'), (11,'sast29','INFY','s1','k/sast','done'), (12,'board_meetings',NULL,'b1','k/bm','todo'), (13,'credit_rating',NULL,'c1','k/cr','done')`);
+    const files: Record<string, string> = { "k/pit": fxd("api_pit_INFY_2024Q1.json"), "k/sast": fxd("api_sast_INFY.json"), "k/bm": fxd("api_board_meetings_2026-10.json"), "k/cr": fxd("api_credit_rating_2024-01.json") };
+    const get = async (k: string) => files[k] ?? null;
+    const a = await loadEvents(filings, get);
+    expect(a).toMatchObject({ lists: 2, after: 11 }); // stopped at job 12 (not downloaded)
+    expect((await filings.all<{ n: number }>("SELECT count(*) AS n FROM insider_trade"))[0]!.n).toBe(36); // 40 rows, 4 exact duplicates
+    expect((await filings.all<{ n: number }>("SELECT count(*) AS n FROM sast_disclosure"))[0]!.n).toBe(54);
+    filings.raw.exec("UPDATE fetch_job SET status='done' WHERE job_id=12");
+    const b = await loadEvents(filings, get);
+    expect(b).toMatchObject({ lists: 2, after: 13 });
+    expect((await filings.all<{ n: number }>("SELECT count(*) AS n FROM board_meeting"))[0]!.n).toBe(60);
+    // a second read of the same PIT list adds nothing
+    filings.raw.exec("INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES (14,'pit','INFY','p2','k/pit','done')");
+    await loadEvents(filings, get);
+    expect((await filings.all<{ n: number }>("SELECT count(*) AS n FROM insider_trade"))[0]!.n).toBe(36);
+  });
+});
