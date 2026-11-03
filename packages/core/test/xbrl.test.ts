@@ -80,6 +80,25 @@ describe("life-insurance template (SBILIFE Q2 FY27, trimmed real file)", async (
   });
 });
 
+describe("general-insurer Integrated Filing (GODIGIT Q1 FY27 IFGI, real file)", async () => {
+  const { canonicalResult, giChecks } = await import("../src/index.js");
+  const r = canonicalResult(parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_GODIGIT_Q1FY27_gi.xml"), "utf8")));
+  it("detects the IRDAI general-insurance layout (was read as industrial with revenue + PAT missing); all 9 sums hold", () => {
+    expect(r).toMatchObject({ template: "general_insurance", periodStart: "2026-04-01", periodEnd: "2026-06-30", periodKind: "Q", basis: "standalone" });
+    expect(r.lines.gross_premium).toBe("27308600000");
+    expect(r.lines.pat).toBe("863900000");
+    expect(r.checks.length).toBe(9);
+    expect(r.checks.filter((c) => !c.ok)).toEqual([]);
+  });
+  it("operating profit: provisions inside or outside both hold (NIACL Q4 FY25 figures); a wrong figure fails", () => {
+    const l = { operating_income: "110087400000", total_operating_expenses: "105132600000", provision_doubtful_debts: "-920100000", provision_diminution: "348200000", operating_profit: "4954800000" };
+    const op = (x: Record<string, string>) => giChecks(x).find((c) => c.name.startsWith("operating income"))!;
+    expect(op(l)).toMatchObject({ ok: true, detail: expect.stringContaining("provisions outside") });
+    expect(op({ ...l, operating_profit: "5526700000" }).ok).toBe(true); // provisions inside: 4954.8 − (−920.1) − 348.2 = 5526.7
+    expect(op({ ...l, operating_profit: "6000000000" }).ok).toBe(false);
+  });
+});
+
 describe("malformed filing: facts reference an undefined context (20MICRONS Q1 FY22, real file)", async () => {
   const { canonicalResult } = await import("../src/index.js");
   it("period comes from the filing's own reporting-period facts; identities still checked", () => {

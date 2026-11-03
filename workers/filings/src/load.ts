@@ -39,8 +39,8 @@ export function broadcastFor(listJson: string, url: string): string | null {
   return null;
 }
 
-const TEMPLATE: Record<CanonicalResult["template"], string> = { industrial: "industrial", bank: "bank", life_insurance: "insurance" };
-const CORE: Record<CanonicalResult["template"], string[]> = { industrial: ["revenue", "pat"], bank: ["interest_earned", "pat"], life_insurance: ["gross_premium", "pat"] };
+const TEMPLATE: Record<CanonicalResult["template"], string> = { industrial: "industrial", bank: "bank", life_insurance: "insurance", general_insurance: "insurance" }; // life and general share the stored value; their line names differ
+const CORE: Record<CanonicalResult["template"], string[]> = { industrial: ["revenue", "pat"], bank: ["interest_earned", "pat"], life_insurance: ["gross_premium", "pat"], general_insurance: ["gross_premium", "pat"] };
 
 export interface LoadOutcome { jobId: number; status: "loaded" | "review" | "skipped" | "failed" | "excluded"; detail: string; rows?: number }
 

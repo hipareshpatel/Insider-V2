@@ -107,6 +107,41 @@ export const LIFE_TAGS: Record<string, string> = {
   pat: "ProfitLossAfterTaxAndExtraordinaryItems",
 };
 
+/** General-insurance template (IRDAI format, Integrated Filing "IFGI": revenue account + profit and loss account).
+ *  Checked on ICICIGI Sep 2026; the filing's own sums are the B8 checks (giChecks). */
+export const GI_TAGS: Record<string, string> = {
+  gross_premium: "GrossPremiumsWritten",
+  net_premium: "NetPremiumWritten",
+  premium_earned: "PremiumEarned",
+  investment_income_policyholders: "IncomeFromInvestmentsNet",
+  other_income: "OtherIncome",
+  operating_income: "OperatingIncome",
+  commission: "NetCommission",
+  employee_cost: "EmployeesRemunerationAndWelfareExpenses",
+  other_operating_expenses: "OtherOperatingExpenses",
+  operating_expenses: "OperatingExpensesRelatedToInsuranceBusiness",
+  premium_deficiency: "PremiumDeficiency",
+  claims_paid: "ClaimsPaid",
+  change_outstanding_claims: "ChangeInOutstandingClaims",
+  claims_incurred: "IncurredClaims",
+  total_operating_expenses: "OperatingExpenses",
+  underwriting_result: "UnderwritingProfitOrLoss",
+  provision_doubtful_debts: "ProvisionsForDoubtfulDebtsIncludingBadDebtsWrittenOff",
+  provision_diminution: "ProvisionsForDiminutionInValueOfInvestments",
+  operating_profit: "OperatingProfitOrLoss",
+  transfer_to_shareholders: "ShareholdersAccountTransferFromPolicyholdersFund",
+  investment_income_shareholders: "ShareholdersAccountIncomeFromInvestments",
+  other_income_shareholders: "ShareholdersAccountOtherIncome",
+  total_income_shareholders: "IncomeInShareholdersAccount",
+  non_operating_expenses: "NonOperatingExpense",
+  pbt_before_extraordinary: "ProfitOrLossBeforeExtraordinaryItems",
+  extraordinary_items: "ExtraordinaryItems",
+  pbt: "ProfitOrLossBeforeTax",
+  tax: "ProvisionForTax",
+  pat: "ProfitLossAfterTax",
+  eps_basic: "BasicAndDilutedEPSAfterExtraordinaryItemsNetOfTaxExpenseForThePeriodNotToBeAnnualized",
+};
+
 /** Old Indian GAAP (non-Ind AS) results file: its schema is not an Ind AS entry point and it isn't an Integrated Filing.
  *  Seen: "other_than_banks_entry_point_2019-09-30.xsd" (old GAAP) vs "Ind-AS_entry_point_2020-03-31.xsd". */
 export function isOldGaap(inst: XbrlInstance): boolean {
@@ -135,7 +170,7 @@ export interface CanonicalResult {
   periodKind: PeriodKind;
   label: string;
   basis: "standalone" | "consolidated";
-  template: "industrial" | "bank" | "life_insurance";
+  template: "industrial" | "bank" | "life_insurance" | "general_insurance";
   audited: string | null;
   lines: Record<string, string>;      // exact rupee text (EPS in rupees per share)
   missing: string[];                  // canonical lines not reported (null with reason, D52)
@@ -176,10 +211,11 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
   const missing: string[] = [];
   // Template by content: banks report InterestExpended; industrial and NBFC (Ind AS Div II/III) share the other layout.
   const has = (t: string) => inst.facts.some((f) => f.tag === P + t);
-  const template: CanonicalResult["template"] = has("InterestExpended") ? "bank" : has("IncomeFirstYearPremium") ? "life_insurance" : "industrial";
+  const template: CanonicalResult["template"] = has("InterestExpended") ? "bank" : has("IncomeFirstYearPremium") ? "life_insurance"
+    : has("PremiumEarned") && has("IncurredClaims") ? "general_insurance" : "industrial";
   const mode = opts.aliases ?? "auto";
   const useAliases = mode === "all" || (mode === "auto" && isOldGaap(inst));
-  const tags = template === "bank" ? BANK_TAGS : template === "life_insurance" ? LIFE_TAGS : PL_TAGS;
+  const tags = template === "bank" ? BANK_TAGS : template === "life_insurance" ? LIFE_TAGS : template === "general_insurance" ? GI_TAGS : PL_TAGS;
   for (const [line, tag] of Object.entries(tags)) {
     const candidates = [tag, ...(template === "industrial" && useAliases ? PL_ALIASES[line] ?? [] : [])];
     const f = candidates.map((t) => inst.facts.find((x) => x.tag === P + t && x.contextRef === ctx!.id && !x.nil)).find((x) => x);
@@ -199,7 +235,7 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
     basis: nature.startsWith("consol") ? "consolidated" : "standalone",
     template,
     audited: meta("WhetherResultsAreAuditedOrUnaudited"),
-    lines, missing, checks: template === "bank" ? bankChecks(lines) : template === "life_insurance" ? lifeChecks(lines) : identityChecks(lines),
+    lines, missing, checks: template === "bank" ? bankChecks(lines) : template === "life_insurance" ? lifeChecks(lines) : template === "general_insurance" ? giChecks(lines) : identityChecks(lines),
   };
 }
 
@@ -263,6 +299,40 @@ export function lifeChecks(l: Record<string, string>): { name: string; ok: boole
   near("first-year + renewal + single = gross premium", sum("premium_first_year", "premium_renewal", "premium_single"), v("gross_premium"));
   near("commission parts = commission", sum("commission_first_year", "commission_renewal", "commission_single"), v("commission"));
   near("policyholders' income − expenses = surplus", v("total_income_policyholders") && v("total_expenses_policyholders") ? sub(v("total_income_policyholders")!, v("total_expenses_policyholders")!) : null, v("surplus"));
+  near("PBT − tax = PAT", v("pbt") && v("tax") ? sub(v("pbt")!, v("tax")!) : null, v("pat"));
+  return out;
+}
+
+/** General-insurer identities (B8, IRDAI revenue account + P&L), tolerance ₹1 lakh. Optional lines count as 0. */
+export function giChecks(l: Record<string, string>): { name: string; ok: boolean; detail: string }[] {
+  const tol = dec("100000");
+  const v = (k: string): Dec | null => (l[k] !== undefined ? dec(l[k]!) : null);
+  const z = (k: string): Dec => v(k) ?? dec("0");
+  const out: { name: string; ok: boolean; detail: string }[] = [];
+  const near = (name: string, lhs: Dec | null, rhs: Dec | null) => {
+    if (!lhs || !rhs) return;
+    const d = sub(lhs, rhs);
+    const abs = d.units < 0n ? { units: -d.units, scale: d.scale } : d;
+    out.push({ name, ok: cmp(abs, tol) <= 0, detail: `${toText(lhs)} vs ${toText(rhs)}` });
+  };
+  const sum = (...ks: string[]) => (ks.every((k) => v(k)) ? ks.map((k) => v(k)!).reduce((a, b) => add(a, b)) : null);
+  near("premium earned + investment income + other income = operating income", sum("premium_earned", "investment_income_policyholders") && add(sum("premium_earned", "investment_income_policyholders")!, z("other_income")), v("operating_income"));
+  near("claims paid + change in outstanding = claims incurred", sum("claims_paid", "change_outstanding_claims"), v("claims_incurred"));
+  near("employee + other expenses = operating expenses", sum("employee_cost", "other_operating_expenses"), v("operating_expenses"));
+  near("commission + expenses + premium deficiency + claims = total operating expenses", sum("commission", "operating_expenses", "claims_incurred") && add(sum("commission", "operating_expenses", "claims_incurred")!, z("premium_deficiency")), v("total_operating_expenses"));
+  near("premium earned − total operating expenses = underwriting result", v("premium_earned") && v("total_operating_expenses") ? sub(v("premium_earned")!, v("total_operating_expenses")!) : null, v("underwriting_result"));
+  // Filers differ on whether the two provision lines sit inside operating profit (NIACL: filed but outside; ICICIGI Mar
+  // 2026 files 39,247 m "doubtful debts" outside it): either form holds, and the detail says which.
+  if (v("operating_income") && v("total_operating_expenses") && v("operating_profit")) {
+    const gross = sub(v("operating_income")!, v("total_operating_expenses")!);
+    const net = sub(sub(gross, z("provision_doubtful_debts")), z("provision_diminution"));
+    const within = (x: Dec) => { const d = sub(x, v("operating_profit")!); return cmp(d.units < 0n ? { units: -d.units, scale: d.scale } : d, tol) <= 0; };
+    const ok = within(net) || within(gross);
+    out.push({ name: "operating income − total operating expenses (− provisions) = operating profit", ok,
+      detail: `${toText(within(net) ? net : gross)} vs ${toText(v("operating_profit")!)}${!within(net) && within(gross) ? " (provisions outside operating profit)" : ""}` });
+  }
+  near("transfer + shareholders' investment and other income = shareholders' income", sum("transfer_to_shareholders", "investment_income_shareholders") && add(sum("transfer_to_shareholders", "investment_income_shareholders")!, z("other_income_shareholders")), v("total_income_shareholders"));
+  near("shareholders' income − non-operating expenses = profit before extraordinary items", v("total_income_shareholders") && v("non_operating_expenses") ? sub(v("total_income_shareholders")!, v("non_operating_expenses")!) : null, v("pbt_before_extraordinary"));
   near("PBT − tax = PAT", v("pbt") && v("tax") ? sub(v("pbt")!, v("tax")!) : null, v("pat"));
   return out;
 }

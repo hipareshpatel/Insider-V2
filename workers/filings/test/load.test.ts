@@ -169,6 +169,23 @@ describe("quarter vs year-to-date context with the same dates (C29)", () => {
   });
 });
 
+describe("general insurer (GODIGIT Q1 FY27 Integrated Filing, real file)", () => {
+  it("loads with the insurance template: gross premium, PAT, claims; was held as 'industrial: core lines missing revenue,pat'", async () => {
+    const URLG = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_GI_1700338_23072026071853_WEB.xml";
+    const filings = sqlite("filings"), market = sqlite("market");
+    market.raw.exec("DELETE FROM job_lock; INSERT INTO security (security_id,name) VALUES (5,'Go Digit General Insurance'); INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (5,'nse_symbol','GODIGIT','2024-05-23','t')");
+    const listG = JSON.stringify({ data: [{ symbol: "GODIGIT", broadcast_Date: "23-Jul-2026 19:18:53", creation_Date: "23-Jul-2026 19:18:53", xbrl: URLG }] });
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES (1,'integrated_financials','GODIGIT','u1','api/integrated_financials/GODIGIT/x.json','done');
+      INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status,parent_id) VALUES (2,'xbrl_integrated_financials','GODIGIT','${URLG}','att/xbrl/g.xml','done',1)`);
+    const gi = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_GODIGIT_Q1FY27_gi.xml"), "utf8");
+    const deps = { filings, market, getText: async (k: string) => (k === "att/xbrl/g.xml" ? gi : listG), now: () => new Date("2026-11-03T02:00:00Z") };
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded" });
+    const v = await filings.all<{ template: string; line: string; value: string }>("SELECT template, line, value FROM fin_value WHERE line IN ('gross_premium','pat','claims_incurred') ORDER BY line");
+    expect(v.map((x) => [x.template, x.line])).toEqual([["insurance", "claims_incurred"], ["insurance", "gross_premium"], ["insurance", "pat"]]);
+    expect(v.find((x) => x.line === "pat")!.value).toBe("863900000");
+  });
+});
+
 describe("BSE Ltd shareholding: wrong/missing filed total, Integrated Filing taxonomy (17 held filings)", () => {
   const fx = (n: string) => readFileSync(join(ROOT, "packages/core/test/fixtures/nse", n), "utf8");
   const URLB = "https://nsearchives.nseindia.com/corporate/xbrl/SHP_192048_1271707_16102024121524_WEB.xml";
