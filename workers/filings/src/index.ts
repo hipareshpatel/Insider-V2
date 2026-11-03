@@ -50,6 +50,17 @@ export default {
   },
   async fetch(req: Request, env: Env) {
     const path = new URL(req.url).pathname;
+    if (path === "/events-count") {
+      // Read-only: loaded event rows for one symbol and date range (owner #290: counts checked against NSE's own lists).
+      const u = new URL(req.url), sym = u.searchParams.get("symbol") ?? "", from = Number(u.searchParams.get("from") ?? 0), to = Number(u.searchParams.get("to") ?? 99991231);
+      const one = async (sql: string) => ((await env.DB_FILINGS.prepare(sql).bind(sym, from, to).first<{ n: number }>())?.n ?? 0);
+      return Response.json({
+        symbol: sym,
+        insider_trades: await one("SELECT count(*) AS n FROM insider_trade WHERE symbol=?1 AND coalesce(from_d, 0) BETWEEN ?2 AND ?3"),
+        sast: await one("SELECT count(*) AS n FROM sast_disclosure WHERE symbol=?1 AND cast(replace(substr(disclosed_at,1,10),'-','') AS INTEGER) BETWEEN ?2 AND ?3"),
+        board_meetings: await one("SELECT count(*) AS n FROM board_meeting WHERE symbol=?1 AND coalesce(meeting_d, 0) BETWEEN ?2 AND ?3"),
+      }, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/held") {
       // Read-only: held/excluded items of one class, with their file URLs, for class-by-class fixes (D140).
       const u = new URL(req.url);
