@@ -68,3 +68,4 @@ Each mitigation is in code with a test unless marked *process*.
 | C23 | Rights entitlements (ISIN type 20) stored and treated as equity → 145 false jumps, wrong universe | Kind `other`, outside the universe (D139); rule verified on 107 sessions |
 | C24 | ETF price moves never reviewed (review checks covered the equity universe only) → 9 unit splits with no record | ETF move > ±35% → review with proposed factor (D139) |
 | C25 | Claude's audit read prices by id range, so it included securities it meant to exclude (caused a wrong "ETFs stored as equity" claim) | Rows outside the selected set are skipped |
+| C26 | Claude assumed the bhavcopy previous close is NSE-adjusted on ex-dates; checked on SHRIRAMFIN/TMPV: it is the plain previous close | Not used as evidence; decisions use official text + price agreement, NSE discovered open for demergers |

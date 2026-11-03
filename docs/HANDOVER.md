@@ -17,7 +17,7 @@
 **Plan (D140, 2026-11-03 10:05 IST) — gate order, one item at a time:**
 | # | Item | Gate it serves | Done when |
 |---|---|---|---|
-| 1 | **Review queue decided by Claude item by item** (owner #274, D141): independent evidence per item, decisions as migrations; screen (B5) later | M1 tests 2 and 6 | Every item decided with evidence or left open with the reason |
+| 1 | ✅ **Review queue decided by Claude item by item** (owner #274, D141), 2 cycles, 10:15 IST: 203 of 240 decided (63 factors confirmed incl. TMPV demerger, 7 splits/consolidations; 124 closed as no adjustment); **37 open with reasons**: 9 ETF unit splits (price only, no second source), 9 Bc ratios contradicted by prices on the ex-date (moved/cancelled?), 13 without price/share data, 2 weak matches, QUINT (CCPS rights), 1 price-only move, 2 other. Phase 1: tests 1, 2, 3 pass; test 6 = these 37 | M1 tests 2 and 6 | Done for evidence available; the 37 need sources we don't hold |
 | 2 | **Daily freshness:** new filings discovered each day into the ledger (D135); per-company corporate-action lists refreshed (D138) | M1 "10 sessions, no manual fix"; M2 | A filing / action published today is queued and loaded tomorrow without a hand step |
 | 3 | **10 consecutive clean daily sessions** (from 2026-11-03), one check per evening | M1 | 10 sessions, no manual fix |
 | 4 | Results reader classes (old bank format 249, Integrated Filings with alias names 112): one census → fix → census | M2 (≥ 99.5% parse) | parse rate measured on the whole population ≥ 99.5% |
