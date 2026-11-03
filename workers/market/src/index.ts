@@ -4,7 +4,7 @@ import { d1Sql, r2Raw } from "./d1.js";
 import { acceptance } from "./acceptance.js";
 import { jumps } from "./jumps.js";
 import { evidence } from "./evidence.js";
-import { chargeBudget, runPending } from "./runner.js";
+import { chargeBudget, gapDates, runPending } from "./runner.js";
 import { loadStructure } from "./structure.js";
 import { buildSectors } from "./sectors.js";
 import { digestDay } from "./digest.js";
@@ -84,6 +84,11 @@ export default {
       return Response.json({ rows, next: rows.length === 2000 ? (rows[rows.length - 1] as { ca_id: number }).ca_id : null }, { headers: { "cache-control": "no-store" } });
     }
     // Phase 1 tests 4–5 (§9.2): per-table checksums of one date; staging can re-run a date to prove it changes nothing.
+    if (url.pathname === "/gaps") {
+      // C49: loaded sessions whose delivery or index-close file is not in the ledger (repair queue, tried weekly).
+      const dates = await gapDates(d1Sql(env.DB_MARKET), new Date(), 1000);
+      return Response.json({ count: dates.length, first: dates.slice(0, 30) }, { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname === "/digest") {
       const date = url.searchParams.get("date") ?? "";
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return Response.json({ error: "date=YYYY-MM-DD" }, { status: 400 });

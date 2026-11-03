@@ -165,6 +165,21 @@ describe("runner order", () => {
   });
 });
 
+describe("late delivery file (C49)", () => {
+  it("a day loaded without its delivery file loads it once the file exists; with no change it stays 'unchanged'", async () => {
+    const market = sqlite("market"), app = sqlite("app");
+    const deps = (o: Record<string, Uint8Array> = {}) => ({ market, app, raw: { put: async () => {} }, fetch: fakeFetch(o), now: () => new Date("2026-11-03T00:00:00Z"), retryWaits: [0, 0] });
+    expect((await runDay("2025-06-13", deps())).status).toBe("loaded");
+    expect((await runDay("2025-06-13", deps())).status).toBe("unchanged");
+    // real NSE delivery file (30 Oct 2026 sample) re-dated to the test day
+    const dlFile = new TextEncoder().encode(readFileSync(join(FX, "sec_bhavdata_full_30102026.csv"), "utf8").replaceAll("30-Oct-2026", "13-Jun-2025"));
+    const r = await runDay("2025-06-13", deps({ "sec_bhavdata_full_13062025.csv": dlFile }));
+    expect(r.status).toBe("loaded");
+    expect(r.counts!.delivery).toBeGreaterThan(0); // the sample file holds 6 rows
+    expect((await runDay("2025-06-13", deps({ "sec_bhavdata_full_13062025.csv": dlFile }))).status).toBe("unchanged");
+  });
+});
+
 describe("out-of-order loading", () => {
   it("loading 2025-06-16 then 2025-06-13 creates no duplicate securities", async () => {
     const { market, deps } = setup();

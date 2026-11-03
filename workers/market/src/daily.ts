@@ -117,10 +117,14 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   if (us !== 200) return { date, status: "pending", reasons: [`bhavcopy ${us}, PR bundle 200 (dated correctly)`] };
   // Idempotency (B4): unchanged bytes for both main files -> nothing to do.
   const shaU = await sha256Hex(u.res!.bytes), shaP = await sha256Hex(p.res!.bytes);
+  // C49: the delivery and index-close files count too — a day first loaded without one of them was "unchanged" forever,
+  // even after the file arrived. Unchanged = every file matches the ledger, including "still missing".
+  const shaD = dl.res?.status === 200 && dl.res.bytes.length ? await sha256Hex(dl.res.bytes) : undefined;
+  const shaI = ix.res?.status === 200 && ix.res.bytes.length ? await sha256Hex(ix.res.bytes) : undefined;
   const prev = await deps.market.all<{ source: string; sha256: string }>(
-    "SELECT source, sha256 FROM source_file WHERE file_date=? AND source IN ('udiff_bhavcopy','pr_bundle') ORDER BY file_id", [date]);
+    "SELECT source, sha256 FROM source_file WHERE file_date=? AND source IN ('udiff_bhavcopy','pr_bundle','delivery','index_close') ORDER BY file_id", [date]);
   const last = (s: string) => prev.filter((r) => r.source === s).at(-1)?.sha256;
-  if (last("udiff_bhavcopy") === shaU && last("pr_bundle") === shaP) return { date, status: "unchanged" };
+  if (last("udiff_bhavcopy") === shaU && last("pr_bundle") === shaP && last("delivery") === shaD && last("index_close") === shaI) return { date, status: "unchanged" };
 
   lap("fetched");
   // Parse (schema check: parsers throw on missing columns).

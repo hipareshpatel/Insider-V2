@@ -45,6 +45,30 @@ export async function runPending(deps: Deps, opt: RunOptions): Promise<DayReport
   // Once per REPAIR_VERSION, after prices have caught up (factors need both sessions' share counts).
   if ((await maybeCaughtUp(deps))) await repairFactors(deps.market, deps.app, deps.now());
   await maybeSnapshot(deps);
+  if (!out.length) await fillGaps(deps, 4, Math.max(0, opt.budgetMs - (Date.now() - t0))); // only when caught up; reported via /gaps
+  return out;
+}
+
+/** C49 repair: loaded sessions with no delivery or index-close file in the ledger are re-run from stored files (a few
+ *  per run; each date tried at most once a week, so a file that truly doesn't exist costs nothing). */
+export async function gapDates(m: Deps["market"], now: Date, limit = 50): Promise<string[]> {
+  const until = addDays(istNow(now).date, -2);
+  return (await m.all<{ trade_date: string }>(
+    `SELECT t.trade_date FROM trading_calendar t WHERE t.is_session = 1 AND t.universe_rows IS NOT NULL AND t.trade_date <= ?
+       AND (NOT EXISTS (SELECT 1 FROM source_file s WHERE s.source = 'delivery' AND s.file_date = t.trade_date)
+         OR NOT EXISTS (SELECT 1 FROM source_file s WHERE s.source = 'index_close' AND s.file_date = t.trade_date))
+       AND NOT EXISTS (SELECT 1 FROM pipeline_run r WHERE r.pipeline = 'market.gapfill' AND r.run_key = t.trade_date AND r.started_at > ?)
+     ORDER BY t.trade_date LIMIT ?`, [until, new Date(now.getTime() - 7 * 86400_000).toISOString(), limit])).map((r) => r.trade_date);
+}
+async function fillGaps(deps: Deps, limit: number, budgetMs: number): Promise<DayReport[]> {
+  const t0 = Date.now(), out: DayReport[] = [];
+  for (const d of await gapDates(deps.market, deps.now(), limit)) {
+    if (Date.now() - t0 > budgetMs) break;
+    await deps.market.run("INSERT INTO pipeline_run (pipeline, run_key, started_at, finished_at, status) VALUES ('market.gapfill', ?, ?, ?, 'ok')", [d, deps.now().toISOString(), deps.now().toISOString()]);
+    const r = await runDay(d, deps);
+    out.push(r);
+    await chargeBudget(deps.market, deps.now(), r.written ?? 0);
+  }
   return out;
 }
 
