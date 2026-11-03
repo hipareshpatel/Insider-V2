@@ -400,6 +400,8 @@ confidence_gate    published | published_unverified (badge, never hidden)
 
 ## 8. Product (website)
 
+**Full website brief (everything discussed, decided, built and pending, with sources): `docs/website.md`.**
+
 **Public, readable without an account** (D60; owner routes behind Access, D13). **Launch mode: open public, unlisted, no marketing, `noindex` until the owner decides (D89).** Accounts via Google sign-in add watchlists, saved queries/trackers/baskets and on-site alerts (no email/Telegram alerts to users). Owner-only routes sit behind Cloudflare Access.
 
 ### 8.1 Public
