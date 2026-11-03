@@ -34,9 +34,10 @@ export async function snapshotIndices(asOf: string, db: Sql, fetch: Fetcher): Pr
       if (sid === undefined) { report.unmatched.push(`${name}:${m.symbol}`); continue; }
       members.add(sid);
       if (name === "NIFTY TOTAL MARKET") {
-        stmts.push({ sql: `INSERT INTO classification (security_id, as_of, sector, industry_detail, sector_source, source_ref)
+        // Index CSV first (D121): replaces a same-day announcement row (D150); unchanged index sector → no row.
+        stmts.push({ sql: `INSERT OR REPLACE INTO classification (security_id, as_of, sector, industry_detail, sector_source, source_ref)
           SELECT ?1, ?2, ?3, NULL, 'index_csv', ?4
-          WHERE NOT EXISTS (SELECT 1 FROM classification c WHERE c.security_id = ?1 AND c.as_of = (SELECT max(as_of) FROM classification WHERE security_id = ?1) AND c.sector IS ?3)`,
+          WHERE NOT EXISTS (SELECT 1 FROM classification c WHERE c.security_id = ?1 AND c.as_of = (SELECT max(as_of) FROM classification WHERE security_id = ?1) AND c.sector IS ?3 AND c.sector_source = 'index_csv')`,
           params: [sid, asOf, m.sector, `${file}.csv@${asOf}`] });
         report.sectors++;
       }

@@ -1,5 +1,7 @@
 # Sector map — draft for owner review (D121, #240, #290)
 
+**Approved by the owner 2026-11-03 (#291, D150): v1 with all 8 ⚑ rows as proposed; provisional until the full value list is collected.** Live in D1 as `sector_map` (market/0024); new values appear as `unmapped` on `/sectors`.
+
 Drafted 2026-11-03 from NSE data. **Primary source:** the `Industry` column of NSE's Total Market index list (754 stocks, 22 sectors). **Fill:** the `smIndustry` value on NSE announcements (Aug–Oct 2026: 934 companies, 74 values), mapped to the 22 sectors below.
 **How each row was decided:** for companies in both sources, the share whose NSE sector matches the proposed one (`evidence`). *high* = at least 80% agree across 3 or more companies (taken from the data); *judgement* = mixed or thin evidence, decided by Claude (reason given); *no overlap* = no company in both, mapped by NSE's published industry hierarchy.
 **Coverage:** 1344 companies get a sector from either source; 19 of them stay Unclassified. Companies in neither source stay Unclassified until they appear in one.

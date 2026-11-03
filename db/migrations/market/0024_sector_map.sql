@@ -1,0 +1,103 @@
+-- D150 (owner #291): smIndustry → 22-sector map, approved v1 (all 8 flagged rows as proposed), and the announcement
+-- observations it is applied to. A value first seen later is added as 'unmapped' (never guessed) and raised for review.
+CREATE TABLE sector_map (
+  sm_industry   TEXT PRIMARY KEY,
+  sector        TEXT,                         -- NULL = Unclassified
+  map_version   TEXT,                         -- NULL while unmapped
+  status        TEXT NOT NULL CHECK (status IN ('approved','proposed','unmapped')),
+  decided_on    TEXT,
+  first_seen    TEXT,                         -- first announcement carrying it (for values added later)
+  first_ref     TEXT
+);
+INSERT INTO sector_map (sm_industry, sector, map_version, status, decided_on) VALUES
+  ('Abrasives', 'Capital Goods', 'v1', 'approved', '2026-11-03'),
+  ('Airconditioners', 'Consumer Durables', 'v1', 'approved', '2026-11-03'),
+  ('Aluminium', 'Metals & Mining', 'v1', 'approved', '2026-11-03'),
+  ('Auto Ancillaries', 'Automobile and Auto Components', 'v1', 'approved', '2026-11-03'),
+  ('Automobiles - 2 And 3 Wheelers', 'Automobile and Auto Components', 'v1', 'approved', '2026-11-03'),
+  ('Automobiles - 4 Wheelers', 'Automobile and Auto Components', 'v1', 'approved', '2026-11-03'),
+  ('Banks', 'Financial Services', 'v1', 'approved', '2026-11-03'),
+  ('Bearings', 'Capital Goods', 'v1', 'approved', '2026-11-03'),
+  ('Brew/Distilleries', 'Fast Moving Consumer Goods', 'v1', 'approved', '2026-11-03'),
+  ('Cables - Power', 'Capital Goods', 'v1', 'approved', '2026-11-03'),
+  ('Cables - Telecom', 'Telecommunication', 'v1', 'approved', '2026-11-03'),
+  ('Castings/Forgings', 'Automobile and Auto Components', 'v1', 'approved', '2026-11-03'),
+  ('Cement And Cement Products', 'Construction Materials', 'v1', 'approved', '2026-11-03'),
+  ('Ceramics And Sanitaryware', 'Consumer Durables', 'v1', 'approved', '2026-11-03'),
+  ('Chemicals - Inorganic', 'Chemicals', 'v1', 'approved', '2026-11-03'),
+  ('Chemicals - Organic', 'Chemicals', 'v1', 'approved', '2026-11-03'),
+  ('Chemicals - Speciality', 'Chemicals', 'v1', 'approved', '2026-11-03'),
+  ('Cigarettes', 'Fast Moving Consumer Goods', 'v1', 'approved', '2026-11-03'),
+  ('Compressors / Pumps', 'Capital Goods', 'v1', 'approved', '2026-11-03'),
+  ('Computers - Hardware', 'Information Technology', 'v1', 'approved', '2026-11-03'),
+  ('Computers - Software', 'Information Technology', 'v1', 'approved', '2026-11-03'),
+  ('Construction', 'Construction', 'v1', 'approved', '2026-11-03'),
+  ('Consumer Durables', 'Consumer Durables', 'v1', 'approved', '2026-11-03'),
+  ('Cycles', 'Automobile and Auto Components', 'v1', 'approved', '2026-11-03'),
+  ('Diesel Engines', 'Capital Goods', 'v1', 'approved', '2026-11-03'),
+  ('Diversified', 'Diversified', 'v1', 'approved', '2026-11-03'),
+  ('Dyes And Pigments', 'Chemicals', 'v1', 'approved', '2026-11-03'),
+  ('Electrical Equipment', 'Capital Goods', 'v1', 'approved', '2026-11-03'),
+  ('Electrodes', 'Capital Goods', 'v1', 'approved', '2026-11-03'),
+  ('Electronics - Industrial', 'Capital Goods', 'v1', 'approved', '2026-11-03'),
+  ('Engineering', 'Capital Goods', 'v1', 'approved', '2026-11-03'),
+  ('Fastners', 'Automobile and Auto Components', 'v1', 'approved', '2026-11-03'),
+  ('Fertilisers', 'Chemicals', 'v1', 'approved', '2026-11-03'),
+  ('Finance', 'Financial Services', 'v1', 'approved', '2026-11-03'),
+  ('Finance - Housing', 'Financial Services', 'v1', 'approved', '2026-11-03'),
+  ('Financial Institution', 'Financial Services', 'v1', 'approved', '2026-11-03'),
+  ('Food And Food Processing', 'Fast Moving Consumer Goods', 'v1', 'approved', '2026-11-03'),
+  ('Gas', 'Oil Gas & Consumable Fuels', 'v1', 'approved', '2026-11-03'),
+  ('Gems Jewellery And Watches', 'Consumer Durables', 'v1', 'approved', '2026-11-03'),
+  ('Hotels', 'Consumer Services', 'v1', 'approved', '2026-11-03'),
+  ('Leather And Leather Products', 'Consumer Durables', 'v1', 'approved', '2026-11-03'),
+  ('Leisure Facilities', 'Consumer Services', 'v1', 'approved', '2026-11-03'),
+  ('Lubricants', 'Oil Gas & Consumable Fuels', 'v1', 'approved', '2026-11-03'),
+  ('Media & Entertainment', 'Media Entertainment & Publication', 'v1', 'approved', '2026-11-03'),
+  ('Metals', 'Metals & Mining', 'v1', 'approved', '2026-11-03'),
+  ('Mining', 'Metals & Mining', 'v1', 'approved', '2026-11-03'),
+  ('Miscellaneous', NULL, 'v1', 'approved', '2026-11-03'),
+  ('Oil Exploration/Production', 'Oil Gas & Consumable Fuels', 'v1', 'approved', '2026-11-03'),
+  ('Packaging', 'Capital Goods', 'v1', 'approved', '2026-11-03'),
+  ('Paints', 'Consumer Durables', 'v1', 'approved', '2026-11-03'),
+  ('Paper And Paper Products', 'Forest Materials', 'v1', 'approved', '2026-11-03'),
+  ('Personal Care', 'Fast Moving Consumer Goods', 'v1', 'approved', '2026-11-03'),
+  ('Pesticides And Agrochemicals', 'Chemicals', 'v1', 'approved', '2026-11-03'),
+  ('Petrochemicals', 'Chemicals', 'v1', 'approved', '2026-11-03'),
+  ('Pharmaceuticals', 'Healthcare', 'v1', 'approved', '2026-11-03'),
+  ('Plastic And Plastic Products', 'Capital Goods', 'v1', 'approved', '2026-11-03'),
+  ('Power', 'Power', 'v1', 'approved', '2026-11-03'),
+  ('Printing And Publishing', 'Media Entertainment & Publication', 'v1', 'approved', '2026-11-03'),
+  ('Refineries', 'Oil Gas & Consumable Fuels', 'v1', 'approved', '2026-11-03'),
+  ('Refractories', 'Capital Goods', 'v1', 'approved', '2026-11-03'),
+  ('Shipping', 'Services', 'v1', 'approved', '2026-11-03'),
+  ('Solvent Extraction', 'Fast Moving Consumer Goods', 'v1', 'approved', '2026-11-03'),
+  ('Steel And Steel Products', 'Metals & Mining', 'v1', 'approved', '2026-11-03'),
+  ('Sugar', 'Fast Moving Consumer Goods', 'v1', 'approved', '2026-11-03'),
+  ('Tea And Coffee', 'Fast Moving Consumer Goods', 'v1', 'approved', '2026-11-03'),
+  ('Telecommunication - Equipment', 'Telecommunication', 'v1', 'approved', '2026-11-03'),
+  ('Telecommunication - Services', 'Telecommunication', 'v1', 'approved', '2026-11-03'),
+  ('Textile Products', 'Textiles', 'v1', 'approved', '2026-11-03'),
+  ('Textiles - Cotton', 'Textiles', 'v1', 'approved', '2026-11-03'),
+  ('Textiles - Synthetic', 'Textiles', 'v1', 'approved', '2026-11-03'),
+  ('Trading', 'Services', 'v1', 'approved', '2026-11-03'),
+  ('Transmission Towers', 'Construction', 'v1', 'approved', '2026-11-03'),
+  ('Travel And Transport', 'Services', 'v1', 'approved', '2026-11-03'),
+  ('Tyres', 'Automobile and Auto Components', 'v1', 'approved', '2026-11-03');
+
+-- One row per (ISIN, smIndustry) seen on any stored announcement list: first/last time and the first seq id.
+CREATE TABLE industry_seen (
+  isin          TEXT NOT NULL,
+  sm_industry   TEXT NOT NULL,
+  first_at      TEXT NOT NULL,
+  last_at       TEXT NOT NULL,
+  first_ref     TEXT NOT NULL,
+  PRIMARY KEY (isin, sm_industry)
+);
+-- Announcement list files already read (R2 key), so each file is read once.
+CREATE TABLE sector_file (
+  r2_key        TEXT PRIMARY KEY,
+  rows          INTEGER NOT NULL,
+  pairs         INTEGER NOT NULL,
+  read_at       TEXT NOT NULL
+);

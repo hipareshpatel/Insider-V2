@@ -9,7 +9,7 @@ import { addDays, istNow } from "./dates.js";
 
 export interface StructureDeps { market: Sql; raw: R2Bucket; now: () => Date }
 
-async function text(raw: R2Bucket, key: string): Promise<string | null> {
+export async function r2Text(raw: R2Bucket, key: string): Promise<string | null> {
   const o = await raw.get(key);
   if (!o) return null;
   if (o.customMetadata?.enc === "gzip") return new Response(o.body.pipeThrough(new DecompressionStream("gzip"))).text();
@@ -47,29 +47,29 @@ async function intervals(m: Sql, table: "price_band" | "surveillance", keyCols: 
 
 const SOURCES: Source[] = [
   { name: "fo_oi", from: "2024-01-01", async load(iso, _p, c) {
-    const t = await text(c.raw, `cache/content/nsccl/fao_participant_oi_${ddmmyyyy(iso)}.csv`);
+    const t = await r2Text(c.raw, `cache/content/nsccl/fao_participant_oi_${ddmmyyyy(iso)}.csv`);
     if (t === null) return null;
     const rows = parseParticipantOi(t).map((r) => [dnum(iso), r.clientType, ...OI_COLS.map(([k]) => r.values[k] ?? null)]);
     await batchAll(c.m, insertRows(`INSERT OR REPLACE INTO fo_oi_participant (d, client_type, ${OI_COLS.map(([, col]) => col).join(", ")})`, 16, rows));
     return { rows: rows.length };
   } },
   { name: "fo_ban", from: "2024-01-01", async load(iso, _p, c) {
-    const t = await text(c.raw, `cache/archives/fo/sec_ban/fo_secban_${ddmmyyyy(iso)}.csv`);
+    const t = await r2Text(c.raw, `cache/archives/fo/sec_ban/fo_secban_${ddmmyyyy(iso)}.csv`);
     if (t === null) return null;
     const b = parseFoBan(t);
     await batchAll(c.m, insertRows("INSERT OR IGNORE INTO fo_ban (d, symbol)", 2, b.symbols.map((s) => [dnum(iso), s])));
     return { rows: b.symbols.length, note: b.date && b.date !== iso ? `file says ${b.date}` : undefined };
   } },
   { name: "price_band", from: "2024-01-01", async load(iso, prev, c) {
-    const t = await text(c.raw, `cache/content/equities/sec_list_${ddmmyyyy(iso)}.csv`);
+    const t = await r2Text(c.raw, `cache/content/equities/sec_list_${ddmmyyyy(iso)}.csv`);
     if (t === null) return null;
     const rows = parseSecList(t);
     await intervals(c.m, "price_band", ["symbol", "series"], "band", rows.map((r) => ({ k1: r.symbol, k2: r.series, v: r.band })), dnum(iso)!, prev ? dnum(prev) : null);
     return { rows: rows.length };
   } },
   ...(["bulk", "block"] as const).map((kind): Source => ({ name: kind, from: "2024-01-01", async load(iso, _p, c) {
-    const file = await text(c.raw, `cache/content/equities/${kind}_${iso}.csv`); // complete daily file (from 2026-11-03)
-    const api = file === null ? await text(c.raw, `api/market_structure/${kind}_deals/${iso}.json`) : null;
+    const file = await r2Text(c.raw, `cache/content/equities/${kind}_${iso}.csv`); // complete daily file (from 2026-11-03)
+    const api = file === null ? await r2Text(c.raw, `api/market_structure/${kind}_deals/${iso}.json`) : null;
     if (file === null && api === null) return null;
     const deals = (file !== null ? parseDealsCsv(file) : parseDealsApi(api!)).filter((x) => x.date === iso);
     const rows = deals.map((x) => [kind, dnum(iso), x.symbol, x.client, x.side, x.qty, toPaise(x.price) ?? 0, c.sid(x.symbol, iso), x.remarks || null]);
@@ -77,21 +77,21 @@ const SOURCES: Source[] = [
     return { rows: rows.length, note: file !== null ? "complete daily file" : deals.length >= STRUCTURE_API_CAP ? `possibly truncated (API cap ${STRUCTURE_API_CAP})` : undefined };
   } })),
   { name: "short", from: "2024-01-01", async load(iso, _p, c) {
-    const t = await text(c.raw, `api/market_structure/short_selling/${iso}.json`);
+    const t = await r2Text(c.raw, `api/market_structure/short_selling/${iso}.json`);
     if (t === null) return null;
     const ss = parseShortApi(t).filter((x) => x.date === iso);
     await batchAll(c.m, insertRows("INSERT OR IGNORE INTO short_sell (d, symbol, qty, security_id)", 4, ss.map((x) => [dnum(iso), x.symbol, x.qty, c.sid(x.symbol, iso)])));
     return { rows: ss.length, note: ss.length >= STRUCTURE_API_CAP ? `possibly truncated (API cap ${STRUCTURE_API_CAP})` : undefined };
   } },
   { name: "surveillance", from: "2026-11-03", async load(iso, prev, c) {
-    const [a, g] = [await text(c.raw, `api/market_structure/asm/${iso}.json`), await text(c.raw, `api/market_structure/gsm/${iso}.json`)];
+    const [a, g] = [await r2Text(c.raw, `api/market_structure/asm/${iso}.json`), await r2Text(c.raw, `api/market_structure/gsm/${iso}.json`)];
     if (a === null && g === null) return null;
     const rows = parseSurveillance(a, g);
     await intervals(c.m, "surveillance", ["list", "symbol"], "stage", rows.map((r) => ({ k1: r.list, k2: r.symbol, v: r.stage })), dnum(iso)!, prev ? dnum(prev) : null);
     return { rows: rows.length };
   } },
   { name: "fii_dii", from: "2026-11-03", async load(iso, _p, c) {
-    const t = await text(c.raw, `api/market_structure/fii_dii/${iso}.json`);
+    const t = await r2Text(c.raw, `api/market_structure/fii_dii/${iso}.json`);
     if (t === null) return null;
     const rows = parseFiiDii(t); // carries its own trading date (the snapshot is taken in the evening)
     await batchAll(c.m, insertRows("INSERT OR REPLACE INTO fii_dii (d, category, buy_cr, sell_cr, net_cr)", 5, rows.map((r) => [dnum(r.date), r.category, r.buy, r.sell, r.net])));

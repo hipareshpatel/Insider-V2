@@ -6,6 +6,8 @@ import { jumps } from "./jumps.js";
 import { evidence } from "./evidence.js";
 import { chargeBudget, runPending } from "./runner.js";
 import { loadStructure } from "./structure.js";
+import { buildSectors } from "./sectors.js";
+import { istNow } from "./dates.js";
 
 export interface Env {
   DB_MARKET: D1Database;
@@ -38,17 +40,20 @@ export default {
       const meter = { rows: 0 }; // every billed row this run writes (owner #266 cap)
       const deps = { market: d1Sql(env.DB_MARKET, meter), app: d1Sql(env.DB_APP, meter), raw: r2Raw(env.RAW), fetch: r2FirstFetcher(env.RAW, archiveFetcher(), env.CACHE_AUTHORITATIVE_UNTIL), now: () => new Date(), cachedFromR2: true };
       let structure: Record<string, number> | null = null;
+      let sectors: unknown = null;
       const out = await withLock(env.DB_MARKET, 14 * 60_000, async () => {
         const t0 = Date.now();
         const r = await runPending(deps, { maxDates: 40, budgetMs: 8 * 60_000, revisitSessions: 5, from: env.BACKFILL_FROM, monthlyCap: env.MONTHLY_WRITE_CAP ? Number(env.MONTHLY_WRITE_CAP) : undefined });
         // M1 market structure (D144): R2 only, in date order, within what is left of this run.
         structure = await loadStructure({ market: deps.market, raw: env.RAW, now: deps.now }, Math.max(0, 11 * 60_000 - (Date.now() - t0)));
+        // D150: sector history from the stored announcement lists (R2 only), with what is left.
+        sectors = await buildSectors({ market: deps.market, raw: env.RAW, today: istNow(deps.now()).date }, Math.max(0, 12 * 60_000 - (Date.now() - t0)));
         return r;
       });
       // runPending already charged each date's price/factor rows; charge the rest (identity, ledger, reviews, snapshot).
       const charged = (out ?? []).reduce((n, r) => n + (r.written ?? 0), 0);
       if (out && meter.rows > charged) await chargeBudget(d1Sql(env.DB_MARKET), new Date(), meter.rows - charged);
-      console.log(JSON.stringify({ env: env.ENVIRONMENT, rows_written: meter.rows, structure, ran: out?.map((r) => ({ d: r.date, s: r.status, c: r.counts, why: r.reasons?.slice(0, 3) })) ?? "locked" }));
+      console.log(JSON.stringify({ env: env.ENVIRONMENT, rows_written: meter.rows, structure, sectors, ran: out?.map((r) => ({ d: r.date, s: r.status, c: r.counts, why: r.reasons?.slice(0, 3) })) ?? "locked" }));
     })());
   },
 
@@ -78,6 +83,7 @@ export default {
     if (url.pathname === "/acceptance") {
       return Response.json(await acceptance(d1Sql(env.DB_MARKET), d1Sql(env.DB_APP)), { headers: { "cache-control": "no-store" } });
     }
+    if (url.pathname === "/sectors") return Response.json(await sectorView(env.DB_MARKET), { headers: { "cache-control": "no-store" } });
     if (url.pathname === "/reviews") {
       const kind = url.searchParams.get("kind");
       // Full export for item-by-item decisions (D141): id, evidence and proposal; paged by review_id.
@@ -109,3 +115,24 @@ export default {
     return Response.json(body, { headers: { "cache-control": "no-store" } });
   },
 };
+
+// D150 view: the map (with company counts), unmapped values, and how often the map agrees with the index CSV sector.
+async function sectorView(db: D1Database) {
+  const q = async (sql: string) => (await db.prepare(sql).all()).results as Record<string, unknown>[];
+  const latest = `SELECT c.* FROM classification c JOIN (SELECT security_id, max(as_of) AS a FROM classification GROUP BY security_id) l ON l.security_id = c.security_id AND l.a = c.as_of`;
+  const cur = `SELECT s.isin, s.sm_industry FROM industry_seen s JOIN (SELECT isin, max(last_at) AS l FROM industry_seen GROUP BY isin) x ON x.isin = s.isin AND x.l = s.last_at`;
+  const agree = await q(`SELECT m.sm_industry, m.sector AS map_sector, c.sector AS index_sector, count(DISTINCT c.security_id) AS n
+    FROM (${latest}) c JOIN security_identifier i ON i.security_id = c.security_id AND i.id_type = 'isin' JOIN (${cur}) s ON s.isin = i.value
+    JOIN sector_map m ON m.sm_industry = s.sm_industry WHERE c.sector_source = 'index_csv' AND m.status <> 'unmapped' GROUP BY 1, 2, 3`);
+  const same = agree.filter((r) => (r.map_sector ?? null) === (r.index_sector ?? null)).reduce((n, r) => n + Number(r.n), 0);
+  const all = agree.reduce((n, r) => n + Number(r.n), 0);
+  return {
+    files_read: (await q("SELECT count(*) AS n, sum(rows) AS rows, sum(rows < 0) AS unreadable, max(read_at) AS last FROM sector_file"))[0],
+    by_source: await q(`SELECT sector_source, count(*) AS companies FROM (${latest}) GROUP BY 1`),
+    by_sector: await q(`SELECT coalesce(sector, 'Unclassified') AS sector, count(*) AS companies FROM (${latest}) GROUP BY 1 ORDER BY 2 DESC`),
+    unmapped: await q("SELECT sm_industry, first_seen, first_ref FROM sector_map WHERE status = 'unmapped' ORDER BY first_seen"),
+    map: await q(`SELECT m.sm_industry, m.sector, m.status, m.map_version, (SELECT count(DISTINCT isin) FROM industry_seen s WHERE s.sm_industry = m.sm_industry) AS isins FROM sector_map m ORDER BY 1`),
+    index_agreement: { companies: all, same_sector: same, disagreements: agree.filter((r) => (r.map_sector ?? null) !== (r.index_sector ?? null)).sort((a, b) => Number(b.n) - Number(a.n)) },
+    runs: await q("SELECT run_key, finished_at, detail FROM pipeline_run WHERE pipeline = 'market.sectors' ORDER BY run_id DESC LIMIT 5"),
+  };
+}
