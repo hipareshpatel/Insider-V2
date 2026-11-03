@@ -33,7 +33,7 @@ function env(): Env & { m: DatabaseSync; f: DatabaseSync; a: DatabaseSync } {
       (7,20261030,'EQ',150000,152000,149000,151000,300000,100,30000000000,10,1),
       (8,20240110,'EQ',1000,1000,1000,1000,1000,10,1,1,1),(8,20261030,'EQ',5000,5000,5000,5000,4900,10,1,1,1);
     INSERT INTO adj_factor (security_id,ex_date,factor,method,status) VALUES (7,'2026-10-30','0.5','share_ratio','auto'),(7,'2026-10-29','0.1','bc_ratio','review');
-    INSERT INTO index_daily (index_name,d,close,pe,pb,div_yield) VALUES ('NIFTY 50',20261029,'25000','22','3.5','1.2'),('NIFTY 50',20261030,'25250','21','3.5','1.2');
+    INSERT INTO index_daily (index_name,d,close,pe,pb,div_yield) VALUES ('Nifty 50',20261029,'25000','22','3.5','1.2'),('Nifty 50',20261030,'25250','21','3.5','1.2');
     INSERT INTO classification VALUES (7,'2026-10-31','Information Technology',NULL,'index_csv','ind_niftytotalmarket_list.csv@2026-10-31');`);
   filings.raw.exec(`
     INSERT INTO filing (filing_id,security_id,kind,period_end,period_kind,basis,disclosed_at,source_url,status) VALUES (1,7,'results_quarterly','2026-09-30','Q','consolidated','2026-10-16T12:00:00Z','https://nsearchives.nseindia.com/x.xml','loaded'),
@@ -70,7 +70,7 @@ describe("site v0 API", () => {
   it("dashboard: index change and P/E percentile vs own history; breadth; movers exclude today's ex-date", async () => {
     const r = await (await get("/api/v1/dashboard")).json() as any;
     expect(r.as_of).toBe("2026-10-30");
-    expect(r.indices.find((x: any) => x.name === "NIFTY 50")).toMatchObject({ close: 25250, change_pct: 1, pe_percentile: 0 });
+    expect(r.indices.find((x: any) => x.name === "Nifty 50")).toMatchObject({ key: true, close: 25250, change_pct: 1, pe_percentile: 0 }); // real NSE spelling
     expect(r.breadth).toMatchObject({ advances: 1, declines: 1 });
     expect(r.movers.gainers.map((x: any) => x.symbol)).not.toContain("INFY"); // split ex-date today
   });

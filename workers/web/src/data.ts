@@ -31,7 +31,7 @@ export async function dashboard(db: Dbs) {
       "SELECT index_name, d, close, pe, pb, div_yield FROM index_daily WHERE d IN (?, ?) ORDER BY index_name", [d0, d1 ?? d0]),
     m.all<{ index_name: string; below: number; n: number; first: number }>(
       `SELECT h.index_name, sum(CAST(h.pe AS REAL) < CAST(t.pe AS REAL)) AS below, count(*) AS n, min(h.d) AS first FROM index_daily h
-       JOIN index_daily t ON t.index_name = h.index_name AND t.d = ? WHERE h.index_name IN (${marks}) AND h.pe IS NOT NULL AND t.pe IS NOT NULL GROUP BY h.index_name`, [d0, ...KEY_INDICES]),
+       JOIN index_daily t ON t.index_name = h.index_name AND t.d = ? WHERE upper(h.index_name) IN (${marks}) AND h.pe IS NOT NULL AND t.pe IS NOT NULL GROUP BY h.index_name`, [d0, ...KEY_INDICES]),
     // Breadth + movers from the latest session (equity series; prev_close as published, D26: not adjusted, so an
     // ex-date of a split shows as a fall — those securities are excluded from movers using today's factors).
     m.all<{ security_id: number; series: string; close: number; prev_close: number | null; turnover_paise: number | null; kind: string; name: string }>(
@@ -53,9 +53,9 @@ export async function dashboard(db: Dbs) {
   const byName = new Map<string, { today?: (typeof idx)[number]; prev?: (typeof idx)[number] }>();
   for (const r of idx) { const e = byName.get(r.index_name) ?? {}; if (r.d === d0) e.today = r; else e.prev = r; byName.set(r.index_name, e); }
   const indices = [...byName.entries()].filter(([, e]) => e.today).map(([name, e]) => ({
-    name, key: KEY_INDICES.includes(name), close: Number(e.today!.close), change_pct: e.prev ? pct(Number(e.today!.close), Number(e.prev.close)) : null,
+    name, key: KEY_INDICES.includes(name.toUpperCase()), order: KEY_INDICES.indexOf(name.toUpperCase()), close: Number(e.today!.close), change_pct: e.prev ? pct(Number(e.today!.close), Number(e.prev.close)) : null,
     pe: e.today!.pe, pb: e.today!.pb, div_yield: e.today!.div_yield, ...(pctl.get(name) ?? {}),
-  }));
+  })).sort((x, y) => (x.order < 0 ? 999 : x.order) - (y.order < 0 ? 999 : y.order) || x.name.localeCompare(y.name)); // NSE names are mixed case ('Nifty 50')
   const exToday = new Set(exRows.map((r) => r.security_id));
   const eq = rows.filter((r) => r.kind === "equity" && r.prev_close);
   const adv = eq.filter((r) => r.close > r.prev_close!).length, dec = eq.filter((r) => r.close < r.prev_close!).length;
