@@ -2,6 +2,7 @@
 import { archiveFetcher, r2FirstFetcher } from "./archive.js";
 import { d1Sql, r2Raw } from "./d1.js";
 import { acceptance } from "./acceptance.js";
+import { jumps } from "./jumps.js";
 import { chargeBudget, runPending } from "./runner.js";
 
 export interface Env {
@@ -45,6 +46,9 @@ export default {
   // Read-only status (no data beyond counts and run states). Useful from a phone: /status
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+    if (url.pathname === "/jumps") {
+      return Response.json(await jumps(d1Sql(env.DB_MARKET), Number(url.searchParams.get("after") ?? 0), Math.min(150, Number(url.searchParams.get("limit") ?? 100))), { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname === "/corp-actions") {
       // Read-only export for the whole-population comparison with NSE's per-company lists (owner #271 follow-up).
       const after = Number(url.searchParams.get("after") ?? 0);
