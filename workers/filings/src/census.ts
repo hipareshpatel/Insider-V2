@@ -4,7 +4,7 @@
 import { type Sql, balanceAndCash, canonicalResult, isOldGaap, parseXbrl } from "@disclo/core";
 import { RESULT_KINDS } from "./load.js";
 
-export interface CensusRow { job: number; schema: string; prefix: string; template?: string; oldGaap?: boolean; aliasLines?: string[]; aliasUsedAuto?: string[]; error?: string; periodCtxs?: { id: string; revenue: string | null }[]; chosen?: string; ctxSample?: string[]; bs?: { t: string; ok: boolean; fail: string[]; n: number } | null; cf?: { ok: boolean; fail: string[]; n: number } | null }
+export interface CensusRow { job: number; schema: string; prefix: string; template?: string; oldGaap?: boolean; aliasLines?: string[]; aliasUsedAuto?: string[]; error?: string; periodCtxs?: { id: string; revenue: string | null }[]; chosen?: string; ctxSample?: string[]; bs?: { t: string; ok: boolean; fail: string[]; n: number; key?: string } | null; cf?: { ok: boolean; fail: string[]; n: number } | null }
 
 const shortSchema = (ref: string | null) => (ref ?? "").replace(/^.*\//, "").replace(/[_-]?\d{4}-\d{2}-\d{2}/, "").replace(/\.xsd$/, "") || "(none)";
 
@@ -31,7 +31,7 @@ export async function census(db: Sql, getText: (k: string) => Promise<string | n
     if (!st || !en) row.ctxSample = [...inst.contexts.values()].filter((c) => !Object.keys(c.dims).length).slice(0, 6).map((c) => `${c.id}:${c.start ?? ""}..${c.end ?? c.instant ?? ""}`);
     try {
       const b = balanceAndCash(inst);
-      row.bs = b.bs ? { t: b.template, ok: b.bs.checks.length > 0 && b.bs.checks.every((c) => c.ok), fail: b.bs.checks.filter((c) => !c.ok).map((c) => c.name), n: b.bs.checks.length } : null;
+      row.bs = b.bs ? { t: b.template, ok: b.bs.checks.length > 0 && b.bs.checks.every((c) => c.ok), fail: b.bs.checks.filter((c) => !c.ok).map((c) => `${c.name}: ${c.detail}`), n: b.bs.checks.length, key: b.bs.checks.every((c) => c.ok) ? undefined : j.r2_key } : null;
       row.cf = b.cf ? { ok: b.cf.checks.length > 0 && b.cf.checks.every((c) => c.ok), fail: b.cf.checks.filter((c) => !c.ok).map((c) => c.name), n: b.cf.checks.length } : null;
     } catch (e) { row.bs = null; row.cf = null; }
     try {
