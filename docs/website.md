@@ -1,6 +1,6 @@
 # Website — everything discussed, decided, built and pending
 
-**Compiled 2026-11-03** from: the full transcript of the first planning chat (**both sides**: owner statements #1–#227 and Claude's proposals they answered, read directly, not from summaries; §10b), `docs/discussion-log.md` (#228–#302, the build chat), `docs/PLAN.md` (D1–D153, §7.5, §8, §12, §14, §16), `docs/HANDOVER.md` and `docs/field-catalogue.md`.
+**Compiled 2026-11-03** (accepted proposals: first chat §10b, build chat §10c) from: the full transcript of the first planning chat (**both sides**: owner statements #1–#227 and Claude's proposals they answered, read directly, not from summaries; §10b), `docs/discussion-log.md` (#228–#302, the build chat), `docs/PLAN.md` (D1–D153, §7.5, §8, §12, §14, §16), `docs/HANDOVER.md` and `docs/field-catalogue.md`.
 **Rule used:** nothing assumed. Every line cites its decision (D…) or log entry (#…). Where something was proposed but never decided, it says so.
 
 **Status marks:** ✅ decided · 🔨 built in site v0 (now offline) · 🔶 open / pending · ❌ rejected · ⚠ conflict or gap to resolve
@@ -284,6 +284,32 @@ Source: **Claude's own messages** in the first planning chat, matched with your 
 **Site launch checklist (from rows 2, 16, 19, 25, 28, 29 + D89/D108/D115):** EOD label on dashboard · custom domain on the site + CDN cache rules · recreate `www` record · Bot Fight Mode / rate limits decided · noindex kept until owner decides · legal pages live · privacy page explains essential sign-in cookies · analytics on · measure performance from India · quality gate passed.
 
 **Build chat (#228–#302):** Claude does not have that chat's transcript in this session. Its log records your words and what each answer led to (including where you answered "OK" / "Accepted" to the other chat's proposals, e.g. #236, #238, #274, #297), and those are reflected above. The other chat should confirm nothing it proposed and you accepted is missing from its log.
+
+---
+
+## 10c. Accepted in the build chat (#228–#305) and affecting the website
+Source: the build chat's **log** (owner's words + what each answer led to; that chat's transcript isn't available to this session). Checked: all 30 entries where the owner accepted something ("ok", "yes", "accepted", "approved", "go ahead", "keep public"…). Every decision they cite exists and is in PLAN's design sections. Most are build/data approvals; the ones below change **what the website shows** and were missing from this document until now.
+
+| # | Accepted | What it means on the site | Source |
+|---|---|---|---|
+| 1 | Store everything about stocks; **no bonds**; ETFs, REITs/InvITs stored for later | Pages and lists show the **equity universe** (EQ/BE/BZ, no SME, D4); ETFs/REITs stored but **not shown** until decided; bonds not stored | #253, #257, D126, D127 |
+| 2 | Rights entitlements are not shares (Claude's finding, not objected) | `-RE` rights-entitlement instruments never appear as stocks | D139 |
+| 3 | Unlisted entities get no public pages at launch | Graph links to unlisted companies show as text, no page | #238, D39 (e) |
+| 4 | Sector from NSE index CSV, filled from announcement industry via the approved map | Sector shown is **one level** (22 sectors); filled ones carry a "from announcement industry" label (`source = announcement`); unknown → **"Unclassified"** (never guessed) | #239, #240, #291, #294, D121, D150 |
+| 5 | Series breaks for insolvency capital reductions; merged-away shares end | **Charts and returns don't join across a series break**; the break is marked on the chart | #278, D146 |
+| 6 | Exclude old bank-format files without a period ("stocks will have empty financial statements" accepted) | Those bank quarters show as **"not available"**, never blank-as-zero | #278, D145 |
+| 7 | Bulk/block (and short-selling) history capped at 70 rows/day by NSE's API | Days that hit the cap are shown as **"possibly incomplete"**, never as complete | #288, D148 |
+| 8 | Keep EPS | EPS from XBRL only, **adjusted for later splits/bonuses** (built in v0) | #262, D133 |
+| 9 | Screener.in as a referee | **Later** (not used now) | #262, D133 |
+| 10 | Keep V2's quality bar | Card error bar = M7 gate, measured blind; no AI cards public before it | #262, D133, §14 |
+| 11 | Coverage: option B tiered depth; Nifty 50 first | **Nifty 50: full depth** (cards, concalls, latest-quarter brief, write-ups). **Rest of coverage (up to top 1,000, then +100/month, > ₹500 cr in / < ₹300 cr out): light depth**: cards only for key events, **no concall processing**, write-up quarterly at most. 🔶 *Design must show which sections exist for a light-depth stock (how to display coverage depth is not yet decided)* | #191, D111, D112 |
+| 12 | Review screen moved later; Claude decides queue items with evidence meanwhile | Owner review screen (B5) is a later owner-only page | #274, #278, D141, D143 |
+| 13 | Site reads come from precomputed snapshots (V1 practice adopted selectively) | Page views never query history tables; precomputed per page | #258, D131 |
+| 14 | Site v0: protection choice Access / secret link / public → **"Keep public"** | Recorded (D151); now offline (D152) | #297 |
+| 15 | Data first; mockups for approval before any UI code | Recorded (D152) | #299–#301 |
+| 16 | Design-recovery prompt for another chat window | 🔶 Waiting for the owner to paste the earlier design discussion | #304, D153 |
+| 17 | Field catalogue approved; keep adding fields | Query builder / trackers fields = `docs/field-catalogue.md` | #242, D123 |
+| 18 | NSE price and licence managed by the owner | Prices may be shown; §12 Q5/Q11 not a build blocker | #300, D152 |
 
 ---
 
