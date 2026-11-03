@@ -65,7 +65,12 @@ export function r2FirstFetcher(bucket: R2Bucket, fallback: Fetcher, authoritativ
       if (authoritativeUntil && fd && fd <= authoritativeUntil) { f.misses++; return { status: 404, bytes: new Uint8Array(), contentType: null }; }
     }
     f.misses++;
-    return fallback(url);
+    const res = await fallback(url);
+    // Write-through (owner #265: never download the same file twice): a live archive file is kept at the same key the
+    // prefetch uses, before any gate runs, so a later reload or retry reads it from R2 instead of NSE.
+    if (u.hostname === "nsearchives.nseindia.com" && res.status === 200 && res.bytes.length > 0)
+      await bucket.put(`cache${u.pathname}`, res.bytes, { customMetadata: { url, fetched_at: new Date().toISOString() } });
+    return res;
   }, { hits: 0, misses: 0 });
   return f;
 }

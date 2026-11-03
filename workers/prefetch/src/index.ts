@@ -151,6 +151,10 @@ export default {
       by_status: await q("SELECT status, count(*) AS n, sum(bytes) AS bytes FROM fetch_job GROUP BY status"),
       attachments: await q("SELECT status, count(*) AS n, sum(bytes) AS bytes FROM fetch_job WHERE url LIKE 'https://nsearchives%' GROUP BY status"),
       by_kind: await q("SELECT kind, sum(status='done') AS done, sum(status='empty') AS empty, sum(status='failed') AS failed, sum(status='todo') AS todo FROM fetch_job GROUP BY kind"),
+      // Owner #265 download ledger audit: why each failure stopped (final = no more retries) and whether any content
+      // was saved twice under different URLs.
+      failed_by_reason: await q("SELECT kind, http_status, (attempts >= 3 OR IFNULL(http_status,0) = 404) AS final, count(*) AS n FROM fetch_job WHERE status='failed' GROUP BY 1,2,3 ORDER BY n DESC LIMIT 20"),
+      duplicate_content: (await q("SELECT count(*) AS hashes, IFNULL(sum(n),0) AS rows, IFNULL(sum(b),0) AS bytes FROM (SELECT count(*) AS n, sum(bytes) AS b FROM fetch_job WHERE sha256 IS NOT NULL GROUP BY sha256 HAVING count(*) > 1)"))[0],
       recent_errors: await q("SELECT kind, symbol, http_status, error FROM fetch_job WHERE status='failed' ORDER BY fetched_at DESC LIMIT 5"),
       last_runs: await q("SELECT at, detail FROM prefetch_log ORDER BY id DESC LIMIT 5"),
     }, { headers: { "cache-control": "no-store" } });

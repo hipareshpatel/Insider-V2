@@ -2,6 +2,7 @@
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { loadBatch } from "./load.js";
+import { census } from "./census.js";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string }
 
@@ -34,6 +35,11 @@ export default {
   },
   async fetch(req: Request, env: Env) {
     const path = new URL(req.url).pathname;
+    if (path === "/census") {
+      const u = new URL(req.url);
+      const after = Number(u.searchParams.get("after") ?? 0), limit = Math.min(50, Math.max(1, Number(u.searchParams.get("limit") ?? 40)));
+      return Response.json(await census(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), after, limit), { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/audit") return Response.json(await auditJumps(d1Sql(env.DB_FILINGS)), { headers: { "cache-control": "no-store" } });
     if (path !== "/status") return new Response("not found", { status: 404 });
     const q = async (s: string) => (await env.DB_FILINGS.prepare(s).all()).results;

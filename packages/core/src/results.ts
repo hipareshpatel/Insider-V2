@@ -107,6 +107,14 @@ export const LIFE_TAGS: Record<string, string> = {
   pat: "ProfitLossAfterTaxAndExtraordinaryItems",
 };
 
+/** Old Indian GAAP (non-Ind AS) results file: its schema is not an Ind AS entry point and it isn't an Integrated Filing.
+ *  Seen: "other_than_banks_entry_point_2019-09-30.xsd" (old GAAP) vs "Ind-AS_entry_point_2020-03-31.xsd". */
+export function isOldGaap(inst: XbrlInstance): boolean {
+  if (prefixOf(inst) !== "in-bse-fin:") return false;
+  const ref = (inst.schemaRef ?? "").toLowerCase();
+  return ref !== "" && !/ind[-_ ]?as/.test(ref);
+}
+
 /** Alternative tags (old Indian GAAP "NONINDAS" filings, SME companies), tried in order after the main tag. */
 export const PL_ALIASES: Record<string, string[]> = {
   total_income: ["Revenue"],
@@ -137,7 +145,10 @@ function months(a: string, b: string): number {
   return (y2! - y1!) * 12 + (m2! - m1!) + 1;
 }
 
-export function canonicalResult(inst: XbrlInstance): CanonicalResult {
+/** Aliases: "auto" (default) = only old-GAAP files; "all"/"none" exist for the whole-population census (D134). */
+export interface CanonicalOptions { aliases?: "auto" | "all" | "none" }
+
+export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {}): CanonicalResult {
   const P = prefixOf(inst);
   const meta = (tag: string) => inst.facts.find((f) => f.tag === P + tag)?.value ?? null;
   const start = meta("DateOfStartOfReportingPeriod"), end = meta("DateOfEndOfReportingPeriod");
@@ -161,9 +172,11 @@ export function canonicalResult(inst: XbrlInstance): CanonicalResult {
   // Template by content: banks report InterestExpended; industrial and NBFC (Ind AS Div II/III) share the other layout.
   const has = (t: string) => inst.facts.some((f) => f.tag === P + t);
   const template: CanonicalResult["template"] = has("InterestExpended") ? "bank" : has("IncomeFirstYearPremium") ? "life_insurance" : "industrial";
+  const mode = opts.aliases ?? "auto";
+  const useAliases = mode === "all" || (mode === "auto" && isOldGaap(inst));
   const tags = template === "bank" ? BANK_TAGS : template === "life_insurance" ? LIFE_TAGS : PL_TAGS;
   for (const [line, tag] of Object.entries(tags)) {
-    const candidates = [tag, ...(template === "industrial" ? PL_ALIASES[line] ?? [] : [])];
+    const candidates = [tag, ...(template === "industrial" && useAliases ? PL_ALIASES[line] ?? [] : [])];
     const f = candidates.map((t) => inst.facts.find((x) => x.tag === P + t && x.contextRef === ctx!.id && !x.nil)).find((x) => x);
     if (f?.value !== undefined && f.value !== null && f.value !== "") lines[line] = toText(dec(f.value));
     else missing.push(line);

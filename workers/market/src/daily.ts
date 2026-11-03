@@ -186,8 +186,11 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   for (const [source, g] of [["udiff_bhavcopy", u], ["pr_bundle", p], ["delivery", dl], ["index_close", ix]] as const) {
     if (g.res?.status !== 200) continue;
     const sha = source === "udiff_bhavcopy" ? shaU : source === "pr_bundle" ? shaP : await sha256Hex(g.res.bytes);
-    const key = `raw/${source}/${date}/${sha}`;
-    if (g.res.contentType !== null || !deps.cachedFromR2) await deps.raw.put(key, g.res.bytes, g.res.contentType); // R2-cache hits are already raw (D128)
+    // With the R2-first fetcher every archive file is already in R2 at cache/<path> (prefetched or written through),
+    // so the ledger points there and nothing is stored twice; otherwise keep a raw copy.
+    const cacheKey = deps.cachedFromR2 && g.url.startsWith("https://nsearchives.nseindia.com/") ? `cache${new URL(g.url).pathname}` : null;
+    const key = cacheKey ?? `raw/${source}/${date}/${sha}`;
+    if (!cacheKey) await deps.raw.put(key, g.res.bytes, g.res.contentType);
     await deps.market.run(
       "INSERT OR IGNORE INTO source_file (source, file_date, url, sha256, bytes, fetched_at, r2_key) VALUES (?,?,?,?,?,?,?)",
       [source, date, g.url, sha, g.res.bytes.length, iso(deps.now()), key]);

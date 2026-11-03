@@ -320,6 +320,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 262 | "1. Screener — later. 2. Keep EPS. 3. Keep the V2 bar, else why would we do V2." | D133 updated: Screener Later; EPS kept (XBRL, adjusted); M7 gate unchanged, measured blind. | ✅ |
 | 263 | "What's our plan till 9 AM IST? Session ~30% used; two hours left before the reset. Start working as planned; do an FMEA first so we don't hit problems like the last 24 hours. Update documents and the to-do list regularly (hourly is a must)." | Plan in chat; `docs/FMEA.md` written before new code; hourly doc updates (08:00, 09:00) booked. | ✅ |
 | 264 | "Keep the end goal in mind so we don't keep coming back for small corrections and waste time and energy. I chose high thinking expecting more deliberation before decisions, using the latest techniques, so the whole V2 workflow runs smoothly." | Claude acknowledged the pattern and root causes; D134 (whole-population offline run before deploy; root-cause fixes; one deploy pipeline; milestones judged by gates); §14. Applied first to corporate-action purposes and deploy workflows. | 🔶 applying |
+| 265 | On the NONINDAS aliases: "Hope it will not affect latest results. We need to ensure it, else new results will not match." "Ensure you keep track of what is already downloaded, don't miss anything; V1 made the same mistake and downloaded a few items again and again." | Checked rather than assumed: aliases applied to every industrial file (only when the main tag was missing) → now gated to old-GAAP files, with tests that Ind AS / Integrated Filing results are identical with aliases off, and a `/census` over every downloaded results file. Ledger reviewed: one row per URL, R2 write before "done", bounded retries — sound; found and fixed two gaps (live market files not kept where the reader looks; ledger keys for reloaded days pointing to unwritten objects); added failure-by-reason and duplicate-content audit to `/status`. Gap stated: new filings after 2026-11-03 are not queued yet (next M2 item). D135. | 🔶 census running |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -328,7 +329,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #264: all checks pass (134 decisions, 264 entries); no open ⚠.*
+*Last run 2026-11-03 after entry #265: all checks pass (135 decisions, 265 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*

@@ -99,3 +99,21 @@ describe("old Indian GAAP (NONINDAS) results, SME company (AFFORDABLE, real file
     expect(r.checks.length).toBeGreaterThanOrEqual(4);
   });
 });
+
+describe("old-GAAP aliases never touch Ind AS / Integrated Filing results (owner #265)", async () => {
+  const { canonicalResult, isOldGaap } = await import("../src/index.js");
+  const fx = (n: string) => parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", n), "utf8"));
+  for (const n of ["xbrl_INFY_Q3FY25.xml", "xbrl_20MICRONS_Q1FY22_missingctx.xml", "xbrl_INFY_IF_Q2FY27_trim.xml", "xbrl_HDFCBANK_IF_Q2FY27_trim.xml", "xbrl_SBILIFE_IF_Q2FY27_trim.xml"]) {
+    it(`${n}: not old GAAP; result identical with aliases off`, () => {
+      const inst = fx(n);
+      expect(isOldGaap(inst)).toBe(false);
+      expect(canonicalResult(inst)).toEqual(canonicalResult(inst, { aliases: "none" }));
+    });
+  }
+  it("AFFORDABLE (old GAAP) is detected and needs the aliases", () => {
+    const inst = fx("xbrl_AFFORDABLE_nonIndAS.xml");
+    expect(isOldGaap(inst)).toBe(true);
+    expect(canonicalResult(inst, { aliases: "none" }).missing).toContain("pat");
+    expect(canonicalResult(inst).missing).not.toContain("pat");
+  });
+});

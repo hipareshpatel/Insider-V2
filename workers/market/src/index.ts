@@ -60,6 +60,7 @@ export default {
       sessions_loaded: (await q("SELECT count(*) AS n, min(trade_date) AS first, max(trade_date) AS last FROM trading_calendar WHERE is_session=1"))[0],
       securities: (await q("SELECT count(*) AS n FROM security"))[0],
       price_rows: (await q("SELECT count(*) AS n FROM price_daily"))[0],
+      ledger_keys: await q("SELECT substr(r2_key, 1, instr(r2_key, '/')) AS store, count(*) AS n FROM source_file GROUP BY 1"),
       written_today: (await q("SELECT day, rows FROM write_budget ORDER BY day DESC LIMIT 2")),
       factors: (await q("SELECT status, count(*) AS n FROM adj_factor GROUP BY status")),
       last_runs: await q("SELECT run_key, status, started_at, substr(detail,1,300) AS detail FROM pipeline_run ORDER BY run_id DESC LIMIT 10"),
