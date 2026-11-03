@@ -50,6 +50,9 @@ describe("daily freshness (plan item 2)", () => {
     expect(ref).toEqual([{ url: expect.stringContaining("symbol=INFY") as unknown as string, status: "todo" }]);
     expect(ref[0]!.url).toContain("from_date=29-10-2026&to_date=03-11-2026");
     expect((await db.all("SELECT 1 FROM fetch_job WHERE kind LIKE 'bulk_%' OR kind='announcements_daily'")).length).toBe(3);
-    expect(r2.size).toBe(3); expect(calls).toBe(3);
+    expect(r2.size).toBe(6); expect(calls).toBe(6); // + ASM, GSM, FII/DII snapshots (evening)
+    const { seedStructureHistory } = await import("../src/daily.js");
+    expect(await seedStructureHistory(db, now)).toBeGreaterThan(2000); // ~700 weekdays × 3
+    expect(await seedStructureHistory(db, now)).toBe(0); // once
   });
 });

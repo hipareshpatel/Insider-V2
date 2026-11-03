@@ -3,7 +3,7 @@ import { EQUITY_SERIES, type Sql, batchAll, insertRows, parseEquityList, sha256H
 import { d1Sql } from "./d1.js";
 import { attachmentKey, attachments } from "./discover.js";
 import { bulkJobs, companyJobs } from "./jobs.js";
-import { dailyRefresh, dueSlot } from "./daily.js";
+import { dailyRefresh, dueSlot, seedStructureHistory } from "./daily.js";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; PARALLEL?: string; PER_RUN?: string; INGEST_TOKEN?: string }
 
@@ -130,6 +130,8 @@ export default {
           const b = await runBatch(env);
           // Daily freshness (plan item 2): once per IST slot; NSE API answers Cloudflare.
           const db = d1Sql(env.DB_FILINGS), now = new Date();
+          const seeded = await seedStructureHistory(db, now); // D144: once; fetched by the normal runs
+          if (seeded) return { ...b, structure_history_queued: seeded };
           const slot = await dueSlot(db, now);
           if (!slot) return b;
           const ck = await cookies();

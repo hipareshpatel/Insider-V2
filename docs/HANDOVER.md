@@ -25,6 +25,15 @@
 | 6 | M2 remainder: restatement/basis on known cases; PIT/SAST readers | M2 | tests on known cases pass |
 | 7 | M3 site v0 | M3 | performance targets |
 
+**Pending downloads (D144) — keep current:**
+| # | Download | For | State (2026-11-03 11:30 IST) |
+|---|---|---|---|
+| 1 | XBRL attachment backlog (~13.5k) | M2 | running (GitHub; scheduled 22:37 + 08:37 IST) |
+| 2 | Bulk / block deals, short selling 2024 → today (API, 1 call/day; capped at 70 rows → days at 70 flagged) | M1 | queued in the ledger (~2,100 jobs), fetched by the prefetch worker |
+| 3 | F&O participant OI, F&O ban list, price bands 2024 → today (archive) | M1 | GitHub `prefetch-archive` set=structure (dispatched) |
+| 4 | ASM, GSM, FII/DII (no history at NSE) | M1 | daily snapshots from today (evening slot); bulk.csv/block.csv complete daily (archive job 19:07 IST) |
+| 5 | Compress older R2 objects (≈ 11.7 → ≈ 3 GB) | storage | after 2–4 |
+**Storage (owner #278):** 0 PDFs; 24.4 GB raw XML/JSON, 11.7 GB in R2 (newer objects gzipped); keep originals (NSE archive refuses Cloudflare, so no "online path"; re-parsing needs them); after compression ≈ 3 GB, ≈ +0.5 GB/year → ≈ 8 GB in 10 years (free tier 10 GB).
 **V1 hints adopted later (D142, #276):** profit ÷ EPS implied share count as a split/bonus cross-check + no double adjustment when filings restate comparatives; owners vs minorities test; excise duty separate; filler zeros in annual-report XBRL. **Test gap:** stale-Bc rule (C28) needs a multi-day test.
 **Parked (counted, not chased, D140):** 16 stock jumps and ETF unit-split proposals → owner queue; scale-guard anchor class; R2 compression; probe schedule removal (≈ 4 Nov); Workers CPU check (≈ 5 Nov); D1 reads re-measure (≈ 5 Nov).
 **Owner:** review-screen access choice (item 1); Budget Alert $5 (optional); trademark check; email test (last).

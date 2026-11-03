@@ -1,14 +1,15 @@
 name: prefetch-archive
 
 # D128: NSE archive history -> R2 (cache/ keys). The market Worker reads R2 first.
+# No push trigger (owner #265/#278): editing the script must not re-download the whole history.
 on:
+  schedule:
+    - cron: "37 13 * * 1-5"   # 19:07 IST weekdays: today's market + structure files + bulk/block snapshots (D144)
   workflow_dispatch:
     inputs:
-      from: { description: "from date", default: "2024-01-01" }
+      from: { description: "from date (blank = today IST)", default: "" }
       to: { description: "to date (blank = today IST)", default: "" }
-  push:
-    branches: [ccr-eb822347-c3zp4b]
-    paths: ["tools/prefetch_archive.py", ".github/workflows/prefetch-archive.yml"]
+      set: { description: "market | structure | snapshot | daily (all three, today)", default: "daily" }
 
 permissions:
   contents: read
@@ -30,6 +31,13 @@ jobs:
           curl -s -o /dev/null -w "archive from GitHub runner %{http_code}\n" -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0" https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_20240102_F_0000.csv.zip
       - name: Prefetch
         run: |
-          TO="${{ github.event.inputs.to }}"; [ -z "$TO" ] && TO=$(TZ=Asia/Kolkata date +%F)
-          FROM="${{ github.event.inputs.from }}"; [ -z "$FROM" ] && FROM=2024-01-01
-          python3 tools/prefetch_archive.py disclo-raw "$FROM" "$TO" 2>&1 | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email hidden>/g'
+          TODAY=$(TZ=Asia/Kolkata date +%F)
+          TO="${{ github.event.inputs.to }}"; [ -z "$TO" ] && TO=$TODAY
+          FROM="${{ github.event.inputs.from }}"; [ -z "$FROM" ] && FROM=$TO
+          SET="${{ github.event.inputs.set }}"; [ -z "$SET" ] && SET=daily
+          mask() { sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email hidden>/g'; }
+          if [ "$SET" = "daily" ]; then
+            for s in market structure snapshot; do python3 tools/prefetch_archive.py disclo-raw "$TODAY" "$TODAY" $s 2>&1 | mask; done
+          else
+            python3 tools/prefetch_archive.py disclo-raw "$FROM" "$TO" "$SET" 2>&1 | mask
+          fi

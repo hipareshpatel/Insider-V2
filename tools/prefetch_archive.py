@@ -1,14 +1,20 @@
 """Prefetch NSE archive history into R2 (D128). Runs on a GitHub runner.
-Usage: python3 tools/prefetch_archive.py <bucket> <from YYYY-MM-DD> <to YYYY-MM-DD>
-Downloads the daily files (UDiFF bhavcopy, PR bundle, delivery, index closes) in parallel and uploads each
-to R2 at cache/<url path>. Skips files already in R2 (listed once) and 404s (no session)."""
+Usage: python3 tools/prefetch_archive.py <bucket> <from YYYY-MM-DD> <to YYYY-MM-DD> [set]
+set = market (default: UDiFF bhavcopy, PR bundle, delivery, index closes) | structure (D144: F&O participant OI,
+F&O ban list, price bands) | snapshot (today's bulk.csv / block.csv, complete; the history API caps at 70 rows).
+Uploads each file to R2 at cache/<url path> (snapshots: cache/<path>_<date>). Does NOT check R2 first, so run it
+only for dates not yet fetched (the daily schedule runs today only; owner #265: never download twice)."""
 import concurrent.futures as cf, datetime as dt, json, os, subprocess, sys, tempfile, time, urllib.request, urllib.error
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 HOST = "https://nsearchives.nseindia.com"
 
-def urls(d: dt.date):
+def urls(d: dt.date, which: str = "market"):
     y, m, dd = d.strftime("%Y"), d.strftime("%m"), d.strftime("%d")
+    if which == "structure":
+        return [f"{HOST}/content/nsccl/fao_participant_oi_{dd}{m}{y}.csv",
+                f"{HOST}/archives/fo/sec_ban/fo_secban_{dd}{m}{y}.csv",
+                f"{HOST}/content/equities/sec_list_{dd}{m}{y}.csv"]
     return [f"{HOST}/content/cm/BhavCopy_NSE_CM_0_0_0_{y}{m}{dd}_F_0000.csv.zip",
             f"{HOST}/archives/equities/bhavcopy/pr/PR{dd}{m}{y[2:]}.zip",
             f"{HOST}/products/content/sec_bhavdata_full_{dd}{m}{y}.csv",
@@ -43,8 +49,15 @@ def put(bucket, key, data):
 
 def main():
     bucket, a, b = sys.argv[1], dt.date.fromisoformat(sys.argv[2]), dt.date.fromisoformat(sys.argv[3])
-    days = [a + dt.timedelta(n) for n in range((b - a).days + 1)]
-    jobs = [f"{HOST}/content/equities/EQUITY_L.csv", f"{HOST}/emerge/corporates/content/SME_EQUITY_L.csv"] + [u for d in days for u in urls(d)]
+    which = sys.argv[4] if len(sys.argv) > 4 else "market"
+    days = [a + dt.timedelta(n) for n in range((b - a).days + 1) if (a + dt.timedelta(n)).weekday() < 5 or which == "market"]
+    if which == "snapshot":
+        for u in (f"{HOST}/content/equities/bulk.csv", f"{HOST}/content/equities/block.csv"):
+            code, data = get(u)
+            key = "cache" + u[len(HOST):].replace(".csv", f"_{b.isoformat()}.csv")
+            print(u, code, len(data), "uploaded" if code == 200 and put(bucket, key, data) else "skipped", flush=True)
+        return
+    jobs = ([f"{HOST}/content/equities/EQUITY_L.csv", f"{HOST}/emerge/corporates/content/SME_EQUITY_L.csv"] if which == "market" else []) + [u for d in days for u in urls(d, which)]
     stats = {"ok": 0, "404": 0, "refused_or_error": 0, "bytes": 0, "upload_failed": 0}
     t0 = time.time()
     def work(u):

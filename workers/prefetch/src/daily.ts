@@ -57,6 +57,22 @@ async function fetchKept(d: Deps, kind: string, url: string, key: string): Promi
   return { text: ok ? new TextDecoder().decode(r.bytes) : null, jobId: j?.job_id ?? null };
 }
 
+/** D144: queue the market-structure API history once (bulk / block / short selling, one call per weekday from 2024;
+ *  the API caps at 70 rows per call). Marker by primary key (C18: no unindexed scans every minute). */
+export async function seedStructureHistory(db: Sql, now: Date): Promise<number> {
+  if ((await db.all("SELECT 1 FROM daily_refresh WHERE day='once' AND slot='structure_history'")).length) return 0;
+  const day = istDay(now), rows: unknown[][] = [];
+  for (let t = "2024-01-01"; t <= day; t = addDays(t, 1)) {
+    const wd = new Date(Date.parse(t + "T00:00:00Z")).getUTCDay();
+    if (wd === 0 || wd === 6) continue;
+    for (const k of ["bulk_deals", "block_deals", "short_selling"])
+      rows.push([`hist_${k}`, null, `${API}historicalOR/bulk-block-short-deals?optionType=${k}&from=${dmy(t)}&to=${dmy(t)}`, `api/market_structure/${k}/${t}.json`, 1]);
+  }
+  await batchAll(db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key, discovered)", 5, rows));
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once', 'structure_history', ?, ?)", [now.toISOString(), JSON.stringify({ queued: rows.length })]);
+  return rows.length;
+}
+
 export async function dailyRefresh(d: Deps, slot: "evening" | "morning") {
   const day = istDay(d.now), tag = `${day}-${slot}`;
   const out: Record<string, number | string> = { slot };
@@ -84,6 +100,15 @@ export async function dailyRefresh(d: Deps, slot: "evening" | "morning") {
   await batchAll(d.db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key)", 4, jobs)); // fetched by runBatch, then discover()
   out.results_refresh = jobs.length;
   if (sweep) out.sweep = 1;
+  // 5. Market structure (D144). History once: bulk / block / short selling day by day from 2024 (the API caps at 70
+  //    rows per call, so one call per day; days at exactly 70 are flagged at parse time). Daily: today's API lists
+  //    plus ASM, GSM and FII/DII snapshots (no history exists at NSE). Archive files (participant OI, ban list,
+  //    price bands, complete bulk.csv/block.csv) come from the GitHub archive job.
+  if (slot === "evening") {
+    for (const [k, url] of [["asm", `${API}reportASM`], ["gsm", `${API}reportGSM`], ["fii_dii", `${API}fiidiiTradeReact`]] as const)
+      await fetchKept(d, `snap_${k}`, `${url}?d=${day}`, `api/market_structure/${k}/${day}.json`);
+    out.snapshots = 3;
+  }
   await d.db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES (?, ?, ?, ?)", [day, slot, d.now.toISOString(), JSON.stringify(out)]);
   return out;
 }
