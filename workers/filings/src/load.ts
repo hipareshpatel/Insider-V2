@@ -89,7 +89,14 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   const missingCore = CORE[r.template].filter((k) => r.lines[k] === undefined);
   if (missingCore.length) return { jobId: job.job_id, status: "review", detail: `${r.template}: core lines missing ${missingCore.join(",")}` };
   const failed = r.checks.filter((c) => !c.ok);
-  if (failed.length) return { jobId: job.job_id, status: "review", detail: `checks failed: ${failed.map((c) => `${c.name} (${c.detail})`).join("; ").slice(0, 300)}` };
+  // FMEA C7: if the only failure is the expense breakdown (the filing leaves an expense line untagged), the totals are
+  // still proven by the other checks: load them, and record the breakdown lines as missing with the reason.
+  const BREAKDOWN = ["materials", "purchases_stock_in_trade", "inventory_change", "employee_cost", "finance_cost", "depreciation", "other_expenses",
+    "fees_commission_expense", "impairment_financial_instruments", "net_loss_fair_value", "net_loss_derecognition"];
+  const onlyBreakdown = failed.length === 1 && failed[0]!.name === "expense lines = total expenses" && r.checks.filter((c) => c.ok).length >= 2;
+  const nulls: Record<string, string> = {};
+  if (onlyBreakdown) for (const k of BREAKDOWN) if (r.lines[k] !== undefined) { delete r.lines[k]; nulls[k] = "breakdown does not add up to total expenses in the filing"; }
+  if (failed.length && !onlyBreakdown) return { jobId: job.job_id, status: "review", detail: `checks failed: ${failed.map((c) => `${c.name} (${c.detail})`).join("; ").slice(0, 300)}` };
   if (!r.checks.length) return { jobId: job.job_id, status: "review", detail: "no identity check could run" };
 
   const symbol = r.symbol ?? job.symbol;
@@ -124,13 +131,16 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
      ON CONFLICT (kind, source_url) DO NOTHING`,
     [sec.security_id, job.kind.replace(/^xbrl_/, ""), r.periodEnd, r.periodKind, r.basis, disclosedAt, job.url]);
   const [f] = await deps.filings.all<{ filing_id: number }>("SELECT filing_id FROM filing WHERE kind=? AND source_url=?", [job.kind.replace(/^xbrl_/, ""), job.url]);
-  const rows = Object.entries(r.lines).map(([line, value]) => [
-    sec.security_id, TEMPLATE[r.template], "pl", line, "", r.periodEnd, r.periodKind, r.basis, "original", value, null, disclosedAt, f!.filing_id, line, "reported", "results-v1",
-  ]);
+  const rows = [
+    ...Object.entries(r.lines).map(([line, value]) => [
+      sec.security_id, TEMPLATE[r.template], "pl", line, "", r.periodEnd, r.periodKind, r.basis, "original", value, null, disclosedAt, f!.filing_id, line, "reported", "results-v1"]),
+    ...Object.entries(nulls).map(([line, reason]) => [
+      sec.security_id, TEMPLATE[r.template], "pl", line, "", r.periodEnd, r.periodKind, r.basis, "original", null, reason, disclosedAt, f!.filing_id, line, "reported", "results-v1"]),
+  ];
   await batchAll(deps.filings, insertRows(
     "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, rows,
     "ON CONFLICT DO NOTHING"));
-  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}`, rows: rows.length };
+  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}`, rows: rows.length };
 }
 
 export async function loadBatch(deps: Deps, limit = 150, parallel = 8): Promise<LoadOutcome[]> {

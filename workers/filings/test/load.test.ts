@@ -106,3 +106,19 @@ describe("series audit (FMEA B7/C6)", () => {
     expect(j.map((x) => `${x.from}->${x.to}`)).toEqual(["2024-06-30->2024-09-30", "2024-09-30->2024-12-31"]);
   });
 });
+
+describe("expense breakdown missing in the filing (FMEA C7)", () => {
+  it("totals load; breakdown lines are null with a reason", async () => {
+    const broken = xml.replace(/(<in-bse-fin:OtherExpenses contextRef="OneD"[^>]*>)([0-9.]+)/, (_m, a: string, v: string) => a + String(Number(v) - 1000000000));
+    const { filings, deps } = setup({ "att/xbrl/a.xml": broken, "api/results_quarterly/INFY/x.json": list });
+    const o = (await loadBatch(deps))[0]!;
+    expect(o.status).toBe("loaded");
+    expect(o.detail).toContain("breakdown");
+    const v = await filings.all<{ line: string; value: string | null; null_reason: string | null }>("SELECT line, value, null_reason FROM fin_value WHERE line IN ('revenue','pat','other_expenses') ORDER BY line");
+    expect(v).toEqual([
+      { line: "other_expenses", value: null, null_reason: "breakdown does not add up to total expenses in the filing" },
+      { line: "pat", value: "63580000000", null_reason: null },
+      { line: "revenue", value: "349150000000", null_reason: null },
+    ]);
+  });
+});
