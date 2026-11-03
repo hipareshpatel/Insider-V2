@@ -660,7 +660,7 @@ probe/                throwaway reachability check
 **Next build steps (M0–M3 pending, owner #284; full list in HANDOVER):** M1 market-structure loaders; M2 readers for PIT/SAST, ratings, board meetings; balance sheet + cash flow; restatement/basis known-case tests; classification CLI; then M3 site v0. Done today: D1 reads cut (D137); results-reader classes (99.66%, D134); daily discovery of new filings into the ledger (D135); general-insurer template; owner review screen for the review queue (M3); remove the probe's 3×/day schedule (≈ 4 Nov).
 
 **Waiting on the owner:**
-1. Email test: **owner will do it last** (#239).
+1. ~~Email test~~ **working (owner #285).**
 3. **Launch name: Disclo, `disclo.in` (final, D99, D118).** Trademark check resumes (D119): IP India search + filing (classes 36/42) before building the brand.
 4. Review Claude's one-time map of the 75 announcement `smIndustry` values → 22 sectors (D121), when drafted in M0
 

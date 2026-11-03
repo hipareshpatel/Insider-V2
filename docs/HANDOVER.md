@@ -44,7 +44,7 @@
 - **M1 — market data.** (1) 10 clean daily sessions: 0/10, checked weekdays 21:43 IST (non-blocking, D143). (2) **Load market-structure data into D1** (downloads done; readers not built): bulk/block/short (flag 70-row days), participant OI, ban list, price bands, ASM/GSM, FII/DII. (3) Phase 1 test 6: 7 review items open with reasons. Tests 1–3 pass.
 - **M2 — filings & financials.** (1) Readable rate on the whole population (99.66% on 36.9k so far; loader finishing the backlog). (2) **Readers: PIT/SAST, credit ratings, board meetings** (data downloaded). (3) **Balance sheet + cash flow** lines (canonical model; today only P&L is loaded). (4) Restatement / basis rules tested on known cases. (5) Classification CLI once + `smIndustry` → 22-sector map for owner review (D121, #240). (6) Held classes: ~40 scale-guard outliers (need a second source), 14 "missing revenue+pat", 10 pre-2024 BSE shareholding.
 - **M3 — site v0 (not started).** API Worker + public site: dashboard, stock page (market + financials sections), data-health page (incl. the review queue screen, B5); adjusted prices honour series breaks (D146); performance targets (TTFB ≤ 200 ms cached; stock page ≤ 2.0 s on 4G; API p95 ≤ 300/800 ms); noindex + rate limits.
-- **Owner:** trademark check for Disclo; email test (last); optional Cloudflare budget alert $5; review the `smIndustry` sector map when drafted.
+- **Owner:** trademark check for Disclo (pending). ✅ email test working; ✅ Cloudflare budget alert $5 set (#285). Claude shares the `smIndustry` sector map when drafted.
 
 **Storage (owner #278):** 0 PDFs; 24.4 GB raw XML/JSON, 11.7 GB in R2 (newer objects gzipped); keep originals and never delete them (owner #282); after compression ≈ 3 GB, ≈ +0.5 GB/year → ≈ 8 GB in 10 years (free tier 10 GB; beyond that ≈ $0.015/GB-month).
 **V1 hints adopted later (D142, #276):** profit ÷ EPS implied share count as a split/bonus cross-check + no double adjustment when filings restate comparatives; owners vs minorities test; excise duty separate; filler zeros in annual-report XBRL. **Test gap:** stale-Bc rule (C28) needs a multi-day test.
@@ -99,7 +99,7 @@
 
 ## State of setup
 - Domain **`disclo.in`** on Cloudflare (active; DNS cleaned). **Workers Paid active from 2026-11-03.** The public launch name may still change (D99).
-- Email Routing: `info@`, `alerts@`, `paresh@disclo.in` → owner's Gmail. **Test email pending** (owner will verify later).
+- Email Routing: `info@`, `alerts@`, `paresh@disclo.in` → owner's Gmail. **Test email working (owner #285).**
 - Workers subdomain `financialengineer-in.workers.dev`. GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set.
 - `.github/workflows/probe.yml`: deploys, calls and deletes an NSE probe Worker (Cloudflare reachability only; quote-equity/BSE checks removed #240). Runs manually + 3×/day. **Turn the schedule off after ~2 days** of consistent results.
 - **Probe result:** all pipeline NSE sources reachable from Cloudflare; only `quote-equity` (sector classification) is 403 → D8 (owner's machine) stands; the D54 relay isn't needed.
