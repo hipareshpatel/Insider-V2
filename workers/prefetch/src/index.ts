@@ -177,6 +177,9 @@ export default {
       duplicate_content: (await q("SELECT count(*) AS hashes, IFNULL(sum(n),0) AS rows, IFNULL(sum(b),0) AS bytes FROM (SELECT count(*) AS n, sum(bytes) AS b FROM fetch_job WHERE sha256 IS NOT NULL GROUP BY sha256 HAVING count(*) > 1)"))[0],
       duplicate_samples: await q("SELECT sha256, count(*) AS n, group_concat(kind, ' ') AS kinds, min(url) AS url_a, max(url) AS url_b, max(bytes) AS bytes FROM fetch_job WHERE sha256 IN (SELECT sha256 FROM fetch_job WHERE sha256 IS NOT NULL GROUP BY sha256 HAVING count(*) > 1 ORDER BY count(*) DESC LIMIT 6) GROUP BY sha256 ORDER BY n DESC"),
       recent_errors: await q("SELECT kind, symbol, http_status, error FROM fetch_job WHERE status='failed' ORDER BY fetched_at DESC LIMIT 5"),
+      // Owner #278: what is stored, by kind (raw bytes before gzip) and whether any PDF was downloaded.
+      storage_by_kind: await q("SELECT kind, count(*) AS n, sum(bytes) AS bytes FROM fetch_job WHERE status='done' GROUP BY kind ORDER BY 3 DESC"),
+      pdf_files: (await q("SELECT count(*) AS n FROM fetch_job WHERE lower(url) LIKE '%.pdf'"))[0],
       daily_refresh: await q("SELECT day, slot, at, detail FROM daily_refresh ORDER BY day DESC, slot DESC LIMIT 4"),
       sweep_misses: (await q("SELECT count(*) AS n FROM fetch_job a JOIN fetch_job p ON p.job_id = a.parent_id WHERE p.r2_key LIKE '%-sweep.json'"))[0],
       last_runs: await q("SELECT at, detail FROM prefetch_log ORDER BY id DESC LIMIT 5"),
