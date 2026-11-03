@@ -78,7 +78,7 @@ export default {
         fy_loaded: (await q("SELECT count(*) AS n FROM fin_load WHERE status='loaded' AND instr(detail, ' loaded') > 0 AND instr(detail, 'FY not loaded') = 0"))[0],
         fy_not_loaded: await q("SELECT substr(detail, instr(detail, 'FY not loaded: ') + 15, 50) AS reason, count(*) AS n FROM fin_load WHERE instr(detail, 'FY not loaded: ') > 0 GROUP BY 1 ORDER BY 2 DESC LIMIT 15"),
         failed: await q("SELECT substr(detail, 1, 70) AS reason, count(*) AS n FROM fin_load WHERE status='failed' GROUP BY 1 ORDER BY 2 DESC LIMIT 15"),
-        backfill: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'"),
+        backfill: await q("SELECT at, detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'"),
       }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/held") {
@@ -108,7 +108,7 @@ export default {
       shareholding_filings: await q("SELECT count(*) AS n FROM filing WHERE kind='shareholding'"),
       bs_cf_values: await q("SELECT statement, count(*) AS n FROM fin_value WHERE statement IN ('bs','cf') GROUP BY statement"),
       restatements: { flags: (await q("SELECT count(*) AS n FROM restatement_flag"))[0], versions: await q("SELECT version, count(*) AS n FROM fin_value GROUP BY version"), backfill: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='version_backfill'") },
-      bscf_backfill: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'"),
+      bscf_backfill: await q("SELECT at, detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'"),
       events: { cursor: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='events_cursor'"), insider_trades: (await q("SELECT count(*) AS n FROM insider_trade"))[0], sast: (await q("SELECT count(*) AS n FROM sast_disclosure"))[0], board_meetings: (await q("SELECT count(*) AS n FROM board_meeting"))[0], credit_ratings: (await q("SELECT count(*) AS n FROM credit_rating"))[0] },
       review_samples: await q("SELECT l.status, substr(l.detail,1,120) AS detail, j.symbol, j.url FROM fin_load l JOIN fetch_job j ON j.job_id = l.job_id WHERE l.status IN ('review','failed') ORDER BY l.at DESC LIMIT 8"),
     }, { headers: { "cache-control": "no-store" } });

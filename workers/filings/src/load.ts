@@ -262,28 +262,44 @@ export async function loadFy(inst: XbrlInstance, q: CanonicalResult, sid: number
 
 /** One-off backfill: balance sheet + cash flow, and full-year figures (D90), for results files loaded before those
  *  readers (cursor by job_id; one read of each file serves both). */
-export async function backfillBsCf(deps: Deps, limit = 200): Promise<{ after: number; done: boolean; rows: number } | null> {
+export async function backfillBsCf(deps: Deps, limit = 200, budgetMs = 45_000): Promise<{ after: number; done: boolean; rows: number } | null> {
   const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'");
-  const cur = st ? JSON.parse(st.detail) as { after: number; done: boolean; rows: number } : { after: 0, done: false, rows: 0 };
+  const cur = st ? JSON.parse(st.detail) as { after: number; done: boolean; rows: number; stuck?: number; tries?: number; skipped?: number[] } : { after: 0, done: false, rows: 0 };
   if (cur.done) return null;
+  const t0 = Date.now();
+  const save = () => deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','bscf_backfill',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
   const jobs = await deps.filings.all<{ job_id: number; r2_key: string; url: string; kind: string }>(
     `SELECT j.job_id, j.r2_key, j.url, j.kind FROM fin_load l JOIN fetch_job j ON j.job_id = l.job_id
      WHERE l.status='loaded' AND l.job_id > ? AND j.kind IN (${RESULT_KINDS.map(() => "?").join(",")}) ORDER BY l.job_id LIMIT ?`, [cur.after, ...RESULT_KINDS, limit]);
+  let n = 0, complete = true;
   for (const j of jobs) {
-    const xml = await deps.getText(j.r2_key);
-    if (!xml) continue;
-    const [f] = await deps.filings.all<{ filing_id: number; security_id: number; basis: string; disclosed_at: string }>("SELECT filing_id, security_id, basis, disclosed_at FROM filing WHERE kind=? AND source_url=?", [j.kind.replace(/^xbrl_/, ""), j.url]);
-    if (!f) continue;
-    try {
-      const inst = parseXbrl(xml);
-      const r = canonicalResult(inst);
-      cur.rows += (await loadBsCf(inst, f.security_id, TEMPLATE[r.template], f.basis, f.disclosed_at, f.filing_id, deps)).rows;
-      cur.rows += (await loadFy(inst, r, f.security_id, f.disclosed_at, f.filing_id, deps)).rows;
-    } catch { /* unreadable: already counted by the main loader */ }
+    // C48: the position was saved only after the whole batch, so a run cut off by its time limit redid the same files
+    // forever. Now: a time budget, the position saved every 10 files, and a storage read error pauses here (retried next
+    // run) instead of failing the run; after 3 runs stuck on the same file it is skipped and listed.
+    if (Date.now() - t0 > budgetMs) { complete = false; break; }
+    let xml: string | null;
+    try { xml = await deps.getText(j.r2_key); } catch {
+      cur.tries = cur.stuck === j.job_id ? (cur.tries ?? 0) + 1 : 1; cur.stuck = j.job_id;
+      if (cur.tries < 3) { complete = false; break; }
+      (cur.skipped ??= []).push(j.job_id); xml = null;
+    }
+    if (xml) {
+      const [f] = await deps.filings.all<{ filing_id: number; security_id: number; basis: string; disclosed_at: string }>("SELECT filing_id, security_id, basis, disclosed_at FROM filing WHERE kind=? AND source_url=?", [j.kind.replace(/^xbrl_/, ""), j.url]);
+      if (f) {
+        try {
+          const inst = parseXbrl(xml);
+          const r = canonicalResult(inst);
+          cur.rows += (await loadBsCf(inst, f.security_id, TEMPLATE[r.template], f.basis, f.disclosed_at, f.filing_id, deps)).rows;
+          cur.rows += (await loadFy(inst, r, f.security_id, f.disclosed_at, f.filing_id, deps)).rows;
+        } catch { /* unreadable: already counted by the main loader */ }
+      }
+    }
+    cur.after = j.job_id; delete cur.stuck; delete cur.tries;
+    if (++n % 10 === 0) await save();
   }
-  const next = { after: jobs.length ? jobs[jobs.length - 1]!.job_id : cur.after, done: jobs.length < limit, rows: cur.rows };
-  await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','bscf_backfill',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(next)]);
-  return next;
+  cur.done = complete && jobs.length < limit;
+  await save();
+  return { after: cur.after, done: cur.done, rows: cur.rows };
 }
 
 export async function loadBatch(deps: Deps, limit = 150, parallel = 8): Promise<LoadOutcome[]> {
@@ -293,12 +309,13 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8): Promise<
   // parallel, so a hold was judged before its neighbouring periods were on record (ABCAPITAL: 5 post-merger quarters
   // all held against pre-merger values). Re-checked with the full neighbourhood, an isolated outlier (a unit error)
   // stays held; a lasting change loads and is still flagged by the series audit (/audit).
+  // C48: a storage read error ("Error: get: …cloudflarestatus") is temporary: retried on the same cycle.
   const retryBefore = new Date(deps.now().getTime() - 6 * 3600_000).toISOString();
   const kinds = [...RESULT_KINDS, ...SHP_KINDS];
   const marks = kinds.map(() => "?").join(",");
   const jobs = await deps.filings.all<{ job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }>(
     `SELECT j.job_id, j.kind, j.symbol, j.url, j.r2_key, p.r2_key AS parent_key FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
-     WHERE j.status='done' AND j.kind IN (${marks}) AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND ((l.status <> 'skipped' AND NOT (l.status = 'review' AND substr(l.detail, 1, 12) = 'scale guard:')) OR l.at > ?))
+     WHERE j.status='done' AND j.kind IN (${marks}) AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND ((l.status <> 'skipped' AND NOT (l.status = 'review' AND substr(l.detail, 1, 12) = 'scale guard:') AND NOT (l.status = 'failed' AND substr(l.detail, 1, 11) = 'Error: get:')) OR l.at > ?))
      ORDER BY j.job_id LIMIT ?`, [...kinds, retryBefore, limit]);
   const cache = new Map<string, string | null>();
   const out: LoadOutcome[] = [];

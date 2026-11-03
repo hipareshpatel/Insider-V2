@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
-import { broadcastFor, loadBatch, nseIstToUtc } from "../src/load.js";
+import { backfillBsCf, broadcastFor, loadBatch, nseIstToUtc } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 function sqlite(domain: string): Sql & { raw: DatabaseSync } {
@@ -68,6 +68,20 @@ describe("skipped jobs do not block the queue (C43)", () => {
     const later = { ...deps, now: () => new Date("2026-11-03T08:01:00Z") };
     expect((await loadBatch(later))[0]).toMatchObject({ status: "loaded" });
     expect((await filings.all<{ status: string }>("SELECT status FROM fin_load"))).toEqual([{ status: "loaded" }]);
+  });
+});
+
+describe("backfill survives storage read errors (C48)", () => {
+  it("a failing read pauses the backfill at that file; after 3 runs it is skipped and listed, and the position moves on", async () => {
+    const { filings, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded" });
+    const broken = { ...deps, bscf: true, getText: async (k: string) => { if (k === "att/xbrl/a.xml") throw new Error("get: Please look at https://www.cloudflarestatus.com for issues"); return null; } };
+    const cur = async () => JSON.parse((await filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE slot='bscf_backfill'"))[0]!.detail);
+    await backfillBsCf(broken, 10);
+    expect(await cur()).toMatchObject({ after: 0, stuck: 2, tries: 1, done: false });
+    await backfillBsCf(broken, 10);
+    await backfillBsCf(broken, 10);
+    expect(await cur()).toMatchObject({ after: 2, skipped: [2], done: true });
   });
 });
 
