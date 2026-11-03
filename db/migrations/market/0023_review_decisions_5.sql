@@ -1,0 +1,9 @@
+-- D141 (owner #285): last open review items decided from NSE's own share counts and face values; UEL left open (needs official terms).
+DELETE FROM adj_factor WHERE security_id=918 AND ex_date='2024-02-08' AND status='review';
+INSERT INTO adj_factor (security_id,ex_date,factor,method,status) SELECT 918,'2024-02-15','0.8333333333','share_ratio','confirmed' WHERE EXISTS (SELECT 1 FROM security_identifier WHERE security_id=918 AND id_type='nse_symbol' AND value='AKSHAR') ON CONFLICT (security_id,ex_date) DO UPDATE SET factor=excluded.factor, method=excluded.method, status='confirmed';
+DELETE FROM adj_factor WHERE security_id=641 AND ex_date='2025-03-28' AND status='review';
+INSERT INTO adj_factor (security_id,ex_date,factor,method,status) SELECT 641,'2025-04-04','0.5','share_ratio','confirmed' WHERE EXISTS (SELECT 1 FROM security_identifier WHERE security_id=641 AND id_type='nse_symbol' AND value='DHARAN') ON CONFLICT (security_id,ex_date) DO UPDATE SET factor=excluded.factor, method=excluded.method, status='confirmed';
+UPDATE adj_factor SET status='confirmed' WHERE security_id=166 AND ex_date='2026-10-01' AND status='review';
+INSERT INTO adj_factor (security_id,ex_date,factor,method,status) SELECT 966,'2024-01-19','0.7056','terp','confirmed' WHERE EXISTS (SELECT 1 FROM security_identifier WHERE security_id=966 AND id_type='nse_symbol' AND value='ADROITINFO') ON CONFLICT (security_id,ex_date) DO UPDATE SET factor=excluded.factor, method='terp', status='confirmed';
+INSERT INTO adj_factor (security_id,ex_date,factor,method,status) SELECT 2139,'2024-01-30','0.5499','terp','confirmed' WHERE EXISTS (SELECT 1 FROM security_identifier WHERE security_id=2139 AND id_type='nse_symbol' AND value='NAGREEKEXP') ON CONFLICT (security_id,ex_date) DO UPDATE SET factor=excluded.factor, method='terp', status='confirmed';
+DELETE FROM adj_factor WHERE security_id=1615 AND ex_date='2025-06-27' AND status='review';
