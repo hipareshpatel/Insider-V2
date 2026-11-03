@@ -40,6 +40,8 @@
 | **Full history for 20-row-capped lists (D149, C40)** — PIT, SAST, board meetings, corporate actions, credit ratings, governance, BRSR | queued 16:00 IST (≈ 8,200 calls) + their XBRL |
 | Still to verify (no download yet): SAST Reg 31 endpoint; RPT data location; insider-feed completeness | open (§16) |
 
+**Two chats (owner #310):** this build chat may ask the planning chat (session "1.0 V2 planning and mechanism", holds the first-chat transcript) for inputs. Ownership: planning chat = `website.md`, `disclo-design-recovered.md`; build chat = code, migrations, deploys, PLAN data/build sections, HANDOVER, FMEA, field catalogue. Discussion log shared, append-only: pull right before writing, next free number, push at once; on a clash rebase and renumber only your own row.
+
 **Order now (D152, owner #300 — data first, website stopped):** (1) filings backlog speed + every downloaded file read; (2) FY figures (Q4 files carry them; reader takes the quarter only) + 5-year coverage per company vs NSE lists, top 1,000 (D90/D111); (3) event counts vs NSE after C47 (retry 21:00 IST); (4) M1 acceptance tests 4–5 automated, D138 corporate-action re-run, bulk-deal 70-cap; (5) held classes; (6) data-readiness map for every D91/D62/D67 element; then design mockups for owner approval (no UI code before).
 
 **Pending by milestone (owner #284):**
