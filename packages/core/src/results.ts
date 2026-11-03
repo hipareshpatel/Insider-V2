@@ -128,6 +128,7 @@ export const PL_ALIASES: Record<string, string[]> = {
 };
 
 export interface CanonicalResult {
+  aliasProven?: boolean;           // alternative tag names accepted because every identity check passed
   symbol: string | null;
   periodStart: string;
   periodEnd: string;
@@ -155,7 +156,10 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
   const start = meta("DateOfStartOfReportingPeriod"), end = meta("DateOfEndOfReportingPeriod");
   if (!start || !end) throw new Error("results: reporting period not found");
   // Current-period context: entity level (no dimensions) spanning exactly the reporting period.
-  let ctx = [...inst.contexts.values()].find((c) => c.start === start && c.end === end && Object.keys(c.dims).length === 0);
+  // V1 hint (C29): the year-to-date context (FourD) can carry the quarter's own dates; prefer the quarter (OneD)
+  // explicitly instead of relying on document order (20,437 files had both).
+  const spans = [...inst.contexts.values()].filter((c) => c.start === start && c.end === end && Object.keys(c.dims).length === 0);
+  let ctx = spans.find((c) => c.id === "OneD") ?? spans.find((c) => !/^four/i.test(c.id)) ?? spans[0];
   if (!ctx) {
     // Some filings (seen: 2021 in-bse-fin files) reference a context id they never define. The filing's own
     // DateOfStart/EndOfReportingPeriod facts sit in that same context id, so they define its period (FMEA C4).
@@ -181,6 +185,13 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
     const f = candidates.map((t) => inst.facts.find((x) => x.tag === P + t && x.contextRef === ctx!.id && !x.nil)).find((x) => x);
     if (f?.value !== undefined && f.value !== null && f.value !== "") lines[line] = toText(dec(f.value));
     else missing.push(line);
+  }
+  // V1 hint (#276): alternative line names (e.g. ProfitLossForThePeriod in Integrated Filings) are the same concept
+  // only if the file's own arithmetic proves it: retry with aliases and accept only when every check passes.
+  if (mode === "auto" && !useAliases && template === "industrial" && missing.some((m) => ["revenue", "total_income", "pat"].includes(m))) {
+    const alt = canonicalResult(inst, { aliases: "all" });
+    const filled = ["revenue", "total_income", "pat"].every((k) => alt.lines[k] !== undefined);
+    if (filled && alt.checks.length >= 3 && alt.checks.every((c) => c.ok)) return { ...alt, aliasProven: true };
   }
   return {
     symbol: meta("Symbol"), periodStart: start, periodEnd: end, periodKind: kind,

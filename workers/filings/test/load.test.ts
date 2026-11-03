@@ -122,3 +122,36 @@ describe("expense breakdown missing in the filing (FMEA C7)", () => {
     ]);
   });
 });
+
+describe("item 4 batch (V1 hints #276, D145)", () => {
+  it("median anchor: one odd earlier quarter does not hold a normal filing when its other neighbours are normal", async () => {
+    const { filings, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (99,7,'results_quarterly','2024-07-17T00:00:00Z','old');
+      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version) VALUES
+      (7,'industrial','pl','revenue','','2024-09-30','Q','standalone','original','264000','2024-10-17T00:00:00Z',99,'reported','t'),
+      (7,'industrial','pl','revenue','','2025-03-31','Q','standalone','original','405000000000','2025-04-17T00:00:00Z',99,'reported','t'),
+      (7,'industrial','pl','revenue','','2025-06-30','Q','standalone','original','410000000000','2025-07-17T00:00:00Z',99,'reported','t')`);
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded" }); // old rule: held at ×1.5 million vs 264,000
+  });
+  it("a file with no reporting period is excluded (D145), not reviewed", async () => {
+    const noPeriod = xml.replace(/<[^>]*DateOfStartOfReportingPeriod[^>]*>[^<]*<\/[^>]+>/g, "").replace(/<[^>]*DateOfEndOfReportingPeriod[^>]*>[^<]*<\/[^>]+>/g, "");
+    const { deps } = setup({ "att/xbrl/a.xml": noPeriod, "api/results_quarterly/INFY/x.json": list });
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "excluded" });
+  });
+});
+
+import { canonicalResult, parseXbrl } from "@disclo/core";
+describe("quarter vs year-to-date context with the same dates (C29)", () => {
+  it("takes OneD even when FourD comes first in the file", () => {
+    const base = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_AFFORDABLE_nonIndAS.xml"), "utf8");
+    const want = canonicalResult(parseXbrl(base)).lines.revenue;
+    // move the FourD context before OneD and give it the quarter's dates
+    const one = /<xbrli:context id="OneD">[\s\S]*?<\/xbrli:context>/.exec(base)![0];
+    const four = /<xbrli:context id="FourD">[\s\S]*?<\/xbrli:context>/.exec(base)![0];
+    const fourSame = four.replace(/<xbrli:startDate>[^<]+<\/xbrli:startDate>/, /<xbrli:startDate>[^<]+<\/xbrli:startDate>/.exec(one)![0]);
+    const swapped = base.replace(one, "@@ONE@@").replace(four, one).replace("@@ONE@@", fourSame);
+    const inst = parseXbrl(swapped);
+    expect([...inst.contexts.keys()].indexOf("FourD")).toBeLessThan([...inst.contexts.keys()].indexOf("OneD"));
+    expect(canonicalResult(inst).lines.revenue).toBe(want);
+  });
+});

@@ -41,7 +41,7 @@ export function broadcastFor(listJson: string, url: string): string | null {
 const TEMPLATE: Record<CanonicalResult["template"], string> = { industrial: "industrial", bank: "bank", life_insurance: "insurance" };
 const CORE: Record<CanonicalResult["template"], string[]> = { industrial: ["revenue", "pat"], bank: ["interest_earned", "pat"], life_insurance: ["gross_premium", "pat"] };
 
-export interface LoadOutcome { jobId: number; status: "loaded" | "review" | "skipped" | "failed"; detail: string; rows?: number }
+export interface LoadOutcome { jobId: number; status: "loaded" | "review" | "skipped" | "failed" | "excluded"; detail: string; rows?: number }
 
 /** Shareholding pattern (FMEA B3, B4, C1–C3): loaded only when the top-level categories sum exactly to total shares. */
 export async function loadShp(job: { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }, deps: Deps, listCache: Map<string, string | null>): Promise<LoadOutcome> {
@@ -85,7 +85,11 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   if (!xml) return { jobId: job.job_id, status: "failed", detail: "file not in R2" };
   if (!/<\/(?:[\w-]+:)?xbrl>\s*$/.test(xml.trim())) return { jobId: job.job_id, status: "failed", detail: "truncated XML (root not closed)" }; // FMEA B11
   let r: CanonicalResult;
-  try { r = canonicalResult(parseXbrl(xml)); } catch (e) { return { jobId: job.job_id, status: "review", detail: `not a supported results file: ${String(e).slice(0, 140)}` }; }
+  try { r = canonicalResult(parseXbrl(xml)); } catch (e) {
+    // D145 (owner #278): files with no reporting period in them (old bank format) are excluded, not reviewed.
+    if (/reporting period not found/.test(String(e))) return { jobId: job.job_id, status: "excluded", detail: "no reporting period in the file (D145)" };
+    return { jobId: job.job_id, status: "review", detail: `not a supported results file: ${String(e).slice(0, 140)}` };
+  }
   const missingCore = CORE[r.template].filter((k) => r.lines[k] === undefined);
   if (missingCore.length) return { jobId: job.job_id, status: "review", detail: `${r.template}: core lines missing ${missingCore.join(",")}` };
   const failed = r.checks.filter((c) => !c.ok);
@@ -106,19 +110,23 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
 
   // B7 scale guard: revenue-type core line vs this company's latest earlier value for the same basis and period kind.
   const core = CORE[r.template][0]!;
-  // Anchor = the nearest earlier period, loaded or held (FMEA C6: a held value anchors the next filing).
-  const [prev] = await deps.filings.all<{ value: string }>(
+  // Anchor = median of the 4 nearest periods on either side, loaded or held (V1 hint #276: compare with the company's
+  // other quarters). Files load in download order, not period order, so a single earlier value let one odd quarter
+  // hold several later ones (×312 vs 264,000); a median resists one outlier and holds the outlier itself instead.
+  const near = await deps.filings.all<{ value: string }>(
     `SELECT value FROM (
-       SELECT period_end, value FROM fin_value WHERE security_id=?1 AND statement='pl' AND line=?2 AND basis=?3 AND period_kind=?4 AND period_end < ?5 AND value IS NOT NULL
+       SELECT period_end, value FROM fin_value WHERE security_id=?1 AND statement='pl' AND line=?2 AND basis=?3 AND period_kind=?4 AND period_end <> ?5 AND value IS NOT NULL
        UNION ALL
-       SELECT period_end, value FROM fin_held WHERE security_id=?1 AND line=?2 AND basis=?3 AND period_kind=?4 AND period_end < ?5)
-     ORDER BY period_end DESC LIMIT 1`, [sec.security_id, core, r.basis, r.periodKind, r.periodEnd]);
+       SELECT period_end, value FROM fin_held WHERE security_id=?1 AND line=?2 AND basis=?3 AND period_kind=?4 AND period_end <> ?5)
+     ORDER BY abs(julianday(period_end) - julianday(?5)) LIMIT 4`, [sec.security_id, core, r.basis, r.periodKind, r.periodEnd]);
+  const mags = near.map((x) => Math.abs(Number(x.value))).filter((x) => x > 0).sort((a, b) => a - b);
+  const prev = mags.length ? { value: String(mags.length % 2 ? mags[(mags.length - 1) / 2] : (mags[mags.length / 2 - 1]! + mags[mags.length / 2]!) / 2) } : undefined;
   if (prev && dec(prev.value).units !== 0n && dec(r.lines[core]!).units !== 0n) {
     const ratio = Math.abs(Number(toText(div(dec(r.lines[core]!), dec(prev.value), 6))));
     if (ratio >= 10 || ratio <= 0.1) {
       await deps.filings.run("INSERT OR REPLACE INTO fin_held (security_id,line,basis,period_kind,period_end,value,job_id) VALUES (?,?,?,?,?,?,?)",
         [sec.security_id, core, r.basis, r.periodKind, r.periodEnd, r.lines[core]!, job.job_id]);
-      return { jobId: job.job_id, status: "review", detail: `scale guard: ${core} ${r.lines[core]} vs previous ${prev.value} (×${ratio.toFixed(2)})` };
+      return { jobId: job.job_id, status: "review", detail: `scale guard: ${core} ${r.lines[core]} vs median of ${mags.length} nearest periods ${prev.value} (×${ratio.toFixed(2)})` };
     }
   }
 

@@ -127,3 +127,22 @@ describe("decimals in exponent form (census: 3 Integrated Filings)", async () =>
     expect(toText(dec("12.50"))).toBe("12.5");
   });
 });
+
+describe("alternative tag names accepted only when the file's sums prove them (V1 hint #276)", async () => {
+  const { canonicalResult } = await import("../src/index.js");
+  const base = readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_INFY_IF_Q2FY27_trim.xml"), "utf8");
+  const renamed = base.replace(/in-capmkt:ProfitLossForPeriod(?![A-Za-z])/g, "in-capmkt:ProfitLossForThePeriod");
+  it("Integrated Filing using ProfitLossForThePeriod: accepted, same PAT as the original", () => {
+    const want = canonicalResult(parseXbrl(base)).lines.pat;
+    const r = canonicalResult(parseXbrl(renamed));
+    expect(r.aliasProven).toBe(true);
+    expect(r.lines.pat).toBe(want);
+  });
+  it("refused when a sum in the file does not hold", () => {
+    // break total income so "revenue + other income = total income" fails
+    const broken = renamed.replace(/(<in-capmkt:Income\b[^>]*contextRef="OneD"[^>]*>)(\d+)/, (_m, a, v) => a + String(Number(v) + 99_000_000));
+    const r = canonicalResult(parseXbrl(broken));
+    expect(r.aliasProven).toBeUndefined();
+    expect(r.missing).toContain("pat");
+  });
+});
