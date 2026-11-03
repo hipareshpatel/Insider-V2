@@ -65,3 +65,18 @@ describe("disclosure time fallbacks", () => {
     expect(nseIstToUtc("23-MAY-2025 18:05:57")).toBe("2025-05-23T12:35:57.000Z");
   });
 });
+
+describe("shareholding loader", () => {
+  it("loads INFY Sep 2026: total, categories (filed % and % of all shares), named holders; disclosed_at from the list", async () => {
+    const shp = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/shp_INFY_2026-09.xml"), "utf8");
+    const U = "https://nsearchives.nseindia.com/corporate/xbrl/SHP_1742200_20102026120732_WEB.xml";
+    const { filings, deps } = setup({ "att/xbrl/s.xml": shp, "api/shareholding/INFY/x.json": JSON.stringify([{ broadcastDate: "20-OCT-2026 12:07:37", xbrl: U }]) });
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES (3,'shareholding','INFY','u3','api/shareholding/INFY/x.json','done');
+      INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status,parent_id) VALUES (4,'xbrl_shareholding','INFY','${U}','att/xbrl/s.xml','done',3)`);
+    const out = await loadBatch(deps);
+    expect(out.find((o) => o.jobId === 4)).toMatchObject({ status: "loaded" });
+    const p = await filings.all<Record<string, unknown>>("SELECT shares, pct, pct_all_shares FROM shareholding WHERE category='promoter'");
+    expect(p).toEqual([{ shares: 516677914, pct: "0.139", pct_all_shares: "0.1273" }]);
+    expect((await filings.all<{ n: number }>("SELECT count(*) AS n FROM shareholding WHERE holder_name='NANDAN M NILEKANI'"))[0]!.n).toBe(1);
+  });
+});

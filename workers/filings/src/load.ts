@@ -1,7 +1,7 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, type Sql, batchAll, canonicalResult, dec, div, insertRows, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, type Sql, batchAll, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
 
 export interface Deps {
   filings: Sql;
@@ -11,6 +11,7 @@ export interface Deps {
 }
 
 export const RESULT_KINDS = ["xbrl_results_quarterly", "xbrl_results_annual", "xbrl_integrated_financials"];
+export const SHP_KINDS = ["xbrl_shareholding"];
 const MON: Record<string, string> = { JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06", JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12" };
 
 /** "23-Oct-2026 20:19:37" (IST) -> UTC ISO. */
@@ -30,7 +31,7 @@ export function broadcastFor(listJson: string, url: string): string | null {
   const row = rows.find((r) => JSON.stringify(r).includes(url));
   if (!row) return null;
   // broadcast time first; revisions in Integrated Filing lists have none, but carry creation_Date (when NSE received it)
-  for (const k of ["broadcast_Date", "broadCastDate", "exchdisstime", "creation_Date", "revised_Date", "filingDate"]) {
+  for (const k of ["broadcast_Date", "broadCastDate", "broadcastDate", "exchdisstime", "creation_Date", "revised_Date", "filingDate", "submissionDate"]) {
     const t = nseIstToUtc(row[k] as string);
     if (t) return t;
   }
@@ -41,6 +42,43 @@ const TEMPLATE: Record<CanonicalResult["template"], string> = { industrial: "ind
 const CORE: Record<CanonicalResult["template"], string[]> = { industrial: ["revenue", "pat"], bank: ["interest_earned", "pat"], life_insurance: ["gross_premium", "pat"] };
 
 export interface LoadOutcome { jobId: number; status: "loaded" | "review" | "skipped" | "failed"; detail: string; rows?: number }
+
+/** Shareholding pattern (FMEA B3, B4, C1–C3): loaded only when the top-level categories sum exactly to total shares. */
+export async function loadShp(job: { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }, deps: Deps, listCache: Map<string, string | null>): Promise<LoadOutcome> {
+  const xml = await deps.getText(job.r2_key);
+  if (!xml) return { jobId: job.job_id, status: "failed", detail: "file not in R2" };
+  if (!/<\/(?:[\w-]+:)?xbrl>\s*$/.test(xml.trim())) return { jobId: job.job_id, status: "failed", detail: "truncated XML (root not closed)" };
+  let r;
+  try { r = parseShareholding(parseXbrl(xml)); } catch (e) { return { jobId: job.job_id, status: "review", detail: `not a supported shareholding file: ${String(e).slice(0, 140)}` }; }
+  const failed = r.checks.filter((c) => !c.ok);
+  if (failed.length) return { jobId: job.job_id, status: "review", detail: `checks failed: ${failed.map((c) => `${c.name} (${c.detail})`).join("; ").slice(0, 300)}` };
+  const symbol = r.symbol ?? job.symbol;
+  const [sec] = await deps.market.all<{ security_id: number }>(
+    "SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=? ORDER BY valid_to IS NULL DESC, valid_from DESC LIMIT 1", [symbol]);
+  if (!sec) return { jobId: job.job_id, status: "skipped", detail: `symbol ${symbol} not in market identity yet` };
+  if (job.parent_key && !listCache.has(job.parent_key)) listCache.set(job.parent_key, await deps.getText(job.parent_key));
+  const disclosedAt = (job.parent_key && broadcastFor(listCache.get(job.parent_key) ?? "", job.url)) ?? null;
+  if (!disclosedAt) return { jobId: job.job_id, status: "review", detail: "broadcast time not found in its list (D32 needs disclosed_at)" };
+  await deps.filings.run(
+    `INSERT INTO filing (security_id, kind, period_end, period_kind, basis, disclosed_at, source_url, status) VALUES (?,?,?,'event','na',?,?,'loaded')
+     ON CONFLICT (kind, source_url) DO NOTHING`, [sec.security_id, "shareholding", r.asOf, disclosedAt, job.url]);
+  const [f] = await deps.filings.all<{ filing_id: number }>("SELECT filing_id FROM filing WHERE kind='shareholding' AND source_url=?", [job.url]);
+  const fid = f!.filing_id;
+  const rows: unknown[][] = [[fid, sec.security_id, r.asOf, "total", "", r.totalShares, "1", null, "1"]];
+  for (const c of r.categories) rows.push([fid, sec.security_id, r.asOf, c.category, "", c.shares, c.filedPct, c.category === "promoter" ? r.promoterEncumbrance.pledged : null, c.pct]);
+  const seen = new Set<string>();
+  for (const h of r.namedHolders) {
+    const k = `${h.group}|${h.name}`;
+    if (seen.has(k)) continue; seen.add(k);
+    rows.push([fid, sec.security_id, r.asOf, `holder:${h.group}`, h.name, h.shares, h.filedPct, null, h.pct]);
+  }
+  await batchAll(deps.filings, [
+    ...insertRows("INSERT INTO shareholding (filing_id,security_id,as_of,category,holder_name,shares,pct,pledged_shares,pct_all_shares)", 9, rows, "ON CONFLICT DO NOTHING"),
+    { sql: `INSERT INTO promoter_encumbrance (filing_id,security_id,as_of,encumbered,pledged,non_disposal,other,pct_of_promoter_holding) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
+      params: [fid, sec.security_id, r.asOf, r.promoterEncumbrance.encumbered, r.promoterEncumbrance.pledged, r.promoterEncumbrance.nonDisposal, r.promoterEncumbrance.other, r.promoterEncumbrance.pctOfPromoterHolding] },
+  ]);
+  return { jobId: job.job_id, status: "loaded", detail: `shareholding ${r.asOf}`, rows: rows.length + 1 };
+}
 
 export async function loadOne(job: { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }, deps: Deps, listCache: Map<string, string | null>): Promise<LoadOutcome> {
   const xml = await deps.getText(job.r2_key);
@@ -88,16 +126,17 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
 }
 
 export async function loadBatch(deps: Deps, limit = 150): Promise<LoadOutcome[]> {
-  const marks = RESULT_KINDS.map(() => "?").join(",");
+  const kinds = [...RESULT_KINDS, ...SHP_KINDS];
+  const marks = kinds.map(() => "?").join(",");
   const jobs = await deps.filings.all<{ job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }>(
     `SELECT j.job_id, j.kind, j.symbol, j.url, j.r2_key, p.r2_key AS parent_key FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
      WHERE j.status='done' AND j.kind IN (${marks}) AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND l.status <> 'skipped')
-     ORDER BY j.job_id LIMIT ?`, [...RESULT_KINDS, limit]);
+     ORDER BY j.job_id LIMIT ?`, [...kinds, limit]);
   const cache = new Map<string, string | null>();
   const out: LoadOutcome[] = [];
   for (const j of jobs) {
     let o: LoadOutcome;
-    try { o = await loadOne(j, deps, cache); } catch (e) { o = { jobId: j.job_id, status: "failed", detail: String(e).slice(0, 200) }; }
+    try { o = SHP_KINDS.includes(j.kind) ? await loadShp(j, deps, cache) : await loadOne(j, deps, cache); } catch (e) { o = { jobId: j.job_id, status: "failed", detail: String(e).slice(0, 200) }; }
     out.push(o);
     await deps.filings.run("INSERT INTO fin_load (job_id, status, detail, at) VALUES (?,?,?,?) ON CONFLICT (job_id) DO UPDATE SET status=excluded.status, detail=excluded.detail, at=excluded.at",
       [o.jobId, o.status, o.detail, deps.now().toISOString()]);
