@@ -317,10 +317,11 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #253: all checks pass (128 decisions, 253 entries); no open ⚠.*
+*Last run 2026-11-02 after entry #253 (05:35 IST, build status added): all checks pass (129 decisions, 253 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
+- **#241** Build: M0 done; M1 history loading; M2 started (see PLAN §16 build status). Proposed: as-filed XBRL facts in R2, not D1 (owner decision).
 - **#226/#239** Email test (owner, last).
 - **#240** Owner reviews the `smIndustry` → 22-sector map when drafted (M0).
 - **#239** Trademark check for Disclo (IP India search + filing), owner.

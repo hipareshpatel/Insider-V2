@@ -642,6 +642,17 @@ probe/                throwaway reachability check
 
 **Upgrades needed before backfill/go-live:** ~~Workers Paid~~ done (#243); a paid Gemini API key (M5/M6; free AI Studio key for trials, D122). (At M0, check the existing Cloudflare API token's permissions cover D1/R2/Queues deploys; widen if not.)
 
+**Build status (2026-11-03 morning):**
+- M0 foundations ✅ (monorepo, CI, 12 D1 databases with migrations, building blocks B1–B5 with tests, deploy workflows).
+- M1 market data: history 2024-01-01 → today loading/loaded on Cloudflare (every instrument stored, D127); Phase 1 tests 1 and 3 pass on live data; test 2 needs the first index snapshot; test 6 (review queue empty) needs owner review; M1 "done" also needs 10 consecutive clean daily runs (≈ mid-November).
+- D128 prefetch: archive history in R2; NSE API lists for every company in R2; XBRL attachments downloading.
+- M2 started: XBRL reader + canonical results templates (industrial, NBFC, bank, life insurer) with identity checks.
+
+**Proposed, for owner decision:**
+- **As-filed XBRL facts in R2, not D1** (amends D47 layer 1): ~200k filings × ~500 facts ≈ 100M rows would exceed D1 size and the monthly write allowance; raw XML is already kept in R2 (lossless), D1 keeps canonical lines + checks.
+
+**Next build steps:** shareholding (SHP) reader; general-insurer template; load canonical results from R2 into `filings`; owner review screen for the review queue (M3); remove the probe's 3×/day schedule (≈ 4 Nov).
+
 **Waiting on the owner:**
 1. Email test: **owner will do it last** (#239).
 3. **Launch name: Disclo, `disclo.in` (final, D99, D118).** Trademark check resumes (D119): IP India search + filing (classes 36/42) before building the brand.
