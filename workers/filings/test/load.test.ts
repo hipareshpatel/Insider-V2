@@ -58,6 +58,19 @@ describe("results loader (M2)", () => {
   });
 });
 
+describe("skipped jobs do not block the queue (C43)", () => {
+  it("a job skipped for missing identity is retried only after 6 hours; new jobs go first", async () => {
+    const { filings, market, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    market.raw.exec("DELETE FROM security_identifier");
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "skipped" });
+    expect(await loadBatch(deps)).toEqual([]); // not re-read on the next run
+    market.raw.exec("INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (7,'nse_symbol','INFY','2024-01-01','t')");
+    const later = { ...deps, now: () => new Date("2026-11-03T08:01:00Z") };
+    expect((await loadBatch(later))[0]).toMatchObject({ status: "loaded" });
+    expect((await filings.all<{ status: string }>("SELECT status FROM fin_load"))).toEqual([{ status: "loaded" }]);
+  });
+});
+
 describe("disclosure time fallbacks", () => {
   it("Integrated Filing revision rows: creation_Date when broadcast_Date is empty", () => {
     const l = JSON.stringify({ data: [{ broadcast_Date: null, creation_Date: "23-May-2025 18:05:57", xbrl: "https://x/a.xml" }] });

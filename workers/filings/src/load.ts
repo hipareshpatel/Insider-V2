@@ -261,12 +261,15 @@ export async function backfillBsCf(deps: Deps, limit = 200): Promise<{ after: nu
 }
 
 export async function loadBatch(deps: Deps, limit = 150, parallel = 8): Promise<LoadOutcome[]> {
+  // C43: a 'skipped' job (symbol not in market identity yet) is retried at most every 6 hours. Retrying it on every
+  // run filled the whole batch with the same ~300 skipped jobs, so new files and the BS/CF backfill stopped.
+  const retryBefore = new Date(deps.now().getTime() - 6 * 3600_000).toISOString();
   const kinds = [...RESULT_KINDS, ...SHP_KINDS];
   const marks = kinds.map(() => "?").join(",");
   const jobs = await deps.filings.all<{ job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }>(
     `SELECT j.job_id, j.kind, j.symbol, j.url, j.r2_key, p.r2_key AS parent_key FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
-     WHERE j.status='done' AND j.kind IN (${marks}) AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND l.status <> 'skipped')
-     ORDER BY j.job_id LIMIT ?`, [...kinds, limit]);
+     WHERE j.status='done' AND j.kind IN (${marks}) AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND (l.status <> 'skipped' OR l.at > ?))
+     ORDER BY j.job_id LIMIT ?`, [...kinds, retryBefore, limit]);
   const cache = new Map<string, string | null>();
   const out: LoadOutcome[] = [];
   let i = 0;
