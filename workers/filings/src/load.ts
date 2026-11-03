@@ -171,8 +171,7 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
     "ON CONFLICT DO NOTHING"));
   await versionPeriod(deps.filings, sec.security_id, r.periodEnd, r.periodKind, r.basis);
   const extra = deps.bscf ? await loadBsCf(inst!, sec.security_id, TEMPLATE[r.template], r.basis, disclosedAt, f!.filing_id, deps) : { rows: 0, note: "" };
-  const fyx = await loadFy(inst!, r, sec.security_id, disclosedAt, f!.filing_id, deps);
-  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}${extra.note}${fyx.note}`, rows: rows.length + extra.rows + fyx.rows };
+  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}${extra.note}`, rows: rows.length + extra.rows };
 }
 
 /** D48: for one company, period and basis, the earliest disclosure is 'original' and every later one 'restated'
@@ -239,29 +238,7 @@ export async function loadBsCf(inst: XbrlInstance, sid: number, template: string
   return { rows: rows.length, note: notes.length ? `; ${notes.join("; ")}` : "" };
 }
 
-/** D90: full-year P&L from a March-quarter (fiscal-year-end) file's year-to-date context, loaded only when its own
- *  identities pass and FY ÷ quarter of the core line is plausible (1–12×). Same filing, disclosed_at and basis. */
-export async function loadFy(inst: XbrlInstance, q: CanonicalResult, sid: number, disclosedAt: string, filingId: number, deps: Deps): Promise<{ rows: number; note: string }> {
-  if (q.periodKind !== "Q") return { rows: 0, note: "" };
-  const fyStart = inst.facts.find((x) => /:DateOfStartOfFinancialYear$/.test(x.tag))?.value ?? null;
-  if (!fyStart || months(fyStart, q.periodEnd) !== 12) return { rows: 0, note: "" };
-  let fy: CanonicalResult;
-  try { fy = canonicalResult(inst, { span: "ytd" }); } catch (e) { return { rows: 0, note: `; FY not loaded: ${String(e).slice(0, 60)}` }; }
-  if (fy.periodKind !== "FY" || fy.template !== q.template) return { rows: 0, note: "; FY not loaded: year-to-date context is not a full year" };
-  const core = CORE[fy.template];
-  if (core.some((k) => fy.lines[k] === undefined)) return { rows: 0, note: `; FY not loaded: missing ${core.filter((k) => fy.lines[k] === undefined).join(",")}` };
-  if (fy.checks.length < 2 || fy.checks.some((c) => !c.ok)) return { rows: 0, note: `; FY not loaded: ${fy.checks.filter((c) => !c.ok).map((c) => c.name).join(", ") || "too few checks"}` };
-  const qv = Number(q.lines[core[0]!]), fv = Number(fy.lines[core[0]!]);
-  if (qv > 0 && fv > 0 && (fv / qv < 1 || fv / qv > 12)) return { rows: 0, note: `; FY not loaded: FY ÷ quarter ${(fv / qv).toFixed(2)}` };
-  const rows = Object.entries(fy.lines).map(([line, value]) => [sid, TEMPLATE[fy.template], "pl", line, "", fy.periodEnd, "FY", fy.basis, "original", value, null, disclosedAt, filingId, line, "reported", "results-fy-v1"]);
-  await batchAll(deps.filings, insertRows(
-    "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, rows, "ON CONFLICT DO NOTHING"));
-  await versionPeriod(deps.filings, sid, fy.periodEnd, "FY", fy.basis);
-  return { rows: rows.length, note: `; ${fy.label} loaded` };
-}
-
-/** One-off backfill: balance sheet + cash flow, and full-year figures (D90), for results files loaded before those
- *  readers (cursor by job_id; one read of each file serves both). */
+/** One-off backfill: balance sheet + cash flow for results files loaded before the BS/CF reader (cursor by job_id). */
 export async function backfillBsCf(deps: Deps, limit = 200): Promise<{ after: number; done: boolean; rows: number } | null> {
   const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'");
   const cur = st ? JSON.parse(st.detail) as { after: number; done: boolean; rows: number } : { after: 0, done: false, rows: 0 };
@@ -278,7 +255,6 @@ export async function backfillBsCf(deps: Deps, limit = 200): Promise<{ after: nu
       const inst = parseXbrl(xml);
       const r = canonicalResult(inst);
       cur.rows += (await loadBsCf(inst, f.security_id, TEMPLATE[r.template], f.basis, f.disclosed_at, f.filing_id, deps)).rows;
-      cur.rows += (await loadFy(inst, r, f.security_id, f.disclosed_at, f.filing_id, deps)).rows;
     } catch { /* unreadable: already counted by the main loader */ }
   }
   const next = { after: jobs.length ? jobs[jobs.length - 1]!.job_id : cur.after, done: jobs.length < limit, rows: cur.rows };

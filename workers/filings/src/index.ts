@@ -40,7 +40,7 @@ export default {
         // job 250168; INFY 20 of NSE's 2,199 insider trades). Lists are small; 150 per run.
         await loadEvents(ldeps.filings, ldeps.getText, 150); // M2 events: PIT, SAST, board meetings, credit ratings (owner #289)
         out = await loadBatch(ldeps, 300, 8);
-        if (ldeps.bscf) await backfillBsCf(ldeps, out.length < 300 ? 200 : 60); // M2: BS/CF + FY (D90) for earlier filings; a small share every run (it never started while the backlog filled every run)
+        if (ldeps.bscf && out.length < 300) await backfillBsCf(ldeps, 200); // M2: balance sheet + cash flow for earlier filings, when the queue is light
         await versionBackfill(ldeps.filings, 150); // D48: label earlier-loaded revisions once
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
