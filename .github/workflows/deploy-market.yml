@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ccr-eb822347-c3zp4b]
-    paths: ["workers/market/**", "workers/prefetch/**", "db/migrations/filings/**", "packages/core/src/**", "db/migrations/market/**", ".github/workflows/deploy-market.yml", "tools/d1.mjs"]
+    paths: ["workers/market/**", "workers/prefetch/**", "packages/core/src/**", "db/migrations/market/**", ".github/workflows/deploy-market.yml", "tools/d1.mjs"]
 
 permissions:
   contents: read
