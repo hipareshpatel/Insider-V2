@@ -1,7 +1,7 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { backfillBsCf, loadBatch } from "./load.js";
+import { backfillBsCf, loadBatch, versionBackfill } from "./load.js";
 import { census } from "./census.js";
 import { loadEvents } from "./events.js";
 import { caLists } from "./calists.js";
@@ -38,6 +38,7 @@ export default {
         const ldeps = { filings: d1Sql(env.DB_FILINGS, meter), market: d1Sql(env.DB_MARKET), getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: env.BSCF_LOAD === "1" };
         out = await loadBatch(ldeps, 300, 8);
         if (ldeps.bscf && out.length < 300) await backfillBsCf(ldeps, 200); // M2: balance sheet + cash flow for earlier filings, when the queue is light
+        await versionBackfill(ldeps.filings, 150); // D48: label earlier-loaded revisions once
         await loadEvents(ldeps.filings, ldeps.getText, 200); // M2 events: PIT, SAST, board meetings, credit ratings (owner #289)
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
@@ -94,6 +95,7 @@ export default {
       values: await q("SELECT basis, count(*) AS n FROM fin_value GROUP BY basis"),
       shareholding_filings: await q("SELECT count(*) AS n FROM filing WHERE kind='shareholding'"),
       bs_cf_values: await q("SELECT statement, count(*) AS n FROM fin_value WHERE statement IN ('bs','cf') GROUP BY statement"),
+      restatements: { flags: (await q("SELECT count(*) AS n FROM restatement_flag"))[0], versions: await q("SELECT version, count(*) AS n FROM fin_value GROUP BY version"), backfill: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='version_backfill'") },
       bscf_backfill: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'"),
       events: { cursor: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='events_cursor'"), insider_trades: (await q("SELECT count(*) AS n FROM insider_trade"))[0], sast: (await q("SELECT count(*) AS n FROM sast_disclosure"))[0], board_meetings: (await q("SELECT count(*) AS n FROM board_meeting"))[0], credit_ratings: (await q("SELECT count(*) AS n FROM credit_rating"))[0] },
       review_samples: await q("SELECT l.status, substr(l.detail,1,120) AS detail, j.symbol, j.url FROM fin_load l JOIN fetch_job j ON j.job_id = l.job_id WHERE l.status IN ('review','failed') ORDER BY l.at DESC LIMIT 8"),

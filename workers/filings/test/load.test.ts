@@ -222,3 +222,41 @@ describe("M2 event loader (PIT, SAST, board meetings, credit ratings)", () => {
     expect((await filings.all<{ n: number }>("SELECT count(*) AS n FROM insider_trade"))[0]!.n).toBe(36);
   });
 });
+
+describe("restatement and basis rules on known cases (M2 gate, D48/D50)", () => {
+  function twoFilings(fileA: string, fileB: string, atA: string, atB: string, order: [number, number]) {
+    const filings = sqlite("filings"), market = sqlite("market");
+    market.raw.exec("DELETE FROM job_lock; INSERT INTO security (security_id,name) VALUES (7,'Infosys'); INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (7,'nse_symbol','INFY','2020-01-01','t')");
+    const UA = "https://nsearchives.nseindia.com/corporate/xbrl/A.xml", UB = "https://nsearchives.nseindia.com/corporate/xbrl/B.xml";
+    const listJ = JSON.stringify([{ broadCastDate: atA, resultDetailedDataLink: UA }, { broadCastDate: atB, resultDetailedDataLink: UB }]);
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES (1,'results_quarterly','INFY','u1','api/l.json','done');
+      INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status,parent_id) VALUES (${order[0]},'xbrl_results_quarterly','INFY','${UA}','att/A.xml','done',1), (${order[1]},'xbrl_results_quarterly','INFY','${UB}','att/B.xml','done',1)`);
+    const files: Record<string, string> = { "att/A.xml": fileA, "att/B.xml": fileB, "api/l.json": listJ };
+    return { filings, deps: { filings, market, getText: async (k: string) => files[k] ?? null, now: () => new Date("2026-11-03T02:00:00Z") } };
+  }
+  const base = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_Q3FY25.xml"), "utf8");
+  // a revision of the same quarter with revenue 2% higher (other income adjusted so the file's own sums still hold)
+  // every rupee figure of the quarter scaled by 2%: a consistent revision whose own sums still hold
+  const rev = base.replace(/(<in-bse-fin:[A-Za-z]+\b[^>]*contextRef="OneD"[^>]*unitRef="INR"[^>]*>)(-?\d+(?:\.\d+)?)/g, (_m, a, v) => a + String(Math.round(Number(v) * 1.02)));
+  it("earliest disclosure = original, later = restated, > 0.5% change flagged — in either load order", async () => {
+    for (const order of [[2, 3], [3, 2]] as [number, number][]) {
+      const { filings, deps } = twoFilings(base, rev, "16-Jan-2025 19:42:10", "20-Feb-2025 10:00:00", order);
+      await loadBatch(deps);
+      const v = await filings.all<{ version: string; disclosed_at: string }>("SELECT DISTINCT version, disclosed_at FROM fin_value WHERE line='pat' ORDER BY disclosed_at");
+      expect(v.map((x) => x.version)).toEqual(["original", "restated"]);
+      const flags = await filings.all<{ line: string; change_pct: string }>("SELECT line, change_pct FROM restatement_flag");
+      expect(flags.length).toBeGreaterThanOrEqual(2); // revenue, total income, PAT changed by 2% > 0.5%
+      expect(flags.every((f) => Math.abs(Number(f.change_pct) - 2) < 0.1)).toBe(true);
+    }
+  });
+  it("standalone and consolidated for the same quarter stay two series (INFY Sep 2024, real files)", async () => {
+    const st = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_Q2FY25_standalone.xml"), "utf8");
+    const co = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_Q2FY25_cons.xml"), "utf8");
+    const { filings, deps } = twoFilings(st, co, "17-Oct-2024 19:44:02", "17-Oct-2024 19:45:50", [2, 3]);
+    await loadBatch(deps);
+    const r = await filings.all<{ basis: string; version: string; value: string }>("SELECT basis, version, value FROM fin_value WHERE line='revenue' AND statement='pl' ORDER BY basis");
+    expect(r.map((x) => x.basis)).toEqual(["consolidated", "standalone"]);
+    expect(r.every((x) => x.version === "original")).toBe(true); // different basis = not a restatement
+    expect(r[0]!.value).not.toBe(r[1]!.value);
+  });
+});

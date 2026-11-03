@@ -167,8 +167,48 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   await batchAll(deps.filings, insertRows(
     "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, rows,
     "ON CONFLICT DO NOTHING"));
+  await versionPeriod(deps.filings, sec.security_id, r.periodEnd, r.periodKind, r.basis);
   const extra = deps.bscf ? await loadBsCf(inst!, sec.security_id, TEMPLATE[r.template], r.basis, disclosedAt, f!.filing_id, deps) : { rows: 0, note: "" };
   return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}${extra.note}`, rows: rows.length + extra.rows };
+}
+
+/** D48: for one company, period and basis, the earliest disclosure is 'original' and every later one 'restated'
+ *  (labels corrected in both directions, since files load in download order). Core-line differences > 0.5% between
+ *  the original and a restatement are recorded in restatement_flag. Uses the PK prefix (no scans). */
+export async function versionPeriod(db: Sql, sid: number, periodEnd: string, periodKind: string, basis: string): Promise<number> {
+  const at = await db.all<{ disclosed_at: string }>(
+    "SELECT DISTINCT disclosed_at FROM fin_value WHERE security_id=? AND statement='pl' AND line IN ('revenue','total_income','pat','interest_earned') AND period_end=? AND period_kind=? AND basis=? ORDER BY disclosed_at", [sid, periodEnd, periodKind, basis]);
+  if (at.length < 2) return 0;
+  const first = at[0]!.disclosed_at;
+  await db.run("UPDATE fin_value SET version='original' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at=? AND version<>'original'", [sid, periodEnd, periodKind, basis, first]);
+  await db.run("UPDATE fin_value SET version='restated' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at>? AND version='original'", [sid, periodEnd, periodKind, basis, first]);
+  const vals = await db.all<{ line: string; value: string | null; disclosed_at: string }>(
+    "SELECT line, value, disclosed_at FROM fin_value WHERE security_id=? AND statement='pl' AND line IN ('revenue','total_income','pat','interest_earned') AND period_end=? AND period_kind=? AND basis=?", [sid, periodEnd, periodKind, basis]);
+  const orig = new Map(vals.filter((v) => v.disclosed_at === first).map((v) => [v.line, v.value]));
+  const flags: unknown[][] = [];
+  for (const v of vals) {
+    if (v.disclosed_at === first || v.value === null) continue;
+    const o = orig.get(v.line);
+    if (o === undefined || o === null || Number(o) === 0) continue;
+    const pct = (Number(v.value) - Number(o)) / Math.abs(Number(o));
+    if (Math.abs(pct) > 0.005) flags.push([sid, "pl", v.line, periodEnd, periodKind, basis, o, v.value, (pct * 100).toFixed(2), first, v.disclosed_at]);
+  }
+  if (flags.length) await batchAll(db, insertRows("INSERT OR REPLACE INTO restatement_flag (security_id,statement,line,period_end,period_kind,basis,original_value,restated_value,change_pct,original_at,restated_at)", 11, flags));
+  return flags.length;
+}
+
+/** One-off (D48): version the periods loaded before this rule — groups with more than one filing, by cursor. */
+export async function versionBackfill(db: Sql, limit = 150): Promise<{ done: boolean; groups: number } | null> {
+  const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='version_backfill'");
+  const cur = st ? JSON.parse(st.detail) as { after: string; done: boolean; groups: number } : { after: "", done: false, groups: 0 };
+  if (cur.done) return null;
+  const g = await db.all<{ k: string; security_id: number; period_end: string; period_kind: string; basis: string }>(
+    `SELECT security_id || '|' || period_end || '|' || period_kind || '|' || basis AS k, security_id, period_end, period_kind, basis FROM filing
+     WHERE kind <> 'shareholding' GROUP BY security_id, period_end, period_kind, basis HAVING count(*) > 1 AND k > ? ORDER BY k LIMIT ?`, [cur.after, limit]);
+  for (const x of g) await versionPeriod(db, x.security_id, x.period_end, x.period_kind, x.basis);
+  const next = { after: g.length ? g[g.length - 1]!.k : cur.after, done: g.length < limit, groups: cur.groups + g.length };
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','version_backfill',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(next)]);
+  return next;
 }
 
 const months = (a: string, b: string) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7)) + 1;
