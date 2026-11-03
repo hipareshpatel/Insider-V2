@@ -195,6 +195,23 @@ describe("quarter vs year-to-date context with the same dates (C29)", () => {
   });
 });
 
+describe("full-year figures from a March-quarter file (D90, INFY Mar 2026 Integrated Filing, real file)", () => {
+  it("loads the quarter and the full year (FY26) from the same filing; versions and disclosed_at shared", async () => {
+    const URLQ = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_INDAS_1658040_23042026090154_WEB.xml";
+    const filings = sqlite("filings"), market = sqlite("market");
+    market.raw.exec("DELETE FROM job_lock; INSERT INTO security (security_id,name) VALUES (7,'Infosys'); INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (7,'nse_symbol','INFY','2024-01-01','t')");
+    const listQ = JSON.stringify({ data: [{ symbol: "INFY", broadcast_Date: "23-Apr-2026 21:01:54", creation_Date: "23-Apr-2026 21:01:54", xbrl: URLQ }] });
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES (1,'integrated_financials','INFY','u1','api/integrated_financials/INFY/x.json','done');
+      INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status,parent_id) VALUES (2,'xbrl_integrated_financials','INFY','${URLQ}','att/xbrl/q4.xml','done',1)`);
+    const q4 = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_IF_Q4FY26_cons.xml"), "utf8");
+    const deps = { filings, market, getText: async (k: string) => (k === "att/xbrl/q4.xml" ? q4 : listQ), now: () => new Date("2026-11-03T02:00:00Z") };
+    const [o] = await loadBatch(deps);
+    expect(o).toMatchObject({ status: "loaded", detail: expect.stringContaining("FY26 loaded") });
+    const v = await filings.all<{ period_kind: string; value: string; disclosed_at: string }>("SELECT period_kind, value, disclosed_at FROM fin_value WHERE line='revenue' ORDER BY period_kind");
+    expect(v).toEqual([{ period_kind: "FY", value: "1786500000000", disclosed_at: "2026-04-23T15:31:54.000Z" }, { period_kind: "Q", value: "464020000000", disclosed_at: "2026-04-23T15:31:54.000Z" }]);
+  });
+});
+
 describe("general insurer (GODIGIT Q1 FY27 Integrated Filing, real file)", () => {
   it("loads with the insurance template: gross premium, PAT, claims; was held as 'industrial: core lines missing revenue,pat'", async () => {
     const URLG = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_GI_1700338_23072026071853_WEB.xml";
