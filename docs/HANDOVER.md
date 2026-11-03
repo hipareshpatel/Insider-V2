@@ -2,26 +2,28 @@
 
 **Repo:** `hipareshpatel/Insider-V2`, branch **`ccr-eb822347-c3zp4b`** (only branch). All documents are in `docs/`.
 
-## Build state — hourly update 2026-11-03 08:45 IST
+## Build state — hourly update 2026-11-03 08:52 IST
 | Area | State |
 |---|---|
-| Market history (compact, D130) | reloading from R2: 657 sessions to 2026-08-24, 1.82M price rows; was stuck 08:27–08:40 at 2026-08-17 (row-count gate cascade, FMEA C14, fixed + simulated on 87 sessions); reviews 204 open (36 bc_unparsed, 168 corp_action); finish ≈ 09:15 |
-| Write cap (D136) | 45M billed D1 rows per month (owner #268); **24.6M used** (Cloudflare analytics baseline, D1 counts index writes); daily price job exempt |
-| Download ledger (D135) | one row per URL, done only after the R2 write; market write-through to `cache/`; ledger keys repaired (2,608); failures: 875 final 404s, ~270 403s retrying; "duplicates" = identical empty API answers, not re-downloads |
-| XBRL attachments (D128) | 164,091 downloaded (18.7 GB raw), 50,776 queued (GitHub job) |
-| Results + shareholding (`disclo-filings`, M2) | 8,082 filings loaded (137,722 result values; 3,026 shareholding patterns), 50 held, 114 waiting for market identity |
-| Old-GAAP aliases | gated to old-GAAP files (D135); `/census` over every results file running (41k+ done) |
-| Tests | 168 pass; consistency check passes (136 decisions, 268 entries) |
+| Market history (compact, D130) | reloading from R2: 680 sessions to 2026-09-25, 1.90M price rows; row-count gate cascade fixed (FMEA C14); reviews 212 open (37 bc_unparsed, 175 corp_action); finish ≈ 09:10 |
+| Cost (D136, D137) | ceiling $10/month all Cloudflare ($5 plan + ≤ $5 usage); estimated usage charges this period **$0.03**; D1 written 25.1M of the 45M cap; daily cost guard 19:47 IST (fails above $4, GitHub emails the owner) |
+| **Risk: D1 rows read** | 1.76B in 1.5 days (25B/month included, then $0.001/M). Mostly bulk loading, but the every-minute filings job likely rescans the download ledger even when idle → measure top queries, add indexes (to-do 1) |
+| Download ledger (D135) | one row per URL; R2 write before "done"; market write-through; 875 final 404s, ~270 403s retrying; duplicates are identical empty API answers, not re-downloads |
+| Results census (D134) | all 56,382 results files: old-GAAP aliases fire on 0 Ind AS / IF files; classes: 249 old bank-format files without period facts, 112 IF files with alias tag names (held), 3 exponent decimals (fixed), 4 odd periods (held) |
+| Results + shareholding (M2) | 9,520 filings loaded (162,596 result values; 3,546 shareholding patterns), 51 held, 108 waiting for market identity |
+| XBRL attachments (D128) | ≈ 164k downloaded, ≈ 50k queued (GitHub job) |
+| Tests | 169 pass; consistency check passes (137 decisions, 270 entries) |
 
 **To-do (ordered):**
-1. When the reload catches up (≈ 09:15): first index snapshot → Phase 1 test 2; `/acceptance`; D1 size (infra-check).
-2. Census result → confirm aliases fire on 0 Ind AS / Integrated Filing files; failure classes of the results reader by count (D134), fix by class.
-3. **Daily discovery of new filings** into the same ledger (D135 gap: nothing filed after 2026-11-03 is queued yet).
-4. Scale-guard class: a single outlier anchor holds 8 later quarters (see `/status` review reasons) → compare with neighbouring quarters in the whole-series pass.
-5. Read rule for M3: one value per period/basis/line (original), later uploads as versions.
-6. Compress older R2 text objects (D131) — optional.
-7. Remove the probe's 3×/day schedule (≈ 4 Nov).
-8. Owner: trademark check for Disclo; email test (last).
+1. **D1 reads:** list the top queries by rows read (Cloudflare `d1QueriesAdaptiveGroups`), index or rewrite them; make the idle filings run cheap.
+2. When the reload catches up (≈ 09:10): first index snapshot → Phase 1 test 2; `/acceptance`; D1 size.
+3. Census classes: old bank-format results (249 files); Integrated Filings with alias tag names (112) — inspect, then decide; re-run `/census` after each reader change (D134).
+4. **Daily discovery of new filings** into the ledger (D135 gap: nothing filed after 2026-11-03 is queued yet).
+5. Scale-guard class (single outlier anchor holds later quarters) → neighbouring-quarter comparison in the whole-series pass.
+6. Read rule for M3: one value per period/basis/line (original), later uploads as versions.
+7. Workers CPU: compare the dashboard with the normal-day rate once bulk loading ends (≈ 5 Nov).
+8. Remove the probe's 3×/day schedule (≈ 4 Nov). Compress older R2 text objects (optional).
+9. Owner: Budget Alert at $5 (optional); trademark check for Disclo; email test (last).
 
 ## Morning summary — 2026-11-03 06:00 IST
 **Built and tested overnight (109 tests pass; CI green):**
@@ -53,7 +55,7 @@
 **Maintenance:** to reset market data, first apply a pause migration (`INSERT … job_lock 'paused'`), confirm `/status` shows no `running_lock`, then the wipe migration (which lifts the pause). Never deploy the market worker during a long backfill unless needed (a deploy interrupts the current run; it resumes safely).
 
 ## Read first, in this order
-1. `docs/PLAN.md`: the consolidated design. Decisions D1–D136 are in Appendix A; live NSE evidence is in Appendix B.
+1. `docs/PLAN.md`: the consolidated design. Decisions D1–D137 are in Appendix A; live NSE evidence is in Appendix B.
 2. `docs/discussion-log.md`: every owner statement (#1–#227), mapped to where it's recorded, plus open items.
 3. `docs/field-catalogue.md`: query fields (v1).
 4. `docs/setup-guide.md`: owner's Cloudflare/GoDaddy/GitHub setup steps.
