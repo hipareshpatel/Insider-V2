@@ -92,3 +92,17 @@ describe("scale guard anchor (FMEA C6)", () => {
     expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded" });
   });
 });
+
+describe("series audit (FMEA B7/C6)", () => {
+  it("flags a ×10 jump between neighbouring periods regardless of load order", async () => {
+    const { auditJumps } = await import("../src/audit.js");
+    const { filings } = setup({});
+    filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (1,7,'r','t','a');
+      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version) VALUES
+      (7,'industrial','pl','revenue','','2024-12-31','Q','standalone','original','1000000000','t',1,'reported','t'),
+      (7,'industrial','pl','revenue','','2024-06-30','Q','standalone','original','1100000000','t',1,'reported','t'),
+      (7,'industrial','pl','revenue','','2024-09-30','Q','standalone','original','110000000','t',1,'reported','t')`);
+    const j = await auditJumps(filings);
+    expect(j.map((x) => `${x.from}->${x.to}`)).toEqual(["2024-06-30->2024-09-30", "2024-09-30->2024-12-31"]);
+  });
+});

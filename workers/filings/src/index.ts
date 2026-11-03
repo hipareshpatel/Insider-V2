@@ -1,5 +1,6 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
+import { auditJumps } from "./audit.js";
 import { loadBatch } from "./load.js";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string }
@@ -32,7 +33,9 @@ export default {
     })());
   },
   async fetch(req: Request, env: Env) {
-    if (new URL(req.url).pathname !== "/status") return new Response("not found", { status: 404 });
+    const path = new URL(req.url).pathname;
+    if (path === "/audit") return Response.json(await auditJumps(d1Sql(env.DB_FILINGS)), { headers: { "cache-control": "no-store" } });
+    if (path !== "/status") return new Response("not found", { status: 404 });
     const q = async (s: string) => (await env.DB_FILINGS.prepare(s).all()).results;
     return Response.json({
       by_status: await q("SELECT status, count(*) AS n FROM fin_load GROUP BY status"),
