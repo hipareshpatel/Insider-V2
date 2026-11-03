@@ -9,6 +9,7 @@ export interface Env {
   ASSETS: Fetcher;
   RATE?: { limit(o: { key: string }): Promise<{ success: boolean }> };
   ENVIRONMENT: string;
+  SITE_OFFLINE?: string; // D152: site offline until the data is complete and a design is approved
 }
 
 /** Read-only D1 → Sql (the site never writes). Reads issued in the same tick (a Promise.all) are sent as ONE D1
@@ -43,6 +44,12 @@ app.use("*", async (c, next) => {
   c.res.headers.set("X-Robots-Tag", NOINDEX);
   c.res.headers.set("X-Content-Type-Options", "nosniff");
   c.res.headers.set("Referrer-Policy", "same-origin");
+});
+
+// D152 (owner #301): offline until the data is complete and a design is approved.
+app.use("*", async (c, next) => {
+  if (c.env.SITE_OFFLINE === "1") return c.text("Disclo is offline for now.", 503, { "Retry-After": "86400" });
+  await next();
 });
 
 app.use("/api/*", async (c, next) => {
@@ -105,5 +112,5 @@ export async function precompute(env: Env, now = new Date()): Promise<void> {
 
 export default {
   fetch: app.fetch,
-  async scheduled(_e: ScheduledController, env: Env, ctx: ExecutionContext) { ctx.waitUntil(precompute(env)); },
+  async scheduled(_e: ScheduledController, env: Env, ctx: ExecutionContext) { if (env.SITE_OFFLINE !== "1") ctx.waitUntil(precompute(env)); },
 };

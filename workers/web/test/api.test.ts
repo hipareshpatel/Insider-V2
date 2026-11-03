@@ -106,6 +106,14 @@ describe("site v0 API", () => {
     await precompute(e, new Date(Date.parse(row!.at) + 60_000)); // same body, 1 minute later: no write
     expect((e.a.prepare("SELECT at FROM site_cache").get() as { at: string }).at).toBe(row!.at);
   });
+  it("offline switch (D152): every path answers 503, still noindex", async () => {
+    const e = { ...env(), SITE_OFFLINE: "1" };
+    for (const p of ["/", "/s/INFY", "/api/v1/dashboard"]) {
+      const r = await app.request(p, {}, e, ctx);
+      expect(r.status).toBe(503);
+      expect(r.headers.get("x-robots-tag")).toContain("noindex");
+    }
+  });
   it("rate limit answers 429", async () => {
     const e = { ...env(), RATE: { limit: async () => ({ success: false }) } };
     expect((await app.request("/api/v1/health", {}, e, ctx)).status).toBe(429);
