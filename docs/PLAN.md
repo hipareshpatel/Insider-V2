@@ -665,7 +665,7 @@ probe/                throwaway reachability check
 **Waiting on the owner:**
 1. ~~Email test~~ **working (owner #285).**
 3. **Launch name: Disclo, `disclo.in` (final, D99, D118).** Trademark check resumes (D119): IP India search + filing (classes 36/42) before building the brand.
-4. Review Claude's one-time map of the 75 announcement `smIndustry` values → 22 sectors (D121), when drafted in M0
+4. ~~Review Claude's one-time map of the 75 announcement `smIndustry` values → 22 sectors (D121), when drafted in M0~~ **Map v1 approved (D150, #291)**; finalised with the owner once the full value list is collected
 
 **Still to discuss:** card sections, after real output (D25).
 
