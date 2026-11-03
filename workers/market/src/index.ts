@@ -134,5 +134,8 @@ async function sectorView(db: D1Database) {
     map: await q(`SELECT m.sm_industry, m.sector, m.status, m.map_version, (SELECT count(DISTINCT isin) FROM industry_seen s WHERE s.sm_industry = m.sm_industry) AS isins FROM sector_map m ORDER BY 1`),
     index_agreement: { companies: all, same_sector: same, disagreements: agree.filter((r) => (r.map_sector ?? null) !== (r.index_sector ?? null)).sort((a, b) => Number(b.n) - Number(a.n)) },
     runs: await q("SELECT run_key, finished_at, detail FROM pipeline_run WHERE pipeline = 'market.sectors' ORDER BY run_id DESC LIMIT 5"),
+    // ISINs seen on announcements that match no security (coverage gap: SME / non-equity issuers / missing identifiers)
+    unmatched_isins: (await q(`SELECT count(DISTINCT isin) AS n FROM industry_seen WHERE isin NOT IN (SELECT value FROM security_identifier WHERE id_type = 'isin')`))[0],
+    unmatched_sample: await q(`SELECT isin, sm_industry, max(last_at) AS last FROM industry_seen WHERE isin NOT IN (SELECT value FROM security_identifier WHERE id_type = 'isin') GROUP BY isin ORDER BY last DESC LIMIT 15`),
   };
 }
