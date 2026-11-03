@@ -297,6 +297,17 @@ describe("stale Bc ex-date (FMEA C28, V1 hint #276)", () => {
     expect(await market.all("SELECT ex_date, status FROM adj_factor WHERE security_id=? ORDER BY ex_date", [sid])).toEqual([{ ex_date: "2025-06-16", status: "auto" }]);
     expect(await app.all("SELECT status FROM review_item WHERE subject_ref=?", [`${sid}|2025-06-06`])).toEqual([{ status: "superseded" }]);
   });
+  it("a same-ratio review factor older than the 15-day window is left alone (it may be a different action)", async () => {
+    const { market, app, deps } = setup();
+    await runDay("2025-06-13", deps);
+    const [sec] = await market.all<{ security_id: number }>("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value='BAJFINANCE'");
+    const sid = sec!.security_id;
+    market.raw.exec(`INSERT INTO adj_factor (security_id,ex_date,factor,method,status) VALUES (${sid},'2025-05-20','0.1','bc_ratio','review')`);
+    app.raw.exec(`INSERT INTO review_item (kind,subject_db,subject_ref,summary,created_at) VALUES ('corp_action','market','${sid}|2025-05-20','older','x')`);
+    await runDay("2025-06-16", deps);
+    expect(await market.all("SELECT ex_date, status FROM adj_factor WHERE security_id=? ORDER BY ex_date", [sid])).toEqual([{ ex_date: "2025-05-20", status: "review" }, { ex_date: "2025-06-16", status: "auto" }]);
+    expect(await app.all("SELECT status FROM review_item WHERE subject_ref=?", [`${sid}|2025-05-20`])).toEqual([{ status: "open" }]);
+  });
 });
 
 import { loadStructure } from "../src/structure.js";

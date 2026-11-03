@@ -13,7 +13,7 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | D12 | TypeScript everywhere | ✅ (prefetch helpers are Python on GitHub runners) | — |
 | D43 | Staging D1/R2 | ✅ (staging DBs + bucket; used by Phase 1 test 4) | — |
 | **D44** | **Backups: D1 Time Travel 30 days + weekly export to R2 kept 12 weeks; full rebuild from raw tested** | 🔶 Built + tested 3 Nov (all 6 databases → R2 `backups/slot-NN/`, 12 rotating weekly slots); **schedule off until the data is frozen and OK** (owner #324). Note: an export briefly blocks other queries on that database (a census request failed during it) | Switch the Sunday schedule on at freeze |
-| **D45** | **Owner alerts by email: pipeline stalled > 1 h, Gemini spend > 80%, dead-letter item, NSE error spike** | 🔶 only the daily cost guard (GitHub email) | Stall + NSE-error-spike alerts to `alerts@` |
+| **D45** | **Owner alerts by email: pipeline stalled > 1 h, Gemini spend > 80%, dead-letter item, NSE error spike** | 🔶 only the daily cost guard (GitHub email); 15-minute check-ins cover it during the build | Build at freeze, with the backup schedule (owner #324 logic) |
 | D79 | Occasional downtime acceptable; freshness shows staleness | ✅ | — |
 | D96 | Owner review ≤ 30 min/day | ✅ (D141) | — |
 | D116 | Email routing info@ / alerts@ / paresh@ | ✅ tested (#285) | — |
@@ -45,7 +45,7 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | §9.2 | Phase 1 tests 1–6 | ✅ all six | Re-run at freeze |
 | §14 | 10 consecutive clean sessions | 🔶 counting | Daily |
 | D156 | Index history 2016–2023 | 🔶 download running; loader deployed | Load, verify days and index counts |
-| C28 | Stale-Bc multi-day test | ⬜ | Add the test |
+| C28 | Stale-Bc multi-day test | ✅ 3 Nov: multi-day test existed (6 Jun stale factor removed when the 16 Jun split applies); added the negative case (a same-ratio factor 27 days earlier is left alone) | — |
 
 ### A3. M2 — filings and financials (§14 gate; scope = the 250, D155)
 | Ref | Item | Status | Next action |
@@ -126,7 +126,7 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 ## D. Open failure modes (FMEA)
 | Ref | Open part |
 |---|---|
-| C28 | Multi-day test for the stale-Bc rule |
+| C28 | ✅ closed 3 Nov (multi-day + outside-window tests) |
 | C44 | Insurer balance sheets not read; Ind AS 117 layout |
 | C45 | Remaining scale-guard holds (recheck at freeze) |
 | C46 | EXPLAIN QUERY PLAN check for every new read path (site phase) |
