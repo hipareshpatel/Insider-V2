@@ -21,7 +21,7 @@ Legend: ✅ done and verified (how) · 🔶 in progress · ⬜ not started · �
 | 1.6 | Delivery loading | ✅ `/gaps` = 0 days missing | — |
 | 1.7 | Indices loading | ✅ 2024 →; 🔶 10-year history (D156) downloading | Load 2016–2023 after the download, verify counts |
 | 1.8 | Market structure (D148) | ✅ loading; gaps known: bulk/block days capped at 70 rows (480 of 704), ASM/GSM + FII/DII from 3 Nov only (no NSE history) | Test splitting the bulk/block history call by symbol (focus 250) |
-| 1.9 | Corporate actions vs complete monthly lists (D138 re-run, D149) | ⬜ | Re-run the comparison for the 250 |
+| 1.9 | Corporate actions vs complete monthly lists (D138 re-run, D149) | ✅ 3 Nov 21:00: 12,644 actions in NSE's complete lists (2024 →) vs Bc — **no price-affecting action missing** for the 250; outside them only 2 IRBIT InvIT rights ("₹0 premium"); the rest missing from Bc are non-price items (1,568 other, 94 dividends — D7) | — |
 | 1.10 | Stale-Bc rule multi-day test (C28 test gap) | ⬜ | Add the test |
 | 1.11 | Scale-guard re-check released lasting changes (C45, ABCAPITAL) | ✅ 3 Nov 21:00: ABCAPITAL holds 7 → 3 (lasting change released); COROMANDEL's 3 one-off ÷100 files still held (correct) | Recheck the remaining 3 at the freeze |
 
@@ -32,7 +32,7 @@ Legend: ✅ done and verified (how) · 🔶 in progress · ⬜ not started · �
 | 2.2 | ≥ 99.5% of filings parse + identity checks (§14) | 🔶 99.66% on the part loaded | Measure on the 250 when loaded |
 | 2.3 | Full-year figures (D90) | ✅ census 99.68%, loader live | Re-measure on the 250 |
 | 2.4 | Balance sheet + cash flow totals | 🔶 backfill running (250 only) | Verify per company (2.1) |
-| 2.5 | Every reported line, three statements (D154) | 🔶 detail census running; P&L +17 lines built | Deploy if the census passes; restart backfill; banks/NBFC/insurer detail maps |
+| 2.5 | Every reported line, three statements (D154) | 🔶 deployed 21:01: P&L +17 lines; BS detail (census 99.58%); CF detail loads only where all sums pass (first census 55.9% — fair-value sign fixed, re-census running); backfill restarted | CF residual classes from the re-census; banks/NBFC/insurer detail maps |
 | 2.6 | Heads with sub-rows layout (D157) | ⬜ | Layout tree per format (Schedule III order) |
 | 2.7 | Restatement + basis rules on known cases (§14) | ✅ tests (INFY standalone vs consolidated, either load order) | — |
 | 2.8 | Shareholding live (§14) | ✅ loading | Coverage + count check vs NSE for the 250 |
@@ -40,7 +40,7 @@ Legend: ✅ done and verified (how) · 🔶 in progress · ⬜ not started · �
 | 2.10 | Credit ratings live (§14) | ✅ loading | Count check by month (NSE's ratings list ignores the symbol: all-company feed) — needs a small endpoint, next deploy |
 | 2.11 | Classification run once (§14, D150) | ✅ 1,342 classified; the 250 are all index members (index-CSV sector) | Confirm all 250 have a sector |
 | 2.12 | Held classes | 🔶 Ind AS 117 insurers (5), insurer balance sheets, BSE Ltd pre-2024 shareholding (10), 58 FY failures (49 expense breakdown, 9 Dec/Sep year ends), CONSOFINVT | Work class by class for the 250 |
-| 2.13 | Temporary-error retry list (C48) | 🔶 "Network connection lost" not yet on it | Add with the next deploy |
+| 2.13 | Temporary-error retry list (C48) | ✅ "Network connection lost" added (21:01 deploy) | — |
 
 ## §16 "Still to verify"
 | # | Item | Status | Next action |
