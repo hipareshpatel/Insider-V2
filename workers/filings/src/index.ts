@@ -123,7 +123,15 @@ export default {
           const n = f.tag.split(":")[1] ?? f.tag;
           if (!known.has(n)) other[f.tag] ??= f.value;
         }
-        return Response.json({ checks: d.cf?.checks ?? [], lines: d.cf?.lines ?? {}, other }, { headers: { "cache-control": "no-store" } });
+        // same period, with dimensions (company-described "other" items are often reported only this way)
+        const yt = inst.contexts.get("FourD");
+        const dims: { tag: string; dims: Record<string, string>; value: string }[] = [];
+        for (const f of inst.facts) {
+          const c = inst.contexts.get(f.contextRef);
+          if (!yt || !c || !Object.keys(c.dims).length || c.start !== yt.start || c.end !== yt.end || f.nil || !f.value || !/Adjust|CashFlow|Proceeds|Payment/.test(f.tag)) continue;
+          if (dims.length < 60) dims.push({ tag: f.tag, dims: c.dims, value: f.value });
+        }
+        return Response.json({ checks: d.cf?.checks ?? [], lines: d.cf?.lines ?? {}, other, dims }, { headers: { "cache-control": "no-store" } });
       }
       if (u.searchParams.get("mode") === "tags") return Response.json(await tagCensus(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), Number(u.searchParams.get("after") ?? 0), Math.min(50, Number(u.searchParams.get("limit") ?? 40))), { headers: { "cache-control": "no-store" } });
       const after = Number(u.searchParams.get("after") ?? 0), limit = Math.min(50, Math.max(1, Number(u.searchParams.get("limit") ?? 40)));

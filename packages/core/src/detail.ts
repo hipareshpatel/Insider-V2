@@ -20,14 +20,18 @@ export const CF_ADJUSTMENTS: Signed = {
     "AdjustmentsForUnrealisedForeignExchangeLossesGains", "AdjustmentsForSharebasedPayments", "OtherAdjustmentsForWhichCashEffectsAreInvestingOrFinancingCashFlow",
     "OtherAdjustmentsToReconcileProfitLoss", "OtherAdjustmentsForNoncashItems",
     // reported already signed (a gain is negative): HUL Sep 2026 −810 m, MARUTI −18,686 m reproduce the filed totals only when added
-    "AdjustmentsForFairValueGainsLosses"),
+    "AdjustmentsForFairValueGainsLosses",
+    // older layout (D154 residual class A, 574 files): undivided working-capital lines; used only when the file has no
+    // current/non-current split (FALLBACK below). Filing 1434505: 4,182.5 m + 437.7 m + 4,807.7 m = 9,427.9 m filed.
+    "AdjustmentsForDecreaseIncreaseInTradeReceivables", "AdjustmentsForIncreaseDecreaseInTradePayables", "AdjustmentsForProvisions"),
   ...minus("AdjustmentsForDividendIncome", "AdjustmentsForInterestIncome", "AdjustmentsForUndistributedProfitsOfAssociates",
     "ShareOfProfitAndLossFromPartnershipFirmOrAssociationOfPersonsOrLimitedLiabilityPartnerships"),
 };
 /** Cash generated from operations → net cash from operating activities. */
 export const CF_OPERATING: Signed = {
-  ...plus("CashFlowsFromUsedInOperations", "DividendsReceivedClassifiedAsOperatingActivities", "InterestReceivedClassifiedAsOperatingActivities", "OtherInflowsOutflowsOfCashClassifiedAsOperatingActivities"),
-  ...minus("InterestPaidClassifiedAsOperatingActivities", "IncomeTaxesPaidRefundClassifiedAsOperatingActivities"),
+  ...plus("CashFlowsFromUsedInOperations", "DividendsReceivedClassifiedAsOperatingActivities", "InterestReceivedClassifiedAsOperatingActivities", "OtherInflowsOutflowsOfCashClassifiedAsOperatingActivities",
+    "ProceedsFromExtraordinaryItemsClassifiedAsOperatingActivities"),
+  ...minus("InterestPaidClassifiedAsOperatingActivities", "IncomeTaxesPaidRefundClassifiedAsOperatingActivities", "PaymentForExtraordinaryItemsClassifiedAsOperatingActivities"),
 };
 export const CF_INVESTING: Signed = {
   ...plus("CashFlowsFromLosingControlOfSubsidiariesOrOtherBusinessesClassifiedAsInvestingActivities", "OtherCashReceiptsFromSalesOfEquityOrDebtInstrumentsOfOtherEntitiesClassifiedAsInvestingActivities",
@@ -37,20 +41,32 @@ export const CF_INVESTING: Signed = {
     "ProceedsFromBiologicalAssetsOtherThanBearerPlantsClassifiedAsInvestingActivities", "ProceedsFromGovernmentGrantsClassifiedAsInvestingActivities",
     "ProceedsFromSalesOfOtherLongTermAssetsClassifiedAsInvestingActivities", "CashReceiptsFromRepaymentOfAdvancesAndLoansMadeToOtherPartiesClassifiedAsInvestingActivities",
     "CashReceiptsFromFutureContractsForwardContractsOptionContractsAndSwapContractsClassifiedAsInvestingActivities", "DividendsReceivedClassifiedAsInvestingActivities",
-    "InterestReceivedClassifiedAsInvestingActivities", "OtherInflowsOutflowsOfCashClassifiedAsInvestingActivities"),
+    "InterestReceivedClassifiedAsInvestingActivities", "OtherInflowsOutflowsOfCashClassifiedAsInvestingActivities",
+    "ProceedsFromSalesOfTangibleAssetsClassifiedAsInvestingActivities", "ProceedsFromExtraordinaryItemsClassifiedAsInvestingActivities"),
   ...minus("CashFlowsUsedInObtainingControlOfSubsidiariesOrOtherBusinessesClassifiedAsInvestingActivities", "OtherCashPaymentsToAcquireEquityOrDebtInstrumentsOfOtherEntitiesClassifiedAsInvestingActivities",
     "OtherCashPaymentsToAcquireInterestsInJointVenturesClassifiedAsInvestingActivities", "CashPaymentForInvestmentInPartnershipFirmOrAssociationOfPersonsOrLimitedLiabilityPartnerships",
     "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities", "PurchaseOfInvestmentPropertyClassifiedAsInvestingActivities", "PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities",
     "PurchaseOfIntangibleAssetsUnderDevelopment", "PurchaseOfGoodwillClassifiedAsInvestingActivities", "PurchaseOfBiologicalAssetsOtherThanBearerPlantsClassifiedAsInvestingActivities",
     "PurchaseOfOtherLongTermAssetsClassifiedAsInvestingActivities", "CashAdvancesAndLoansMadeToOtherPartiesClassifiedAsInvestingActivities",
-    "CashPaymentsForFutureContractsForwardContractsOptionContractsAndSwapContractsClassifiedAsInvestingActivities", "IncomeTaxesPaidRefundClassifiedAsInvestingActivities"),
+    "CashPaymentsForFutureContractsForwardContractsOptionContractsAndSwapContractsClassifiedAsInvestingActivities", "IncomeTaxesPaidRefundClassifiedAsInvestingActivities",
+    "PurchaseOfTangibleAssetsClassifiedAsInvestingActivities", "PaymentForExtraordinaryItemsClassifiedAsInvestingActivities"),
 };
 export const CF_FINANCING: Signed = {
   ...plus("ProceedsFromChangesInOwnershipInterestsInSubsidiaries", "ProceedsFromIssuingSharesClassifiedAsFinancingActivities", "ProceedsFromIssuingOtherEquityInstruments",
-    "ProceedsFromExerciseOfStockOptions", "ProceedsFromIssuingDebenturesNotesBondsEtc", "ProceedsFromBorrowingsClassifiedAsFinancingActivities", "OtherInflowsOutflowsOfCashClassifiedAsFinancingActivities"),
+    "ProceedsFromExerciseOfStockOptions", "ProceedsFromIssuingDebenturesNotesBondsEtc", "ProceedsFromBorrowingsClassifiedAsFinancingActivities", "OtherInflowsOutflowsOfCashClassifiedAsFinancingActivities",
+    "ProceedsFromIssuingShares", "ProceedsFromExtraordinaryItemsClassifiedAsFinancingActivities"),
   ...minus("PaymentsFromChangesInOwnershipInterestsInSubsidiaries", "PaymentsToAcquireOrRedeemEntitysShares", "PaymentsOfOtherEquityInstruments", "RepaymentsOfBorrowingsClassifiedAsFinancingActivities",
     "PaymentsOfFinanceLeaseLiabilitiesClassifiedAsFinancingActivities", "PaymentsOfLeaseLiabilitiesClassifiedAsFinancingActivities", "DividendsPaidClassifiedAsFinancingActivities",
-    "InterestPaidClassifiedAsFinancingActivities", "IncomeTaxesPaidRefundClassifiedAsFinancingActivities"),
+    "InterestPaidClassifiedAsFinancingActivities", "IncomeTaxesPaidRefundClassifiedAsFinancingActivities", "PaymentForExtraordinaryItemsClassifiedAsFinancingActivities"),
+};
+/** Undivided / older spellings counted only when none of their split or newer forms is reported (never twice). */
+export const FALLBACK: Record<string, string[]> = {
+  AdjustmentsForDecreaseIncreaseInTradeReceivables: ["AdjustmentsForDecreaseIncreaseInTradeReceivablesCurrent", "AdjustmentsForDecreaseIncreaseInTradeReceivablesNoncurrent"],
+  AdjustmentsForIncreaseDecreaseInTradePayables: ["AdjustmentsForIncreaseDecreaseInTradePayablesCurrent", "AdjustmentsForIncreaseDecreaseInTradePayablesNoncurrent"],
+  AdjustmentsForProvisions: ["AdjustmentsForProvisionsCurrent", "AdjustmentsForProvisionsNoncurrent"],
+  ProceedsFromSalesOfTangibleAssetsClassifiedAsInvestingActivities: ["ProceedsFromSalesOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"],
+  PurchaseOfTangibleAssetsClassifiedAsInvestingActivities: ["PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"],
+  ProceedsFromIssuingShares: ["ProceedsFromIssuingSharesClassifiedAsFinancingActivities"],
 };
 const CF_TOTALS = ["AdjustmentsForReconcileProfitLoss", "CashFlowsFromUsedInOperatingActivities", "CashFlowsFromUsedInInvestingActivities", "CashFlowsFromUsedInFinancingActivities",
   "IncreaseDecreaseInCashAndCashEquivalentsBeforeEffectOfExchangeRateChanges", "EffectOfExchangeRateChangesOnCashAndCashEquivalents", "IncreaseDecreaseInCashAndCashEquivalents"];
@@ -93,7 +109,8 @@ export function statementDetail(inst: XbrlInstance, bsCtx: string | null, cfCtx:
   };
   const v = (l: Record<string, string>, k: string) => (l[k] !== undefined ? dec(l[k]!) : null);
   const zero = dec("0");
-  const signedSum = (l: Record<string, string>, s: Signed) => Object.entries(s).reduce((a, [k, sg]) => { const x = v(l, k); return x ? (sg > 0 ? add(a, x) : sub(a, x)) : a; }, zero);
+  const counted = (l: Record<string, string>, k: string) => !(FALLBACK[k] ?? []).some((f) => l[f] !== undefined);
+  const signedSum = (l: Record<string, string>, s: Signed) => Object.entries(s).reduce((a, [k, sg]) => { const x = counted(l, k) ? v(l, k) : null; return x ? (sg > 0 ? add(a, x) : sub(a, x)) : a; }, zero);
   let cf: DetailStatement | null = null;
   if (cfCtx) {
     const lines = read(cfCtx, CF_LINES), checks: DetailStatement["checks"] = [];
