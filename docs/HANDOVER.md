@@ -14,16 +14,19 @@
 | XBRL attachments (D128) | ≈ 164k downloaded, ≈ 50k queued (GitHub job) |
 | Tests | 169 pass; consistency check passes (137 decisions, 270 entries) |
 
-**To-do (ordered):**
-1. **D1 reads:** measured and fixed 2026-11-03 09:15 (FMEA C18: `shares_daily` date index, back-fill marker, cheap `/status`). Re-run infra-check ≈ 5 Nov and confirm the daily read rate is far below 25B/month ÷ 30.
-2. ✅ Reload caught up 09:07 (704 sessions to 2026-11-02). `/acceptance`: tests 1, 3 pass; test 2 found SHRIRAMFIN (split missing from Bc → D138 repair) and TATAMOTORS demerger (owner review, D6); test 6: 218 items for owner review. **D138 repair ran 09:20:** SHRIRAMFIN clean; test 2 now only TATAMOTORS demerger (owner, D6); factors auto 434 → 502, review 50 → 77; open reviews 231. Whole-universe jump audit (`/jumps`, 09:35): **0 jumps on days with an applied factor** (the 68 new factors are clean). 219 jumps > ±35% remain in 163 securities: 44 in the owner review queue (proposed factors), 17 ETF 1:10 unit splits (7 with no record), ~8 stock splits/bonuses at clean ratios with no record, 71 large up-moves (likely consolidations or relistings after long gaps), 95 irregular falls (relistings, demergers, real moves). Next: classify with the gap length per jump; ETFs carry kind 'equity' in `security` (check kind assignment).
-3. Census classes: old bank-format results (249 files); Integrated Filings with alias tag names (112) — inspect, then decide; re-run `/census` after each reader change (D134).
-4. **Daily discovery of new filings** into the ledger (D135 gap: nothing filed after 2026-11-03 is queued yet).
-5. Scale-guard class (single outlier anchor holds later quarters) → neighbouring-quarter comparison in the whole-series pass.
-6. Read rule for M3: one value per period/basis/line (original), later uploads as versions.
-7. Workers CPU: compare the dashboard with the normal-day rate once bulk loading ends (≈ 5 Nov).
-8. Remove the probe's 3×/day schedule (≈ 4 Nov). Compress older R2 text objects (optional).
-9. Owner: Budget Alert at $5 (optional); trademark check for Disclo; email test (last).
+**Plan (D140, 2026-11-03 10:05 IST) — gate order, one item at a time:**
+| # | Item | Gate it serves | Done when |
+|---|---|---|---|
+| 1 | **Owner review screen** (B5, missing): list open items with evidence, approve / reject / edit factor; decisions written back (factor confirmed/rejected) | M0 B5; M1 tests 2 and 6 | Owner can clear the queue from a phone; access protected (owner choice) |
+| 2 | **Daily freshness:** new filings discovered each day into the ledger (D135); per-company corporate-action lists refreshed (D138) | M1 "10 sessions, no manual fix"; M2 | A filing / action published today is queued and loaded tomorrow without a hand step |
+| 3 | **10 consecutive clean daily sessions** (from 2026-11-03), one check per evening | M1 | 10 sessions, no manual fix |
+| 4 | Results reader classes (old bank format 249, Integrated Filings with alias names 112): one census → fix → census | M2 (≥ 99.5% parse) | parse rate measured on the whole population ≥ 99.5% |
+| 5 | M1 remainder: market-structure data (bulk/block deals, ASM/GSM) paths verified and loading | M1 | loading daily |
+| 6 | M2 remainder: restatement/basis on known cases; PIT/SAST readers | M2 | tests on known cases pass |
+| 7 | M3 site v0 | M3 | performance targets |
+
+**Parked (counted, not chased, D140):** 16 stock jumps and ETF unit-split proposals → owner queue; scale-guard anchor class; R2 compression; probe schedule removal (≈ 4 Nov); Workers CPU check (≈ 5 Nov); D1 reads re-measure (≈ 5 Nov).
+**Owner:** review-screen access choice (item 1); Budget Alert $5 (optional); trademark check; email test (last).
 
 ## Morning summary — 2026-11-03 06:00 IST
 **Built and tested overnight (109 tests pass; CI green):**
