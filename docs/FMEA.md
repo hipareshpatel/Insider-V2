@@ -50,3 +50,5 @@ Each mitigation is in code with a test unless marked *process*.
 | C5 | Integrated Filing revision rows have no broadcast time | `creation_Date` (NSE receipt time) as `disclosed_at` |
 | C6 | Scale guard cascade: after a real step change (ABREL post-divestment, −92%), every later quarter was compared with the stale pre-change figure and held | A held value anchors the next filing; only the first period of a lasting change is held |
 | C7 | Filing's own expense breakdown doesn't add to its total (360ONE, ABSLAMC: an untagged expense line) | Held (correct); later refinement: load the lines whose checks pass, mark the breakdown "not in filing" |
+| C8 | Splits held when the previous day's share count is missing → factor not applied → wrong adjusted prices | Bc ratio applied automatically when the price move agrees within 5%; otherwise review |
+| C9 | Queued deploy cancelled by GitHub (one pending run per concurrency group) → new code not live | After every push, check each workflow's conclusion; re-dispatch anything cancelled (*process*) |
