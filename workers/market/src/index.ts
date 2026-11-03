@@ -3,6 +3,7 @@ import { archiveFetcher, r2FirstFetcher } from "./archive.js";
 import { d1Sql, r2Raw } from "./d1.js";
 import { acceptance } from "./acceptance.js";
 import { jumps } from "./jumps.js";
+import { evidence } from "./evidence.js";
 import { chargeBudget, runPending } from "./runner.js";
 
 export interface Env {
@@ -46,6 +47,9 @@ export default {
   // Read-only status (no data beyond counts and run states). Useful from a phone: /status
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+    if (url.pathname === "/evidence") {
+      return Response.json(await evidence(d1Sql(env.DB_MARKET), Number(url.searchParams.get("sid")), String(url.searchParams.get("d"))), { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname === "/jumps") {
       return Response.json(await jumps(d1Sql(env.DB_MARKET), Number(url.searchParams.get("after") ?? 0), Math.min(150, Number(url.searchParams.get("limit") ?? 100))), { headers: { "cache-control": "no-store" } });
     }
