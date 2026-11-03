@@ -48,14 +48,31 @@ export async function loadShp(job: { job_id: number; kind: string; symbol: strin
   const xml = await deps.getText(job.r2_key);
   if (!xml) return { jobId: job.job_id, status: "failed", detail: "file not in R2" };
   if (!/<\/(?:[\w-]+:)?xbrl>\s*$/.test(xml.trim())) return { jobId: job.job_id, status: "failed", detail: "truncated XML (root not closed)" };
-  let r;
-  try { r = parseShareholding(parseXbrl(xml)); } catch (e) { return { jobId: job.job_id, status: "review", detail: `not a supported shareholding file: ${String(e).slice(0, 140)}` }; }
-  const failed = r.checks.filter((c) => !c.ok);
-  if (failed.length) return { jobId: job.job_id, status: "review", detail: `checks failed: ${failed.map((c) => `${c.name} (${c.detail})`).join("; ").slice(0, 300)}` };
-  const symbol = r.symbol ?? job.symbol;
+  let r: ReturnType<typeof parseShareholding> | null = null;
+  const inst = parseXbrl(xml);
+  let parseErr: string | null = null;
+  try { r = parseShareholding(inst); } catch (e) { parseErr = String(e); }
+  if (parseErr && !/total shares not found/.test(parseErr)) return { jobId: job.job_id, status: "review", detail: `not a supported shareholding file: ${parseErr.slice(0, 140)}` };
+  const sumCheck = "promoter + public + non-promoter-non-public = total shares";
+  const symbol = (r ?? (() => { try { return parseShareholding(inst, { totalOverride: 1 }); } catch { return null; } })())?.symbol ?? job.symbol;
   const [sec] = await deps.market.all<{ security_id: number }>(
     "SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=? ORDER BY valid_to IS NULL DESC, valid_from DESC LIMIT 1", [symbol]);
   if (!sec) return { jobId: job.job_id, status: "skipped", detail: `symbol ${symbol} not in market identity yet` };
+  let note: string | null = null;
+  if (!r || r.checks.some((c) => c.name === sumCheck && !c.ok)) {
+    // BSE Ltd (17 filings): the filed total is missing or inconsistent while the three top categories are right.
+    // Accept their sum as the total only when NSE's issued share count on that date confirms it (± 0.5%).
+    const probe = parseShareholding(inst, { totalOverride: 1 });
+    const sum = probe.categories.filter((c) => ["promoter", "public", "non_promoter_non_public"].includes(c.category)).reduce((a, c) => a + c.shares, 0);
+    const asOfD = Number((probe.asOf || "").replace(/-/g, "")) || 0;
+    const [iss] = await deps.market.all<{ issue_size: number }>("SELECT issue_size FROM shares_daily WHERE security_id=? AND d<=? ORDER BY d DESC LIMIT 1", [sec.security_id, asOfD]);
+    if (sum > 0 && iss && Math.abs(sum - iss.issue_size) / iss.issue_size <= 0.005) {
+      r = parseShareholding(inst, { totalOverride: sum });
+      note = `total from categories ${sum} (filed total ${parseErr ? "missing" : "inconsistent"}; NSE issue size ${iss.issue_size})`;
+    } else if (!r) return { jobId: job.job_id, status: "review", detail: `not a supported shareholding file: ${parseErr!.slice(0, 140)}` };
+  }
+  const failed = r.checks.filter((c) => !c.ok);
+  if (failed.length) return { jobId: job.job_id, status: "review", detail: `checks failed: ${failed.map((c) => `${c.name} (${c.detail})`).join("; ").slice(0, 300)}` };
   if (job.parent_key && !listCache.has(job.parent_key)) listCache.set(job.parent_key, await deps.getText(job.parent_key));
   const disclosedAt = (job.parent_key && broadcastFor(listCache.get(job.parent_key) ?? "", job.url)) ?? null;
   if (!disclosedAt) return { jobId: job.job_id, status: "review", detail: "broadcast time not found in its list (D32 needs disclosed_at)" };
@@ -77,7 +94,7 @@ export async function loadShp(job: { job_id: number; kind: string; symbol: strin
     { sql: `INSERT INTO promoter_encumbrance (filing_id,security_id,as_of,encumbered,pledged,non_disposal,other,pct_of_promoter_holding) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
       params: [fid, sec.security_id, r.asOf, r.promoterEncumbrance.encumbered, r.promoterEncumbrance.pledged, r.promoterEncumbrance.nonDisposal, r.promoterEncumbrance.other, r.promoterEncumbrance.pctOfPromoterHolding] },
   ]);
-  return { jobId: job.job_id, status: "loaded", detail: `shareholding ${r.asOf}`, rows: rows.length + 1 };
+  return { jobId: job.job_id, status: "loaded", detail: `shareholding ${r.asOf}${note ? `; ${note}` : ""}`, rows: rows.length + 1 };
 }
 
 export async function loadOne(job: { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }, deps: Deps, listCache: Map<string, string | null>): Promise<LoadOutcome> {

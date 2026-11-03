@@ -3,7 +3,7 @@
 // FMEA B4: a holder's name and shares are paired by the same typed-member value only.
 import type { XbrlInstance } from "./xbrl.js";
 
-const P = "in-bse-shp:";
+const DEFAULT_P = "in-bse-shp:";
 const TOP = ["ShareholdingOfPromoterAndPromoterGroup", "PublicShareholding", "SharesHeldByNonPromoterNonPublicShareholders"] as const;
 /** Sub-categories kept (read on their own; never summed into the total). */
 const SUB: Record<string, string> = {
@@ -30,7 +30,12 @@ export interface Shareholding {
   checks: { name: string; ok: boolean; detail: string }[];
 }
 
-export function parseShareholding(inst: XbrlInstance): Shareholding {
+/** Options: `totalOverride` replaces the filed total (used only when the filed total is missing or inconsistent and
+ *  the category sum is independently confirmed by NSE's issued share count; see the loader). */
+export function parseShareholding(inst: XbrlInstance, opts: { totalOverride?: number } = {}): Shareholding {
+  // Prefix from the file (BSE Ltd files shareholding in the Integrated Filing taxonomy, in-capmkt, since 2025).
+  const axis = [...inst.contexts.values()].flatMap((c) => Object.keys(c.dims)).find((k) => k.endsWith(":CategoryOfShareholdersAxis"));
+  const P = axis ? axis.slice(0, axis.indexOf(":") + 1) : DEFAULT_P;
   const fact = (tag: string, ctx: string) => inst.facts.find((f) => f.tag === P + tag && f.contextRef === ctx && !f.nil)?.value ?? null;
   const meta = (tag: string) => inst.facts.find((f) => f.tag === P + tag)?.value ?? null;
   const byMember = new Map<string, string>(); // category member -> instant context id
@@ -40,7 +45,7 @@ export function parseShareholding(inst: XbrlInstance): Shareholding {
   }
   const num = (tag: string, ctx: string | undefined) => { const v = ctx ? fact(tag, ctx) : null; return v === null ? null : Number(v); };
   const totalCtx = byMember.get("ShareholdingPattern");
-  const totalShares = num("NumberOfShares", totalCtx);
+  const totalShares = opts.totalOverride ?? num("NumberOfShares", totalCtx);
   if (totalShares === null || totalShares <= 0) throw new Error("shareholding: total shares not found");
   const frac = (n: number) => (n / totalShares).toFixed(4);
   const asOf = (totalCtx && inst.contexts.get(totalCtx)?.instant) ?? meta("DateOfReport") ?? "";

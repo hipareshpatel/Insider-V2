@@ -155,3 +155,32 @@ describe("quarter vs year-to-date context with the same dates (C29)", () => {
     expect(canonicalResult(inst).lines.revenue).toBe(want);
   });
 });
+
+describe("BSE Ltd shareholding: wrong/missing filed total, Integrated Filing taxonomy (17 held filings)", () => {
+  const fx = (n: string) => readFileSync(join(ROOT, "packages/core/test/fixtures/nse", n), "utf8");
+  const URLB = "https://nsearchives.nseindia.com/corporate/xbrl/SHP_192048_1271707_16102024121524_WEB.xml";
+  function setupBse(file: string, issue: number | null) {
+    const filings = sqlite("filings"), market = sqlite("market");
+    market.raw.exec("DELETE FROM job_lock; INSERT INTO security (security_id,name) VALUES (9,'BSE Limited'); INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (9,'nse_symbol','BSE','2017-01-01','t')");
+    if (issue) market.raw.exec(`INSERT INTO shares_daily (security_id,d,issue_size,mcap_paise,mcap_source,face_value_paise) VALUES (9,20240927,${issue},NULL,'nse',200)`);
+    const list = JSON.stringify([{ symbol: "BSE", broadcastDate: "16-Oct-2024 12:15:24", xbrl: URLB }]);
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES (1,'shareholding','BSE','u1','api/shareholding/BSE/x.json','done');
+      INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status,parent_id) VALUES (2,'xbrl_shareholding','BSE','${URLB}','att/xbrl/b.xml','done',1)`);
+    return { filings, deps: { filings, market, getText: async (k: string) => (k === "att/xbrl/b.xml" ? fx(file) : list), now: () => new Date("2026-11-03T02:00:00Z") } };
+  }
+  it("loads with the category sum as total when NSE's issue size confirms it", async () => {
+    const { deps } = setupBse("shp_BSE_2024-09_badtotal.xml", 135376359);
+    const [o] = await loadBatch(deps);
+    expect(o).toMatchObject({ status: "loaded" });
+    expect(o!.detail).toContain("total from categories 135376359");
+  });
+  it("stays held when no independent share count agrees", async () => {
+    const { deps } = setupBse("shp_BSE_2024-09_badtotal.xml", 140000000);
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "review" });
+  });
+  it("reads the Integrated Filing taxonomy (in-capmkt) prefix", async () => {
+    const { parseShareholding, parseXbrl } = await import("@disclo/core");
+    const r = parseShareholding(parseXbrl(fx("shp_BSE_2026-06_incapmkt.xml")), { totalOverride: 1 });
+    expect(r.categories.find((c) => c.category === "public")!.shares).toBeGreaterThan(100_000_000);
+  });
+});
