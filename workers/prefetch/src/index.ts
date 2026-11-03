@@ -54,6 +54,10 @@ async function cookies(): Promise<string> {
   } catch { return ""; }
 }
 
+async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+}
+
 /** Complete XML: ends with a closing tag (after trailing whitespace). A cut-off download ends mid-element. */
 export function xmlComplete(bytes: Uint8Array): boolean {
   const tail = new TextDecoder().decode(bytes.subarray(Math.max(0, bytes.length - 256))).trimEnd();
@@ -140,7 +144,7 @@ export default {
           const b = await runBatch(env);
           // Daily freshness (plan item 2): once per IST slot; NSE API answers Cloudflare.
           const db = d1Sql(env.DB_FILINGS), now = new Date();
-          const compressed = await compressStep(db, env.RAW, gzip); // D147: older objects → gzip, ~200/min until done
+          const compressed = await compressStep(db, env.RAW, gzip, gunzip); // D147: older objects → gzip, ~200/min until done
           const seeded = await seedStructureHistory(db, now); // D144: once; fetched by the normal runs
           if (seeded) return { ...b, structure_history_queued: seeded, compressed };
           const slot = await dueSlot(db, now);

@@ -33,7 +33,7 @@
 | 3 | F&O participant OI, F&O ban list, price bands 2024 → today (archive) | M1 | GitHub `prefetch-archive` set=structure (dispatched) |
 | 4 | ASM, GSM, FII/DII (no history at NSE) | M1 | daily snapshots from today (evening slot); bulk.csv/block.csv complete daily (archive job 19:07 IST) |
 | 5 | Compress older R2 objects (≈ 11.7 → ≈ 3 GB; D147) | storage | running (prefetch worker, ~200/min, progress in prefetch `/status` daily_refresh 'compress') |
-**Storage (owner #278):** 0 PDFs; 24.4 GB raw XML/JSON, 11.7 GB in R2 (newer objects gzipped); keep originals (NSE archive refuses Cloudflare, so no "online path"; re-parsing needs them); after compression ≈ 3 GB, ≈ +0.5 GB/year → ≈ 8 GB in 10 years (free tier 10 GB).
+**Storage (owner #278):** 0 PDFs; 24.4 GB raw XML/JSON, 11.7 GB in R2 (newer objects gzipped); keep originals and never delete them (owner #282); after compression ≈ 3 GB, ≈ +0.5 GB/year → ≈ 8 GB in 10 years (free tier 10 GB; beyond that ≈ $0.015/GB-month).
 **V1 hints adopted later (D142, #276):** profit ÷ EPS implied share count as a split/bonus cross-check + no double adjustment when filings restate comparatives; owners vs minorities test; excise duty separate; filler zeros in annual-report XBRL. **Test gap:** stale-Bc rule (C28) needs a multi-day test.
 **Parked (counted, not chased, D140):** 16 stock jumps and ETF unit-split proposals → owner queue; scale-guard anchor class; R2 compression; probe schedule removal (≈ 4 Nov); Workers CPU check (≈ 5 Nov); D1 reads re-measure (≈ 5 Nov).
 **Owner:** review-screen access choice (item 1); Budget Alert $5 (optional); trademark check; email test (last).
@@ -76,6 +76,7 @@
 ## Working rules (owner's instructions)
 - **Build started 2026-11-03 (D122):** owner said "Build". M0 → M1 in §14 order. Overrides of owner decisions are allowed "for better" but always logged and reported; money/time/legal items are asked.
 - **Clean-slate rule:** never use or reference V1 code, data, outputs or designs. *Single exception below.*
+- **Never delete anything already downloaded (D147, owner #282):** no expiry or pruning of R2 originals; compression only after a byte-exact verify.
 - **Downloads always run ahead of need (D144, owner #278 — remember this):** whenever a source a later milestone needs is not downloading, verify its path and start it now, one at a time, in milestone order; keep the pending-downloads list below current at every hourly update.
 - **When stuck, ask V1 (D142, owner #275 — remember this):** if an item reaches the D140 limit (two cycles) or ideas run out, write a short prompt for V1 (methods/sources, not code); the owner relays it and pastes the answer; Claude validates it on V2 data and adopts or rejects it, recording why. Full freedom on the decision.
 - Log **every** owner statement in `docs/discussion-log.md` **in the same turn**; record decisions in `PLAN.md` Appendix A **and** the design sections.

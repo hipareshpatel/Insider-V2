@@ -337,6 +337,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 279 | "Can we ask V1 how it was saving all the data in very less space? What it downloaded, saved, format and so on, write a detailed prompt." | D142 prompt written (sources, what was kept vs discarded, formats, compression, D1/R2 layout, retention, sizes, re-download/loss costs). Caveat stated: V1 may be small because it kept less (no price history), so the prompt also asks what that cost. | ✅ answered (#280) |
 | 280 | Owner relayed V1's storage answer (checked by the owner against V1's repo): raw XBRL/annual-report XBRL kept 180 days + permanent compact facts copy, Screener/Tijori pages, results/AR PDFs on demand, all gzip in R2; announcement PDFs dropped (text 180 days); governance XBRL, PIT, SAST, corporate actions dropped after reading; prices last 260 closes; BRSR never fetched; no KV; no wide financial tables in D1 (JSON memory per company in R2); two R2 expiry rules. Lessons: repeated PDF reads; raw expiring without a facts copy (1,414 files); text cut at 1,000 chars; no file link until 27 Oct; raw/ blocked at first; bulk snapshot one session only; NSE's own truncated PDFs. Full file not readable from this session (other session's scratchpad). | D147: keep originals gzip, compress older objects now (background step built), no expiry until 8 GB with census proof, no dropping before readers exist, full price history kept; second daily bulk/block snapshot run added. | ✅ |
 | 281 | Owner uploaded V1's full storage answer: "Keep in mind, we don't require to follow everything. We need to test and decide where you need." | Read in full; each point tested against V2: adopted JSON-only answers + complete-XML at ingest (C32), no-op upserts (C33; small saving, identical files already skipped); noted index write cost and cards-in-R2 for M6; not adopted: gzip mtime, expiry, 260-close prices. | ✅ |
+| 282 | "Some of them like 1000 words only are risk so ignore it. Don't delete anything if already downloaded." | Confirmed: no truncation of stored text (V2 keeps files whole). D147 tightened: never delete downloaded files (no expiry ever); checked — no R2 delete or lifecycle rule exists in V2; compression now verifies the gzip unzips to the exact original before overwriting (test). | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -345,7 +346,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-03 after entry #281: all checks pass (147 decisions, 281 entries); no open ⚠.*
+*Last run 2026-11-03 after entry #282: all checks pass (147 decisions, 282 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
