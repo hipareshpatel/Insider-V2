@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "../..", "outDir": "dist", "emitDeclarationOnly": true, "lib": ["ES2022", "DOM", "DOM.Iterable"], "types": ["@cloudflare/workers-types", "node"], "jsx": "react-jsx" },
+  "include": ["src", "test", "app"],
+  "references": [{ "path": "../../packages/core" }]
+}

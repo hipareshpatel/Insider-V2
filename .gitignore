@@ -6,3 +6,4 @@ dist/
 *.tsbuildinfo
 workers/*/wrangler.json
 wrangler.migrate.json
+workers/web/site/

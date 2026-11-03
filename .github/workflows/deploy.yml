@@ -48,7 +48,7 @@ jobs:
             done
           done
       - name: Worker configs
-        run: for w in market prefetch filings; do node tools/d1.mjs worker workers/$w | mask; done
+        run: for w in market prefetch filings web; do node tools/d1.mjs worker workers/$w | mask; done
       - name: Deploy market (staging, production)
         working-directory: workers/market
         run: |
@@ -61,3 +61,6 @@ jobs:
       - name: Deploy filings
         working-directory: workers/filings
         run: set -o pipefail; npx wrangler deploy 2>&1 | mask | grep -E "Uploaded|Deployed|ERROR|✘"
+      - name: Build and deploy site v0 (D151)
+        working-directory: workers/web
+        run: set -o pipefail; npx vite build >/dev/null && npx wrangler deploy 2>&1 | mask | grep -E "Uploaded|Deployed|ERROR|✘"
