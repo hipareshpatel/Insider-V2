@@ -89,6 +89,17 @@ export default {
       return Response.json({ rows, next: rows.length === 2000 ? (rows[rows.length - 1] as { ca_id: number }).ca_id : null }, { headers: { "cache-control": "no-store" } });
     }
     // Phase 1 tests 4–5 (§9.2): per-table checksums of one date; staging can re-run a date to prove it changes nothing.
+    if (url.pathname === "/index-check") {
+      // D156 verification (read-only): per year, days loaded / no file, indices per day, days without Nifty 50; plus closes asked for
+      const years = (await env.DB_MARKET.prepare(`SELECT substr(m.d,1,4) AS y, sum(m.rows > 0) AS days, sum(m.rows = -1) AS no_file, sum(m.rows = -2) AS unreadable,
+          min(CASE WHEN m.rows > 0 THEN m.rows END) AS min_idx, max(m.rows) AS max_idx,
+          sum(m.rows > 0 AND NOT EXISTS (SELECT 1 FROM index_daily i WHERE i.d = m.d AND lower(i.index_name) = 'nifty 50')) AS no_nifty50
+        FROM ms_day m WHERE m.source = 'index_hist' GROUP BY 1 ORDER BY 1`).all()).results;
+      const at = (url.searchParams.get("at") ?? "").split(",").filter((x) => /^\d{8}$/.test(x)).slice(0, 20);
+      const closes = at.length ? (await env.DB_MARKET.prepare(`SELECT d, index_name, close, pe, pb, div_yield FROM index_daily WHERE lower(index_name) = 'nifty 50' AND d IN (SELECT value FROM json_each(?1)) ORDER BY d`)
+        .bind(JSON.stringify(at.map(Number))).all()).results : [];
+      return Response.json({ years, closes }, { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname === "/gaps") {
       // C49: loaded sessions whose delivery or index-close file is not in the ledger (repair queue, tried weekly).
       const dates = await gapDates(d1Sql(env.DB_MARKET), new Date(), 1000);
