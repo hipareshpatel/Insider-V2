@@ -2,21 +2,26 @@
 
 **Repo:** `hipareshpatel/Insider-V2`, branch **`ccr-eb822347-c3zp4b`** (only branch). All documents are in `docs/`.
 
-## Build state — hourly update 2026-11-03 08:00 IST
+## Build state — hourly update 2026-11-03 08:45 IST
 | Area | State |
 |---|---|
-| Market history (compact, D130) | reloading from R2: 528 sessions to 2026-02-12, 1,420,182 price rows; reviews: 189 open; finish ≈ 08:30 |
-| API lists (D128) | all 31,656 done |
-| XBRL attachments (D128) | 138,323 downloaded, 47,058 queued (GitHub job, gzip from now on) |
-| Results + shareholding loader (`disclo-filings`, M2) | 2,300 filings loaded (40,145 result values; 860 shareholding patterns), 24 held, 61 waiting for market identity; ≈ 140 files/min |
-| Tests | 123 pass; consistency check passes |
+| Market history (compact, D130) | reloading from R2: 657 sessions to 2026-08-24, 1.82M price rows; was stuck 08:27–08:40 at 2026-08-17 (row-count gate cascade, FMEA C14, fixed + simulated on 87 sessions); reviews 204 open (36 bc_unparsed, 168 corp_action); finish ≈ 09:15 |
+| Write cap (D136) | 45M billed D1 rows per month (owner #268); **24.6M used** (Cloudflare analytics baseline, D1 counts index writes); daily price job exempt |
+| Download ledger (D135) | one row per URL, done only after the R2 write; market write-through to `cache/`; ledger keys repaired (2,608); failures: 875 final 404s, ~270 403s retrying; "duplicates" = identical empty API answers, not re-downloads |
+| XBRL attachments (D128) | 164,091 downloaded (18.7 GB raw), 50,776 queued (GitHub job) |
+| Results + shareholding (`disclo-filings`, M2) | 8,082 filings loaded (137,722 result values; 3,026 shareholding patterns), 50 held, 114 waiting for market identity |
+| Old-GAAP aliases | gated to old-GAAP files (D135); `/census` over every results file running (41k+ done) |
+| Tests | 168 pass; consistency check passes (136 decisions, 268 entries) |
 
 **To-do (ordered):**
-1. When the reload catches up: first index snapshot → Phase 1 test 2; market cron back to every 10 min; measure D1 size.
-2. After the full XBRL load: one pass over each company's complete series for 10× jumps (load order isn't period order, FMEA C6 note); review held items by class (C7 expense breakdowns).
-3. Compress older R2 text objects (D131) — optional, saves ~8 GB.
-4. Remove the probe's 3×/day schedule (≈ 4 Nov).
-5. Owner: trademark check for Disclo; email test (last).
+1. When the reload catches up (≈ 09:15): first index snapshot → Phase 1 test 2; `/acceptance`; D1 size (infra-check).
+2. Census result → confirm aliases fire on 0 Ind AS / Integrated Filing files; failure classes of the results reader by count (D134), fix by class.
+3. **Daily discovery of new filings** into the same ledger (D135 gap: nothing filed after 2026-11-03 is queued yet).
+4. Scale-guard class: a single outlier anchor holds 8 later quarters (see `/status` review reasons) → compare with neighbouring quarters in the whole-series pass.
+5. Read rule for M3: one value per period/basis/line (original), later uploads as versions.
+6. Compress older R2 text objects (D131) — optional.
+7. Remove the probe's 3×/day schedule (≈ 4 Nov).
+8. Owner: trademark check for Disclo; email test (last).
 
 ## Morning summary — 2026-11-03 06:00 IST
 **Built and tested overnight (109 tests pass; CI green):**
@@ -48,7 +53,7 @@
 **Maintenance:** to reset market data, first apply a pause migration (`INSERT … job_lock 'paused'`), confirm `/status` shows no `running_lock`, then the wipe migration (which lifts the pause). Never deploy the market worker during a long backfill unless needed (a deploy interrupts the current run; it resumes safely).
 
 ## Read first, in this order
-1. `docs/PLAN.md`: the consolidated design. Decisions D1–D134 are in Appendix A; live NSE evidence is in Appendix B.
+1. `docs/PLAN.md`: the consolidated design. Decisions D1–D136 are in Appendix A; live NSE evidence is in Appendix B.
 2. `docs/discussion-log.md`: every owner statement (#1–#227), mapped to where it's recorded, plus open items.
 3. `docs/field-catalogue.md`: query fields (v1).
 4. `docs/setup-guide.md`: owner's Cloudflare/GoDaddy/GitHub setup steps.

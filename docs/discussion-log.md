@@ -336,7 +336,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
-- **#241** Build: M0 done; M1 history loading; M2 started (see PLAN §16 build status).
+- **#241** Build: M0 done; M1 history loading; M2 loading (see PLAN §16 build status).
+- **#265** Daily discovery of new filings into the download ledger (D135).
 - **#226/#239** Email test (owner, last).
 - **#240** Owner reviews the `smIndustry` → 22-sector map when drafted (M0).
 - **#239** Trademark check for Disclo (IP India search + filing), owner.

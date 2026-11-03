@@ -651,12 +651,12 @@ probe/                throwaway reachability check
 **Build status (2026-11-03 morning):**
 - M0 foundations ✅ (monorepo, CI, 12 D1 databases with migrations, building blocks B1–B5 with tests, deploy workflows).
 - M1 market data: history 2024-01-01 → today loading/loaded on Cloudflare (every instrument stored, D127); Phase 1 tests 1 and 3 pass on live data; test 2 needs the first index snapshot; test 6 (review queue empty) needs owner review; M1 "done" also needs 10 consecutive clean daily runs (≈ mid-November).
-- D128 prefetch: archive history in R2; NSE API lists for every company in R2; XBRL attachments downloading.
+- D128 prefetch: archive history in R2; NSE API lists for every company in R2; XBRL attachments downloading. One download ledger, write-through for live market files (D135); monthly write cap 45M billed rows (D136).
 - M2 in progress: XBRL reader; canonical results (industrial, NBFC, bank, life insurer) + shareholding readers; `disclo-filings` loading results and shareholding from R2 into the filings DB with FMEA guards (see HANDOVER for live numbers).
 
 **Decided (D132):** as-filed XBRL facts live in R2 (gzip), D1 keeps canonical lines + checks.
 
-**Next build steps:** shareholding (SHP) reader; general-insurer template; load canonical results from R2 into `filings`; owner review screen for the review queue (M3); remove the probe's 3×/day schedule (≈ 4 Nov).
+**Next build steps:** whole-population census of the results reader (D134) and fixes by class; daily discovery of new filings into the ledger (D135); general-insurer template; owner review screen for the review queue (M3); remove the probe's 3×/day schedule (≈ 4 Nov).
 
 **Waiting on the owner:**
 1. Email test: **owner will do it last** (#239).
