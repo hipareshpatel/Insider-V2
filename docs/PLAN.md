@@ -1,6 +1,6 @@
 # Insider V2 — Plan (consolidated)
 
-**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D131** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`, `setup-guide.md` (owner's step-by-step setup: Cloudflare, GoDaddy nameservers, email routing, probe). **Next chat starts with `docs/HANDOVER.md`.**
+**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D132** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `probe-usage.md`, `setup-guide.md` (owner's step-by-step setup: Cloudflare, GoDaddy nameservers, email routing, probe). **Next chat starts with `docs/HANDOVER.md`.**
 Build started 2026-11-03 (D122). `probe/` is a throwaway Worker for testing NSE reachability from Cloudflare.
 
 **Working agreement:** this is a discussion phase. No production code is written until the owner says so. Claude asks for the owner's input wherever a decision is theirs, records every decision here, and flags anything it can't verify.
@@ -238,7 +238,7 @@ latest_snapshot  precomputed for the site
 - **Market cap display:** ₹ crore, no decimals; stored exact in ₹ (D5).
 
 ### 5.3 `filings` (financial statements & structured disclosures)
-- **Three layers (D47):**
+- **Three layers (D47; layer 1 in R2 per D132):**
   - **As filed:** every XBRL fact (tag, context, unit, decimals, filing id), lossless.
   - **Canonical:** our own line items with templates for industrial / bank / NBFC / insurance.
   - **Views:** Screener-like summary, statements, ratios, all computed.
@@ -650,8 +650,7 @@ probe/                throwaway reachability check
 - D128 prefetch: archive history in R2; NSE API lists for every company in R2; XBRL attachments downloading.
 - M2 started: XBRL reader + canonical results templates (industrial, NBFC, bank, life insurer) with identity checks.
 
-**Proposed, for owner decision:**
-- **As-filed XBRL facts in R2, not D1** (amends D47 layer 1): ~200k filings × ~500 facts ≈ 100M rows would exceed D1 size and the monthly write allowance; raw XML is already kept in R2 (lossless), D1 keeps canonical lines + checks.
+**Decided (D132):** as-filed XBRL facts live in R2 (gzip), D1 keeps canonical lines + checks.
 
 **Next build steps:** shareholding (SHP) reader; general-insurer template; load canonical results from R2 into `filings`; owner review screen for the review queue (M3); remove the probe's 3×/day schedule (≈ 4 Nov).
 
@@ -810,6 +809,7 @@ probe/                throwaway reachability check
 | D129 | Share-count review threshold (**Claude override of §9.1, per D122**) | §9.1: an unexplained share-count change > 2% goes to review. On the first months loaded this raised ~137 reviews, all ordinary issuance (QIP, preferential, ESOP: ratios 1.02–1.10) that needs no price adjustment. **Change:** review only if the change is > 2% **and** (ratio ≥ 1.25 or ≤ 0.8, or the price moved > 20% that day), i.e. what a missed split/bonus/consolidation looks like. Smaller issuance is still stored in `shares_daily`. *Reason:* the owner's review time (D96) goes to things that can corrupt adjusted prices. |
 | D130 | Compact market storage (owner #256: "V1 stored more and stayed under ~100 MB, so we must be storing things the wrong way") | **Finding (measured on real files):** values are correct but stored wastefully — prices/dates as text, every row stored twice (rowid table + key index), ISIN and last price repeated per row, extra date index. A compact layout (integer dates `YYYYMMDD`, integer paise, `WITHOUT ROWID`, no per-row ISIN/last) takes **31% of the space for price rows (142 → 44 bytes)**. Market cap **can't** be derived: NSE's MCAP ≠ issue × close exactly for ~⅓ of rows (2026-10-30: 1,072 of 3,232), so it stays per day (D5), as integer paise. Delivery keeps quantity only (percentage = quantity ÷ volume). **Estimate:** market DB ≈ 486 MB → ≈ 150–190 MB for 2024→today with every instrument (D127 adds ~45% rows vs. equity-only). **Plan:** new compact tables, reload from the R2 cache (no NSE calls; ≈ 6M row writes, within limits), then drop the old tables. Raw files stay in R2 as the lossless copy. |
 | D131 | Storage discipline (owner shared V1 practice, #258; taken selectively) | **Adopted:** (1) **gzip text objects in R2** (API lists, XBRL; ≈ 10× smaller; zips stay as they are); (2) **daily D1 write budget**: jobs count rows written and stop at the budget, resuming next run; (3) **site reads come from precomputed snapshots** (already D62/§5.8: `latest_snapshot`, per-stock series files in R2 regenerated nightly), so page views don't query history tables. **Not adopted:** keeping only the latest price in D1. V2 needs history (adjusted series, 52-week, DMA/EMA/RSI, returns vs indices, Phase 1 test 2, time machine D69, outcome ledger D53, feature table), so the compact history stays in D1 (D130, ≈ 150 MB). Note: D130's 31% is the size *remaining* (a 69% saving). |
+| D132 | As-filed XBRL layer lives in R2 (amends D47 layer 1; owner delegated, #259) | **Decision (Claude):** every XBRL filing is kept **as filed, gzip-compressed, in R2** (`att/…`): that *is* the lossless layer. **D1 holds** the canonical lines (D47 layer 2) with their source tag + filing reference, the identity-check results, and a filing index (`filing`). A fact not yet mapped can always be re-read from R2 and added later, so nothing is lost. The `xbrl_fact` table stays empty (kept only for small targeted extracts). *Reason:* ≈ 200k filings × ≈ 500 facts ≈ 100M rows would exceed D1's size and write allowance, and the site never queries raw facts. |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |

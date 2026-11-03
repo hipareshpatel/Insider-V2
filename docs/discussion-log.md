@@ -314,6 +314,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 256 | "D1 database storage: in V1 even more data was saved but it hardly crossed 100 MB, so we must be storing things the wrong way." | Measured: correct but wasteful (text numbers/dates, double storage, repeated ISIN); compact layout = 31% of the space; MCAP can't be derived (≈⅓ of rows differ from issue × close). D130 (compact storage, reload from R2 cache); §5.2. | ✅ |
 | 257 | "I said everything about stocks; remove bonds first; ETF, REIT will be used in future if needed." | D127 clarified: store equities (all series incl. SME) + ETFs + REITs/InvITs; drop bonds/debentures/G-secs/SGBs/T-bills (raw files stay in R2). Applied in the D130 reload. Read as: keep ETFs and REITs. | ✅ |
 | 258 | Owner pasted V1 storage notes (cards ≈ 80 MB; V1 keeps no price history in D1; heavy data gzipped in R2; write-changed-rows-only; daily write budget; snapshot-served feed; pruning with backup) and a note that D130's "31%" should read as size remaining (69% saving). "Take only what you feel is useful. Don't bloat things unnecessarily." | D131: adopted gzip in R2, daily write budget, snapshot-served pages; not adopted: no-history-in-D1 (V2 features need history). 31% = remaining, confirmed. | ✅ |
+| 259 | "We have the Workers Paid plan, or something for $5." On keeping raw XBRL figures in storage rather than the database: "you take the decision which is best." | Confirmed: Workers Paid ($5/month, active since #243). D132 (as-filed XBRL in R2 gzip; D1 canonical lines + checks + filing index); §5.3, §16. | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -322,11 +323,11 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #258: all checks pass (131 decisions, 258 entries); no open ⚠.*
+*Last run 2026-11-02 after entry #259: all checks pass (132 decisions, 259 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
-- **#241** Build: M0 done; M1 history loading; M2 started (see PLAN §16 build status). Proposed: as-filed XBRL facts in R2, not D1 (owner decision).
+- **#241** Build: M0 done; M1 history loading; M2 started (see PLAN §16 build status).
 - **#226/#239** Email test (owner, last).
 - **#240** Owner reviews the `smIndustry` → 22-sector map when drafted (M0).
 - **#239** Trademark check for Disclo (IP India search + filing), owner.

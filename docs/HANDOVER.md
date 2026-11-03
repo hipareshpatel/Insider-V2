@@ -17,7 +17,7 @@
 **Incidents (fixed, no data lost, nothing public):** duplicate securities from out-of-order retries; review floods from bond purposes; PII in a public CI log (deleted in minutes); several Cloudflare/NSE quirks (Appendix B).
 
 **Owner to do:** nothing blocking. Optional: free Gemini AI Studio key for later prompt trials (not needed yet); review queue once the review screen exists (M3); trademark check for Disclo; email test last.
-**Proposal for owner:** as-filed XBRL facts kept in R2 (not D1) — §16.
+**Decided (D132):** as-filed XBRL facts kept in R2 (gzip), canonical lines in D1.
 
 **Plan for today:** (1) D130 compact storage + no bonds + gate extension, then reload market history from R2 (≈ 1–2 h); (2) first index snapshot → Phase 1 test 2; (3) market cron back to every 10 min; (4) shareholding reader; load canonical results from R2 into `filings`; (5) remove the probe schedule (≈ 4 Nov).
 
@@ -32,7 +32,7 @@
 **Maintenance:** to reset market data, first apply a pause migration (`INSERT … job_lock 'paused'`), confirm `/status` shows no `running_lock`, then the wipe migration (which lifts the pause). Never deploy the market worker during a long backfill unless needed (a deploy interrupts the current run; it resumes safely).
 
 ## Read first, in this order
-1. `docs/PLAN.md`: the consolidated design. Decisions D1–D131 are in Appendix A; live NSE evidence is in Appendix B.
+1. `docs/PLAN.md`: the consolidated design. Decisions D1–D132 are in Appendix A; live NSE evidence is in Appendix B.
 2. `docs/discussion-log.md`: every owner statement (#1–#227), mapped to where it's recorded, plus open items.
 3. `docs/field-catalogue.md`: query fields (v1).
 4. `docs/setup-guide.md`: owner's Cloudflare/GoDaddy/GitHub setup steps.
