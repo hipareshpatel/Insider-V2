@@ -41,13 +41,28 @@ export function archiveFetcher(base: typeof fetch = fetch, sleep = (ms: number) 
   return f;
 }
 
-/** D128: read prefetched archive files from R2 (cache/<url path>) first; go to NSE only when missing. */
-export function r2FirstFetcher(bucket: R2Bucket, fallback: Fetcher): Fetcher & { hits: number; misses: number } {
+/** The trading date a daily archive file is for (UDiFF YYYYMMDD, PR DDMMYY, delivery/index DDMMYYYY), or null. */
+export function archiveFileDate(url: string): string | null {
+  let m = /BhavCopy_NSE_CM_0_0_0_(\d{4})(\d{2})(\d{2})_F/.exec(url);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = /\/PR(\d{2})(\d{2})(\d{2})\.zip$/.exec(url);
+  if (m) return `20${m[3]}-${m[2]}-${m[1]}`;
+  m = /_(\d{2})(\d{2})(\d{4})\.csv$/.exec(url);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return null;
+}
+
+/** D128: read prefetched archive files from R2 (cache/<url path>) first; go to NSE only when missing.
+ *  `authoritativeUntil`: the prefetch covered every date up to here with 0 refusals, so a miss there means the
+ *  file doesn't exist (404). Cloudflare gets 403, not 404, for missing archive files, so asking NSE would stall. */
+export function r2FirstFetcher(bucket: R2Bucket, fallback: Fetcher, authoritativeUntil?: string): Fetcher & { hits: number; misses: number } {
   const f = Object.assign(async (url: string): Promise<FetchResult> => {
     const u = new URL(url);
     if (u.hostname === "nsearchives.nseindia.com") {
       const obj = await bucket.get(`cache${u.pathname}`);
       if (obj) { f.hits++; return { status: 200, bytes: new Uint8Array(await obj.arrayBuffer()), contentType: null }; }
+      const fd = archiveFileDate(url);
+      if (authoritativeUntil && fd && fd <= authoritativeUntil) { f.misses++; return { status: 404, bytes: new Uint8Array(), contentType: null }; }
     }
     f.misses++;
     return fallback(url);

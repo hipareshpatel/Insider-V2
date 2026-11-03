@@ -238,3 +238,14 @@ describe("instrument kinds (#257)", () => {
     for (const s of ["N0", "NE", "Y3", "GS", "GB", "TB", "SG", "P1", "ZR"]) expect(kindOf({ series: s, isin: "INE123A07011" })).toBeNull();
   });
 });
+
+describe("archive file dates (R2 cache authority, D128)", () => {
+  it("reads the trading date from every daily file name", async () => {
+    const { archiveFileDate } = await import("../src/archive.js");
+    expect(archiveFileDate("https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_20240901_F_0000.csv.zip")).toBe("2024-09-01");
+    expect(archiveFileDate("https://nsearchives.nseindia.com/archives/equities/bhavcopy/pr/PR010924.zip")).toBe("2024-09-01");
+    expect(archiveFileDate("https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_01092024.csv")).toBe("2024-09-01");
+    expect(archiveFileDate("https://nsearchives.nseindia.com/content/indices/ind_close_all_01092024.csv")).toBe("2024-09-01");
+    expect(archiveFileDate("https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv")).toBeNull();
+  });
+});
