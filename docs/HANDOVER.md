@@ -40,6 +40,8 @@
 | **Full history for 20-row-capped lists (D149, C40)** — PIT, SAST, board meetings, corporate actions, credit ratings, governance, BRSR | queued 16:00 IST (≈ 8,200 calls) + their XBRL |
 | Still to verify (no download yet): SAST Reg 31 endpoint; RPT data location; insider-feed completeness | open (§16) |
 
+**Work list (D158, owner #321):** `docs/worklist.md` — M0–M3 line by line from the documents; Claude works it in order, owner reviews results.
+
 **Two chats (owner #310):** this build chat may ask the planning chat (session "1.0 V2 planning and mechanism", holds the first-chat transcript) for inputs. Ownership: planning chat = `website.md`, `disclo-design-recovered.md`; build chat = code, migrations, deploys, PLAN data/build sections, HANDOVER, FMEA, field catalogue. Discussion log shared, append-only: pull right before writing, next free number, push at once; on a clash rebase and renumber only your own row.
 
 **Focus (D155, owner #316):** filings load only for Nifty 50 + Next 50 + Midcap 150 (`FOCUS_INDICES` on disclo-filings; "ALL" widens); censuses still read every file.
