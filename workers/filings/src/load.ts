@@ -125,7 +125,7 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}`, rows: rows.length };
 }
 
-export async function loadBatch(deps: Deps, limit = 150): Promise<LoadOutcome[]> {
+export async function loadBatch(deps: Deps, limit = 150, parallel = 8): Promise<LoadOutcome[]> {
   const kinds = [...RESULT_KINDS, ...SHP_KINDS];
   const marks = kinds.map(() => "?").join(",");
   const jobs = await deps.filings.all<{ job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }>(
@@ -134,12 +134,17 @@ export async function loadBatch(deps: Deps, limit = 150): Promise<LoadOutcome[]>
      ORDER BY j.job_id LIMIT ?`, [...kinds, limit]);
   const cache = new Map<string, string | null>();
   const out: LoadOutcome[] = [];
-  for (const j of jobs) {
-    let o: LoadOutcome;
-    try { o = SHP_KINDS.includes(j.kind) ? await loadShp(j, deps, cache) : await loadOne(j, deps, cache); } catch (e) { o = { jobId: j.job_id, status: "failed", detail: String(e).slice(0, 200) }; }
-    out.push(o);
-    await deps.filings.run("INSERT INTO fin_load (job_id, status, detail, at) VALUES (?,?,?,?) ON CONFLICT (job_id) DO UPDATE SET status=excluded.status, detail=excluded.detail, at=excluded.at",
-      [o.jobId, o.status, o.detail, deps.now().toISOString()]);
-  }
+  let i = 0;
+  const worker = async () => {
+    while (i < jobs.length) {
+      const j = jobs[i++]!;
+      let o: LoadOutcome;
+      try { o = SHP_KINDS.includes(j.kind) ? await loadShp(j, deps, cache) : await loadOne(j, deps, cache); } catch (e) { o = { jobId: j.job_id, status: "failed", detail: String(e).slice(0, 200) }; }
+      out.push(o);
+      await deps.filings.run("INSERT INTO fin_load (job_id, status, detail, at) VALUES (?,?,?,?) ON CONFLICT (job_id) DO UPDATE SET status=excluded.status, detail=excluded.detail, at=excluded.at",
+        [o.jobId, o.status, o.detail, deps.now().toISOString()]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(parallel, jobs.length || 1) }, worker)); // jobs are independent files
   return out;
 }
