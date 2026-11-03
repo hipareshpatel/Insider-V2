@@ -66,6 +66,7 @@
 ## Working rules (owner's instructions)
 - **Build started 2026-11-03 (D122):** owner said "Build". M0 → M1 in §14 order. Overrides of owner decisions are allowed "for better" but always logged and reported; money/time/legal items are asked.
 - **Clean-slate rule:** never use or reference V1 code, data, outputs or designs. *Single exception below.*
+- **When stuck, ask V1 (D142, owner #275 — remember this):** if an item reaches the D140 limit (two cycles) or ideas run out, write a short prompt for V1 (methods/sources, not code); the owner relays it and pastes the answer; Claude validates it on V2 data and adopts or rejects it, recording why. Full freedom on the decision.
 - Log **every** owner statement in `docs/discussion-log.md` **in the same turn**; record decisions in `PLAN.md` Appendix A **and** the design sections.
 - Run the consistency check after every update (procedure at the end of the discussion log) and report the result.
 - **Public CI logs:** this repo is public, so Actions logs are public. Never print `wrangler whoami`/account names/emails unmasked (see `infra-check.yml` mask).

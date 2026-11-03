@@ -330,6 +330,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 272 | "Good Progress" (after the D137/D138 work and the whole-universe jump audit). | Noted; continuing with the jump classes (gap length per jump, ETF kind). | ✅ |
 | 273 | "It seems like you got into wrong loops or worm hole. Take a minute, think everything, plan a solution and work accordingly." | Agreed with the diagnosis (audit → immediate fix → next class; 4 wrong claims; gate items not moving). Plan re-anchored on the §14 gates: review screen (B5, missing) first, daily freshness second, 10 clean sessions, then M2 reader classes. D140 work protocol. | ✅ order confirmed (#274) |
 | 274 | On review-screen access: "You do it manually one by one." Plan order: "Yes, this order." | Read as: Claude reviews the queue item by item instead of building the screen now. Stress-tested: D6/A13 required owner confirmation to stop guessed factors → D141: every decision needs independent evidence, otherwise the item stays open; decisions applied as migrations in git with the evidence. | ✅ 203 of 240 decided with evidence; 37 open with reasons (HANDOVER plan item 1) |
+| 275 | "Anywhere you get stuck, we always get feedback from V1. Just give me a prompt. It might give you some ideas to evaluate if you are struggling or out of ideas. Please remember this. Approving or rejecting V1 feedback is your call or you decide what to validate or not, full freedom." | D142 (trigger = D140 limit or no evidence-based idea left; V1 answers are hypotheses, validated on V2 data; adopt/reject recorded). Added to HANDOVER working rules. First prompt given for the 37 open review items + results-reader classes. | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -338,7 +339,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-03 after entry #274: all checks pass (141 decisions, 274 entries); no open ⚠.*
+*Last run 2026-11-03 after entry #275: all checks pass (142 decisions, 275 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
