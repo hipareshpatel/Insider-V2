@@ -326,13 +326,14 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8): Promise<
   // parallel, so a hold was judged before its neighbouring periods were on record (ABCAPITAL: 5 post-merger quarters
   // all held against pre-merger values). Re-checked with the full neighbourhood, an isolated outlier (a unit error)
   // stays held; a lasting change loads and is still flagged by the series audit (/audit).
-  // C48: a storage read error ("Error: get: …cloudflarestatus") is temporary: retried on the same cycle.
+  // C48/C50: an infrastructure error (any detail starting "Error: ": storage, network, D1 busy during an export) is
+  // temporary: retried on the same cycle. File problems (truncated XML, unsupported layout) are recorded differently.
   const retryBefore = new Date(deps.now().getTime() - 6 * 3600_000).toISOString();
   const kinds = [...RESULT_KINDS, ...SHP_KINDS];
   const marks = kinds.map(() => "?").join(",");
   const jobs = await deps.filings.all<{ job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }>(
     `SELECT j.job_id, j.kind, j.symbol, j.url, j.r2_key, p.r2_key AS parent_key FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
-     WHERE j.status='done' AND j.kind IN (${marks})${focusSql(deps).sql} AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND ((l.status <> 'skipped' AND NOT (l.status = 'review' AND substr(l.detail, 1, 12) = 'scale guard:') AND NOT (l.status = 'failed' AND (substr(l.detail, 1, 11) = 'Error: get:' OR substr(l.detail, 1, 29) = 'Error: Network connection lo'))) OR l.at > ?))
+     WHERE j.status='done' AND j.kind IN (${marks})${focusSql(deps).sql} AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND ((l.status <> 'skipped' AND NOT (l.status = 'review' AND substr(l.detail, 1, 12) = 'scale guard:') AND NOT (l.status = 'failed' AND substr(l.detail, 1, 7) = 'Error: ')) OR l.at > ?))
      ORDER BY j.job_id LIMIT ?`, [...kinds, ...focusSql(deps).params, retryBefore, limit]);
   const cache = new Map<string, string | null>();
   const out: LoadOutcome[] = [];
