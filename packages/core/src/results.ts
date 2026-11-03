@@ -46,6 +46,29 @@ export const PL_TAGS: Record<string, string> = {
   paid_up_capital: "PaidUpValueOfEquityShareCapital",
   eps_basic: "BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations",
   eps_diluted: "DilutedEarningsLossPerShareFromContinuingAndDiscontinuedOperations",
+  // D154 (census of 74,571 files): the rest of the reported P&L, so the statement is complete
+  pbt_discontinued: "ProfitLossFromDiscontinuedOperationsBeforeTax",
+  tax_discontinued: "TaxExpenseOfDiscontinuedOperations",
+  regulatory_deferral_movement: "NetMovementInRegulatoryDeferralAccountBalancesRelatedToProfitOrLossAndTheRelatedDeferredTaxMovement",
+  oci_items_not_reclassified: "AmountOfItemThatWillNotBeReclassifiedToProfitAndLoss",
+  oci_tax_not_reclassified: "IncomeTaxRelatingToItemsThatWillNotBeReclassifiedToProfitOrLoss",
+  oci_items_reclassified: "AmountOfItemThatWillBeReclassifiedToProfitAndLoss",
+  oci_tax_reclassified: "IncomeTaxRelatingToItemsThatWillBeReclassifiedToProfitOrLoss",
+  oci_reported: "OtherComprehensiveIncome",
+  tci_owners: "ComprehensiveIncomeForThePeriodAttributableToOwnersOfParent",
+  tci_nci: "ComprehensiveIncomeForThePeriodAttributableToOwnersOfParentNonControllingInterests",
+  eps_basic_continuing: "BasicEarningsLossPerShareFromContinuingOperations",
+  eps_diluted_continuing: "DilutedEarningsLossPerShareFromContinuingOperations",
+  eps_basic_discontinued: "BasicEarningsLossPerShareFromDiscontinuedOperations",
+  eps_diluted_discontinued: "DilutedEarningsLossPerShareFromDiscontinuedOperations",
+  debt_equity_ratio: "DebtEquityRatio",
+  debt_service_coverage_ratio: "DebtServiceCoverageRatio",
+  interest_service_coverage_ratio: "InterestServiceCoverageRatio",
+};
+/** Spelling variants of the same tag in older taxonomies (not different concepts): always tried after the main tag. */
+export const PL_SPELLINGS: Record<string, string[]> = {
+  IncomeTaxRelatingToItemsThatWillNotBeReclassifiedToProfitOrLoss: ["IncomeTaxRelatingToItmesThatWillNotBeReclassifiedToProfitOrLoss"],
+  IncomeTaxRelatingToItemsThatWillBeReclassifiedToProfitOrLoss: ["IncomeTaxRelatingToItmesThatWillBeReclassifiedToProfitOrLoss"],
 };
 
 /** Bank template (Banking Regulation Act format). */
@@ -227,7 +250,7 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
   const useAliases = mode === "all" || (mode === "auto" && isOldGaap(inst));
   const tags = template === "bank" ? BANK_TAGS : template === "life_insurance" ? LIFE_TAGS : template === "general_insurance" ? GI_TAGS : PL_TAGS;
   for (const [line, tag] of Object.entries(tags)) {
-    const candidates = [tag, ...(template === "industrial" && useAliases ? PL_ALIASES[line] ?? [] : [])];
+    const candidates = [tag, ...(PL_SPELLINGS[tag] ?? []), ...(template === "industrial" && useAliases ? PL_ALIASES[line] ?? [] : [])];
     const f = candidates.map((t) => inst.facts.find((x) => x.tag === P + t && x.contextRef === ctx!.id && !x.nil)).find((x) => x);
     if (f?.value !== undefined && f.value !== null && f.value !== "") lines[line] = toText(dec(f.value));
     else missing.push(line);

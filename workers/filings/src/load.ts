@@ -1,7 +1,7 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, type Sql, type XbrlInstance, balanceAndCash, batchAll, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, statementDetail, type Sql, type XbrlInstance, balanceAndCash, batchAll, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
 
 export interface Deps {
   filings: Sql;
@@ -228,15 +228,27 @@ export async function loadBsCf(inst: XbrlInstance, sid: number, template: string
   const kind = b.cf ? ytdKind(b.cf.start, b.cf.end) : null;
   const fyStart = inst.facts.find((x) => /:DateOfStartOfFinancialYear$/.test(x.tag))?.value ?? null;
   const bsKind = kind ?? (b.bs && fyStart ? ytdKind(fyStart, b.bs.date) : null);
+  // D154: every reported line item, stored as "x:<tag>" next to the named lines, only when the statement's totals pass
+  // AND its detail adds up to its own subtotals; otherwise the checked totals load alone and the detail is noted.
+  const refs = new Set(inst.facts.map((f) => f.contextRef));
+  const det = template === "industrial" ? statementDetail(inst, refs.has("OneI") ? "OneI" : null, refs.has("FourD") ? "FourD" : null) : { bs: null, cf: null };
+  const detailRows = (st: "bs" | "cf", d: typeof det.bs, end: string, k: string) => {
+    if (!d || !Object.keys(d.lines).length) return;
+    const bad = d.checks.filter((c) => !c.ok);
+    if (bad.length) { notes.push(`${st} detail not loaded: ${bad.map((c) => c.name).join(", ")}`); return; }
+    for (const [tag, value] of Object.entries(d.lines)) rows.push([sid, template, st, `x:${tag}`, "", end, k, basis, "original", value, null, disclosedAt, filingId, tag, "reported", "detail-v1"]);
+  };
   if (b.bs && bsKind) {
-    if (b.bs.checks.length >= 2 && b.bs.checks.every((c) => c.ok))
+    if (b.bs.checks.length >= 2 && b.bs.checks.every((c) => c.ok)) {
       for (const [line, value] of Object.entries(b.bs.lines)) rows.push([sid, template, "bs", line, "", b.bs.date, bsKind, basis, "original", value, null, disclosedAt, filingId, line, "reported", "bscf-v1"]);
-    else notes.push(`balance sheet not loaded: ${b.bs.checks.filter((c) => !c.ok).map((c) => c.name).join(", ") || "too few checks"}`);
+      detailRows("bs", det.bs, b.bs.date, bsKind);
+    } else notes.push(`balance sheet not loaded: ${b.bs.checks.filter((c) => !c.ok).map((c) => c.name).join(", ") || "too few checks"}`);
   }
   if (b.cf && kind) {
-    if (b.cf.checks.length >= 1 && b.cf.checks.every((c) => c.ok))
+    if (b.cf.checks.length >= 1 && b.cf.checks.every((c) => c.ok)) {
       for (const [line, value] of Object.entries(b.cf.lines)) rows.push([sid, template, "cf", line, "", b.cf.end, kind, basis, "original", value, null, disclosedAt, filingId, line, "reported", "bscf-v1"]);
-    else notes.push(`cash flow not loaded: ${b.cf.checks.filter((c) => !c.ok).map((c) => c.name).join(", ") || "no check"}`);
+      detailRows("cf", det.cf, b.cf.end, kind);
+    } else notes.push(`cash flow not loaded: ${b.cf.checks.filter((c) => !c.ok).map((c) => c.name).join(", ") || "no check"}`);
   }
   if (rows.length) await batchAll(deps.filings, insertRows(
     "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, rows, "ON CONFLICT DO NOTHING"));

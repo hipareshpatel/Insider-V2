@@ -86,6 +86,26 @@ describe("FY22 old-format March-quarter file (contexts referenced but undefined)
   });
 });
 
+describe("complete statements (D154): every reported balance-sheet and cash-flow line", () => {
+  it("INFY Sep 2026 consolidated: ~59 balance-sheet and 88 cash-flow detail lines stored next to the named lines", async () => {
+    const URLH = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_INDAS_INFY_H1FY27_WEB.xml";
+    const filings = sqlite("filings"), market = sqlite("market");
+    market.raw.exec("DELETE FROM job_lock; INSERT INTO security (security_id,name) VALUES (7,'Infosys'); INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (7,'nse_symbol','INFY','2024-01-01','t')");
+    const listH = JSON.stringify({ data: [{ symbol: "INFY", broadcast_Date: "16-Oct-2026 16:40:00", creation_Date: "16-Oct-2026 16:40:00", xbrl: URLH }] });
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES (1,'integrated_financials','INFY','u1','api/integrated_financials/INFY/x.json','done');
+      INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status,parent_id) VALUES (2,'xbrl_integrated_financials','INFY','${URLH}','att/xbrl/h1.xml','done',1)`);
+    const h1 = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_IF_Q2FY27_cons_full.xml"), "utf8");
+    const deps = { filings, market, bscf: true, getText: async (k: string) => (k === "att/xbrl/h1.xml" ? h1 : listH), now: () => new Date("2026-11-03T02:00:00Z") };
+    const [o] = await loadBatch(deps);
+    expect(o).toMatchObject({ status: "loaded" });
+    expect(o!.detail).not.toContain("detail not loaded");
+    const n = await filings.all<{ statement: string; n: number }>("SELECT statement, count(*) AS n FROM fin_value WHERE substr(line,1,2)='x:' GROUP BY statement ORDER BY statement");
+    expect(n).toEqual([{ statement: "bs", n: 59 }, { statement: "cf", n: 88 }]);
+    const capex = await filings.all<{ value: string; period_kind: string }>("SELECT value, period_kind FROM fin_value WHERE line='x:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities'");
+    expect(capex).toEqual([{ value: "15850000000", period_kind: "H" }]);
+  });
+});
+
 describe("backfill survives storage read errors (C48)", () => {
   it("a failing read pauses the backfill at that file; after 3 runs it is skipped and listed, and the position moves on", async () => {
     const { filings, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
