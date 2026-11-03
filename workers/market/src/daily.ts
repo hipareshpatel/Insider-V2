@@ -297,7 +297,11 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   lap("prices_written");
 
   // Corporate actions (D6, D7): record every Bc row; decide factors for actions whose ex-date is today.
-  const bc = dedupeBc(pr.bc, new Set(pr.bc.map((r) => r.series))); // every series (D127); one row per symbol/ex-date/purpose
+  // Second official source (market/0016): NSE's per-company lists carry actions some Bc files omit.
+  const extra = (await deps.market.all<{ symbol: string; purpose: string; series: string }>(
+    "SELECT symbol, purpose, series FROM corp_action_extra WHERE ex_date = ?", [date])).map((x) => ({ series: x.series, symbol: x.symbol, name: "", recordDate: null, exDate: date, purpose: x.purpose }));
+  const bcAll = [...pr.bc, ...extra.filter((x) => !pr.bc.some((b) => b.symbol === x.symbol && b.exDate === x.exDate))];
+  const bc = dedupeBc(bcAll, new Set(bcAll.map((r) => r.series))); // every series (D127); one row per symbol/ex-date/purpose
   const caStmts: Stmt[] = [];
   const todays = new Map<number, { purposes: string[]; comps: ReturnType<typeof parsePurpose>["components"]; unknown: boolean }>();
   const shareLike = new Set(rowsAll.map((r) => r.symbol)); // rowsAll holds stock-like instruments only (#257)

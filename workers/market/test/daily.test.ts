@@ -249,3 +249,22 @@ describe("archive file dates (R2 cache authority, D128)", () => {
     expect(archiveFileDate("https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv")).toBeNull();
   });
 });
+
+import { repairFactors } from "../src/repair.js";
+describe("factor repair from the per-company lists (SHRIRAMFIN 1:5 split missing from Bc, 2025-01-10)", () => {
+  it("decides the split from stored share counts, supersedes the unexplained-change items, runs once", async () => {
+    const m = sqlite("market"), a = sqlite("app");
+    m.raw.exec(`INSERT INTO security (security_id, name) VALUES (1797, 'Shriram Finance');
+      INSERT INTO security_identifier (security_id, id_type, value, valid_from, source) VALUES (1797, 'nse_symbol', 'SHRIRAMFIN', '2024-01-01', 't');
+      INSERT INTO trading_calendar (trade_date, is_session, universe_rows) VALUES ('2025-01-09', 1, 2400), ('2025-01-10', 1, 2400);
+      INSERT INTO shares_daily VALUES (1797, 20250109, 376058777, NULL, 'nse', 1000), (1797, 20250110, 1880293885, NULL, 'nse', 200);
+      INSERT INTO price_daily VALUES (1797, 20250109, 'EQ', 290000, 292000, 288000, 290000, NULL, 1, NULL, NULL, 1),
+                                     (1797, 20250110, 'EQ', 58500, 59000, 57000, 58000, NULL, 1, NULL, NULL, 1);`);
+    a.raw.exec(`INSERT INTO review_item (kind, subject_db, subject_ref, summary, created_at) VALUES ('corp_action', 'market', 'shares|1797|2025-01-10', 'Share count changed', 'x'), ('corp_action', 'market', 'move|1797|2025-01-10', 'moved -81%', 'x')`);
+    const r = await repairFactors(m, a, new Date("2025-01-11T00:00:00Z"));
+    expect(r?.decided).toBe(1);
+    expect(await m.all("SELECT factor, method, status FROM adj_factor WHERE security_id=1797")).toEqual([{ factor: "0.2", method: "share_ratio", status: "auto" }]);
+    expect(await a.all("SELECT status FROM review_item ORDER BY subject_ref")).toEqual([{ status: "superseded" }, { status: "superseded" }]);
+    expect(await repairFactors(m, a, new Date("2025-01-11T00:00:00Z"))).toBeNull(); // once per version
+  });
+});

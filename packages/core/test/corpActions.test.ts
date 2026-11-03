@@ -44,3 +44,14 @@ describe("split without share counts (first day in MCAP)", () => {
     expect(decideFactor({ exDate: "2025-03-10", components: comps, sharesBefore: null, sharesOnEx: null, prevClose: "1000", faceValue: "10", openOnEx: "500" }).status).toBe("review");
   });
 });
+
+describe("per-company list wording (NSE corporates-corporateActions)", async () => {
+  const { parsePurpose } = await import("../src/index.js");
+  it("reads splits, consolidations and rights in the long form", () => {
+    expect(parsePurpose("Face Value Split (Sub-Division) - From Rs 10/- Per Share To Rs 2/- Per Share").components).toEqual([{ type: "split", fromFv: "10", toFv: "2" }]);
+    expect(parsePurpose("Face Value Split (Sub-Division) - From Rs 10/- Per Share To Re 1/- Per Share").components).toEqual([{ type: "split", fromFv: "10", toFv: "1" }]);
+    expect(parsePurpose("Face Value Consolidation - From Rs 1/- Per Share To Rs 10/- Per Share").components).toEqual([{ type: "consolidation", fromFv: "1", toFv: "10" }]);
+    expect(parsePurpose("Rights 15:32 @ Premium Rs 5.26/-").components).toEqual([{ type: "rights", newShares: "15", held: "32", premium: "5.26" }]);
+    expect(parsePurpose("FV SPLIT RS 10 TO RS 2").components).toEqual([{ type: "split", fromFv: "10", toFv: "2" }]); // Bc form unchanged
+  });
+});

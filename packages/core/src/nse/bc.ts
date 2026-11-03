@@ -39,11 +39,15 @@ export type CaComponent =
 export interface ParsedPurpose { components: CaComponent[]; unparsed: string[] }
 
 const NUM = String.raw`(\d+(?:\.\d+)?)`;
-const SPLIT = new RegExp(String.raw`FV\s*SPLI?T\s*(?:FRM|FROM)?\s*R[SE]\.?\s*${NUM}\s*(?:\/-)?\s*TO\s*R[SE]\.?\s*${NUM}`, "i");
-const CONS = new RegExp(String.raw`(?:FV\s*)?C(?:ONSOL|NSLD)\w*?\s*(?:FRM|FROM)?\s*R[SE]\.?\s*${NUM}\s*TO\s*R[SE]\.?\s*${NUM}`, "i");
+// Bc: "FV SPLIT RS 10 TO RS 2". NSE per-company lists (market/0016): "Face Value Split (Sub-Division) - From Rs 10/- Per
+// Share To Rs 2/- Per Share", "Face Value Consolidation - From Rs 1/- Per Share To Rs 10/- Per Share".
+const FVTAIL = String.raw`\s*(?:\/-)?\s*(?:PER\s*SHARE)?\s*TO\s*R[SE]\.?\s*${NUM}`;
+const SPLIT = new RegExp(String.raw`(?:FV|FACE\s*VALUE)\s*SPLI?T\s*(?:\(SUB-?\s*DIVISION\))?\s*-?\s*(?:FRM|FROM)?\s*R[SE]\.?\s*${NUM}` + FVTAIL, "i");
+const CONS = new RegExp(String.raw`(?:FV\s*|FACE\s*VALUE\s*)?C(?:ONSOL|NSLD)\w*?\s*-?\s*(?:FRM|FROM)?\s*R[SE]\.?\s*${NUM}` + FVTAIL, "i");
 const BONUS = new RegExp(String.raw`^BONUS\s*${NUM}\s*:\s*${NUM}`, "i");
 // Rights in every spelling seen 2024–2026: RIGHTS, RGHTS, RGTS, RIGHTN, RHTS, RIGTS, RGHT.
-const RIGHTS = new RegExp(String.raw`R(?:IGHTS?|IGHTN|GHTS?|GTS|HTS|IGTS)\s*-?\s*${NUM}\s*:\s*${NUM}\s*@?\s*PRE?M\s*R[SE]\.?\s*${NUM}`, "i");
+// Per-company lists: "Rights 15:32 @ Premium Rs 5.26/-".
+const RIGHTS = new RegExp(String.raw`R(?:IGHTS?|IGHTN|GHTS?|GTS|HTS|IGTS)\s*-?\s*${NUM}\s*:\s*${NUM}\s*@?\s*PRE?M(?:IUM)?\s*R[SE]\.?\s*${NUM}`, "i");
 const DIV = new RegExp(String.raw`^(INT\s*DIV|INTDIV|SPL\s*DIV|SPLDIV|SPDV|SP\s*DIV|DIV|DI|DV)\s*-?\s*R[SE]\.?\s*-?\s*${NUM}`, "i");
 
 /** Parse one Bc purpose into components, e.g. "AGM/DIV - RS 5 PER SH" -> meeting + final dividend 5. */

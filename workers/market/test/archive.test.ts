@@ -37,3 +37,16 @@ describe("row-count gate (FMEA C14)", () => {
     expect(rowCountOk(2900, 2392.5, 2450)).toBe(false);
   });
 });
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { affectsPrice, parsePurpose } from "@disclo/core";
+describe("per-company corporate actions missing from Bc (market/0016)", () => {
+  const sql = readFileSync(join(import.meta.dirname, "..", "..", "..", "db", "migrations", "market", "0016_corp_action_extra.sql"), "utf8");
+  const purposes = [...sql.matchAll(/\('[^']*', '\d{4}-\d{2}-\d{2}', '((?:[^']|'')*)'/g)].map((m) => m[1]!.replace(/''/g, "'"));
+  it("all 72 purposes parse with no unknown parts; 19 affect prices", () => {
+    expect(purposes.length).toBe(72);
+    expect(purposes.filter((p) => parsePurpose(p).unparsed.length)).toEqual([]);
+    expect(purposes.filter((p) => affectsPrice(parsePurpose(p))).length).toBe(19);
+  });
+});

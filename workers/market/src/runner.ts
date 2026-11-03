@@ -2,6 +2,7 @@
 import { type Sql, batchAll, dec, diso, dnum, insertRows, mul, round, toText } from "@disclo/core";
 import { type DayReport, type Deps, runDay } from "./daily.js";
 import { snapshotIndices } from "./snapshot.js";
+import { repairFactors } from "./repair.js";
 import { addDays, datesBetween, eligible, istNow } from "./dates.js";
 
 export const HISTORY_START = "2024-01-01"; // D2
@@ -41,6 +42,8 @@ export async function runPending(deps: Deps, opt: RunOptions): Promise<DayReport
   }
   if (await paused(deps.market)) return out;
   await deriveJanuary2024(deps.market);
+  // Once per REPAIR_VERSION, after prices have caught up (factors need both sessions' share counts).
+  if ((await maybeCaughtUp(deps))) await repairFactors(deps.market, deps.app, deps.now());
   await maybeSnapshot(deps);
   return out;
 }
@@ -66,6 +69,11 @@ export async function maybeSnapshot(deps: Deps): Promise<string> {
       [n.date, started, deps.now().toISOString(), JSON.stringify({ error: String(e) })]);
     return "failed";
   }
+}
+
+async function maybeCaughtUp(deps: Deps): Promise<boolean> {
+  const [last] = await deps.market.all<{ d: string | null }>("SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session=1 AND universe_rows IS NOT NULL");
+  return !!last?.d && last.d >= addDays(istNow(deps.now()).date, -5);
 }
 
 /** D6: January 2024 has no MCAP file; market cap = close × February's first share count,
