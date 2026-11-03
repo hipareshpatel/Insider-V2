@@ -25,14 +25,27 @@
 | 6 | M2 remainder: restatement/basis on known cases; PIT/SAST readers | M2 | tests on known cases pass |
 | 7 | M3 site v0 | M3 | performance targets |
 
-**Pending downloads (D144) — keep current:**
-| # | Download | For | State (2026-11-03 11:30 IST) |
-|---|---|---|---|
-| 1 | XBRL attachment backlog (~13.5k) | M2 | running (GitHub; scheduled 22:37 + 08:37 IST) |
-| 2 | Bulk / block deals, short selling 2024 → today (API, 1 call/day; capped at 70 rows → days at 70 flagged) | M1 | queued in the ledger (~2,100 jobs), fetched by the prefetch worker |
-| 3 | F&O participant OI, F&O ban list, price bands 2024 → today (archive) | M1 | GitHub `prefetch-archive` set=structure (dispatched) |
-| 4 | ASM, GSM, FII/DII (no history at NSE) | M1 | daily snapshots from today (evening slot); bulk.csv/block.csv complete daily (archive job 19:07 IST) |
-| 5 | Compress older R2 objects (≈ 11.7 → ≈ 3 GB; D147) | storage | running (prefetch worker, ~200/min, progress in prefetch `/status` daily_refresh 'compress') |
+**Downloads for M0–M3 (D144) — status 2026-11-03 13:40 IST: all historical downloads done.**
+| Download | State |
+|---|---|
+| XBRL attachments (results, Integrated Filing, shareholding, PIT, board meetings, governance, BRSR) | ✅ 214,858 done, 0 queued; 1,197 failed (mostly final 404s; 403s retried by the twice-daily job) |
+| API lists for every company (results, IF, shareholding, PIT, SAST, board meetings, corporate actions, ratings, governance, annual reports, BRSR) | ✅ all done |
+| Announcements (monthly 2024 → today) | ✅ done; daily from today |
+| Market history (bhavcopy, PR bundle, delivery, index closes) | ✅ 2024 → 2 Nov; daily via the 19:07 IST archive run |
+| Market structure: participant OI, F&O ban list, price bands (archive) | ✅ 2024 → today; daily |
+| Bulk / block deals, short selling (API, 1 call/day, capped at 70 rows) | ✅ 2,226 days; complete bulk/block files daily from today |
+| ASM, GSM, FII/DII (no history at NSE) | daily snapshots from today's evening slot |
+| Corporate actions, second source (D138) | ✅ per-company lists + daily date-range feed |
+| R2 compression (D147, never deletes) | running: 9,871 packed, 430 MB saved, 0 verify failures |
+| Still to verify (no download yet): SAST Reg 31 endpoint; RPT data location; insider-feed completeness | open (§16) |
+
+**Pending by milestone (owner #284):**
+- **M0 — signed off (D143).** Left: remove the probe's 3×/day schedule (≈ 4 Nov). Review screen (B5) moved to M3.
+- **M1 — market data.** (1) 10 clean daily sessions: 0/10, checked weekdays 21:43 IST (non-blocking, D143). (2) **Load market-structure data into D1** (downloads done; readers not built): bulk/block/short (flag 70-row days), participant OI, ban list, price bands, ASM/GSM, FII/DII. (3) Phase 1 test 6: 7 review items open with reasons. Tests 1–3 pass.
+- **M2 — filings & financials.** (1) Readable rate on the whole population (99.66% on 36.9k so far; loader finishing the backlog). (2) **Readers: PIT/SAST, credit ratings, board meetings** (data downloaded). (3) **Balance sheet + cash flow** lines (canonical model; today only P&L is loaded). (4) Restatement / basis rules tested on known cases. (5) Classification CLI once + `smIndustry` → 22-sector map for owner review (D121, #240). (6) Held classes: ~40 scale-guard outliers (need a second source), 14 "missing revenue+pat", 10 pre-2024 BSE shareholding.
+- **M3 — site v0 (not started).** API Worker + public site: dashboard, stock page (market + financials sections), data-health page (incl. the review queue screen, B5); adjusted prices honour series breaks (D146); performance targets (TTFB ≤ 200 ms cached; stock page ≤ 2.0 s on 4G; API p95 ≤ 300/800 ms); noindex + rate limits.
+- **Owner:** trademark check for Disclo; email test (last); optional Cloudflare budget alert $5; review the `smIndustry` sector map when drafted.
+
 **Storage (owner #278):** 0 PDFs; 24.4 GB raw XML/JSON, 11.7 GB in R2 (newer objects gzipped); keep originals and never delete them (owner #282); after compression ≈ 3 GB, ≈ +0.5 GB/year → ≈ 8 GB in 10 years (free tier 10 GB; beyond that ≈ $0.015/GB-month).
 **V1 hints adopted later (D142, #276):** profit ÷ EPS implied share count as a split/bonus cross-check + no double adjustment when filings restate comparatives; owners vs minorities test; excise duty separate; filler zeros in annual-report XBRL. **Test gap:** stale-Bc rule (C28) needs a multi-day test.
 **Parked (counted, not chased, D140):** 16 stock jumps and ETF unit-split proposals → owner queue; scale-guard anchor class; R2 compression; probe schedule removal (≈ 4 Nov); Workers CPU check (≈ 5 Nov); D1 reads re-measure (≈ 5 Nov).

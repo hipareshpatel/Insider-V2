@@ -339,6 +339,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 281 | Owner uploaded V1's full storage answer: "Keep in mind, we don't require to follow everything. We need to test and decide where you need." | Read in full; each point tested against V2: adopted JSON-only answers + complete-XML at ingest (C32), no-op upserts (C33; small saving, identical files already skipped); noted index write cost and cards-in-R2 for M6; not adopted: gzip mtime, expiry, 260-close prices. | ✅ |
 | 282 | "Some of them like 1000 words only are risk so ignore it. Don't delete anything if already downloaded." | Confirmed: no truncation of stored text (V2 keeps files whole). D147 tightened: never delete downloaded files (no expiry ever); checked — no R2 delete or lifecycle rule exists in V2; compression now verifies the gzip unzips to the exact original before overwriting (test). | ✅ |
 | 283 | "Go ahead with item 4 and fix other things." | Item 4 batch: OneD preferred explicitly (C29), no-period files excluded (D145, new status), alternative line names only when every identity check passes (V1 hint), median-of-4 scale anchor (C34); retries of those classes. Deploys 29–30 had failed (63-byte LIKE, C35; root-fix test added); live 13:20 IST. Readable rate 99.66% on 36.9k processed. Other things: C28 test added; LIKE-length guard test (C35); BSE Ltd shareholding fixed where NSE's share count confirms (7 of 17; C36). | ✅ (full-population rate when the backlog is loaded) |
+| 284 | "Hope whatever downloads are required are already done or going on. Update pending items from M0 to M3 also." | Checked live: all historical downloads for M0–M3 done (214,858 attachments, all API lists, market history, market-structure history, bulk/block/short); daily snapshots from tonight; compression running. Pending list by milestone written to HANDOVER and PLAN §16. | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -347,12 +348,12 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-03 after entry #283: all checks pass (147 decisions, 283 entries); no open ⚠.*
+*Last run 2026-11-03 after entry #284: all checks pass (147 decisions, 284 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
 - **#241** Build: M0 done; M1 history loading; M2 loading (see PLAN §16 build status).
-- **#265** Daily discovery of new filings into the download ledger (D135); census classes: old bank-format files (249), Integrated Filings with alias tag names (112).
+- **#284** M1: market-structure loaders; M2: PIT/SAST, ratings, board-meeting readers, balance sheet + cash flow, known-case tests, classification CLI; M3: site v0 (see HANDOVER).
 - **#270** Owner (optional): Cloudflare Budget Alert at $5 (D137).
 - **#226/#239** Email test (owner, last).
 - **#240** Owner reviews the `smIndustry` → 22-sector map when drafted (M0).
