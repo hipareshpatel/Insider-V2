@@ -327,6 +327,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 269 | Owner shared the Workers usage page (Nov 2 – Dec 2): requests 167.95k / 10M, CPU 1.91M / 30M ms, observability 168.54k / 20M, build minutes 0 / 6k, billable $0.00. | Read: all far inside included; CPU is the only one to watch (≈ 1.3M ms/day during bulk loads; normal days much lower; worst-case overage ≈ $0.16). infra-check now also reports Workers usage by script. | ✅ |
 | 270 | "Slight extra $ ok, max is $5 + $5 for this month for all Cloudflare usage." | D137: ceiling $10/month ($5 plan + up to $5 usage). Stress-tested: Cloudflare has no hard $ stop; budget alerts only notify. Built: daily scheduled cost guard in infra-check (fails above $4, GitHub emails the owner). Suggested owner action: Budget Alert at $5. | 🔶 owner: optional budget alert |
 | 271 | "Good, investigate." (on the D1 rows-read risk) | Measured (top 30 queries this period): 780M rows from a `shares_daily` lookup by date with no index (Claude's D130 schema omission), 213M from `/status` counting all price rows (Claude's polling), 194M from the Jan-2024 back-fill check on every run, 188M from the one-off census, 21M from the every-minute prefetch empty-check. The guessed cause (prefetch discovery) was wrong. Fixed: date index (market/0015), back-fill done-marker, cheap `/status`, `LIMIT 1`. One attempted fix (narrowing the share lookup) was reverted before commit: the D129 check needs every security. FMEA C18. | ✅ re-measure ≈ 5 Nov |
+| 272 | "Good Progress" (after the D137/D138 work and the whole-universe jump audit). | Noted; continuing with the jump classes (gap length per jump, ETF kind). | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -335,7 +336,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-03 after entry #271: all checks pass (138 decisions, 271 entries); no open ⚠.*
+*Last run 2026-11-03 after entry #272: all checks pass (138 decisions, 272 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*

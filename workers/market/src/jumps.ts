@@ -3,7 +3,8 @@
 import { type Sql, adjustPrice, dec, diso, div, fromPaise, sub, toText } from "@disclo/core";
 
 export async function jumps(db: Sql, after: number, limit: number) {
-  const secs = await db.all<{ security_id: number }>("SELECT security_id FROM security WHERE kind='equity' AND security_id > ? ORDER BY security_id LIMIT ?", [after, limit]);
+  const secs = await db.all<{ security_id: number; kind: string }>("SELECT security_id, kind FROM security WHERE security_id > ? ORDER BY security_id LIMIT ?", [after, limit]);
+  const kindOfSid = new Map(secs.map((s) => [s.security_id, s.kind]));
   if (!secs.length) return { rows: [], next: null };
   const ids = secs.map((s) => s.security_id), lo = ids[0]!, hi = ids[ids.length - 1]!;
   const prices = await db.all<{ security_id: number; d: number; close: number; series: string }>(
@@ -14,8 +15,10 @@ export async function jumps(db: Sql, after: number, limit: number) {
     "SELECT security_id, ex_date, type FROM corp_action WHERE security_id BETWEEN ? AND ? AND type <> 'dividend'", [lo, hi]);
   const sym = new Map((await db.all<{ security_id: number; value: string }>(
     "SELECT security_id, value FROM security_identifier WHERE id_type='nse_symbol' AND valid_to IS NULL AND security_id BETWEEN ? AND ?", [lo, hi])).map((r) => [r.security_id, r.value]));
-  const out: { sid: number; sym: string | undefined; d: string; move: number; factor: string | null; factorStatus: string | null; action: string | null }[] = [];
-  let prev: { id: number; adj: string } | null = null;
+  const isin = new Map((await db.all<{ security_id: number; value: string }>(
+    "SELECT security_id, value FROM security_identifier WHERE id_type='isin' AND valid_to IS NULL AND security_id BETWEEN ? AND ?", [lo, hi])).map((r) => [r.security_id, r.value]));
+  const out: { sid: number; sym: string | undefined; d: string; prevD: string; move: number; factor: string | null; factorStatus: string | null; action: string | null; series: string; kind: string | undefined; isin: string | undefined }[] = [];
+  let prev: { id: number; adj: string; d: string; series: string } | null = null;
   let lastKey = "";
   for (const r of prices) {
     const key = `${r.security_id}|${r.d}`;
@@ -29,10 +32,10 @@ export async function jumps(db: Sql, after: number, limit: number) {
       if (Math.abs(mv) > 0.35) {
         const f = factors.find((x) => x.security_id === r.security_id && x.ex_date === date);
         const a = acts.find((x) => x.security_id === r.security_id && x.ex_date === date);
-        out.push({ sid: r.security_id, sym: sym.get(r.security_id), d: date, move: Math.round(mv * 1000) / 10, factor: f?.factor ?? null, factorStatus: f?.status ?? null, action: a?.type ?? null });
+        out.push({ sid: r.security_id, sym: sym.get(r.security_id), d: date, prevD: prev.d, series: `${prev.series}>${r.series}`, kind: kindOfSid.get(r.security_id), isin: isin.get(r.security_id), move: Math.round(mv * 1000) / 10, factor: f?.factor ?? null, factorStatus: f?.status ?? null, action: a?.type ?? null });
       }
     }
-    prev = { id: r.security_id, adj };
+    prev = { id: r.security_id, adj, d: date, series: r.series };
   }
   return { rows: out, next: secs.length === limit ? hi : null };
 }
