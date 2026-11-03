@@ -5,6 +5,7 @@ import { backfillBsCf, loadBatch, versionBackfill } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents } from "./events.js";
 import { caLists } from "./calists.js";
+import { BS_LINES, CF_LINES, parseXbrl, statementDetail } from "@disclo/core";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string }
 
@@ -106,6 +107,24 @@ export default {
     }
     if (path === "/census") {
       const u = new URL(req.url);
+      if (u.searchParams.get("mode") === "cfgap") {
+        // D154 residual classes (read-only): one stored results file's cash-flow detail, plus every tag with a value in
+        // the year-to-date context that the detail lists don't cover (candidates for the missing lines).
+        const key = u.searchParams.get("key") ?? "";
+        if (!/^att\/xbrl\/[A-Za-z0-9_.-]+\.xml$/.test(key)) return new Response("bad key", { status: 400 });
+        const xml = await getText(env.RAW, key);
+        if (!xml) return new Response("not stored", { status: 404 });
+        const inst = parseXbrl(xml);
+        const d = statementDetail(inst, null, inst.contexts.has("FourD") ? "FourD" : null);
+        const known = new Set([...CF_LINES, ...BS_LINES]);
+        const other: Record<string, string> = {};
+        for (const f of inst.facts) {
+          if (f.contextRef !== "FourD" || f.nil || !f.value || !/^-?\d/.test(f.value)) continue;
+          const n = f.tag.split(":")[1] ?? f.tag;
+          if (!known.has(n)) other[f.tag] ??= f.value;
+        }
+        return Response.json({ checks: d.cf?.checks ?? [], lines: d.cf?.lines ?? {}, other }, { headers: { "cache-control": "no-store" } });
+      }
       if (u.searchParams.get("mode") === "tags") return Response.json(await tagCensus(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), Number(u.searchParams.get("after") ?? 0), Math.min(50, Number(u.searchParams.get("limit") ?? 40))), { headers: { "cache-control": "no-store" } });
       const after = Number(u.searchParams.get("after") ?? 0), limit = Math.min(50, Math.max(1, Number(u.searchParams.get("limit") ?? 40)));
       return Response.json(await census(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), after, limit), { headers: { "cache-control": "no-store" } });
