@@ -326,6 +326,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 268 | "45M" (answer to: keep the 30M cap or raise it, given 24.4M already used this period). | D136 cap set to 45M (market + filings workers); still inside the 50M included, $0. | ✅ |
 | 269 | Owner shared the Workers usage page (Nov 2 – Dec 2): requests 167.95k / 10M, CPU 1.91M / 30M ms, observability 168.54k / 20M, build minutes 0 / 6k, billable $0.00. | Read: all far inside included; CPU is the only one to watch (≈ 1.3M ms/day during bulk loads; normal days much lower; worst-case overage ≈ $0.16). infra-check now also reports Workers usage by script. | ✅ |
 | 270 | "Slight extra $ ok, max is $5 + $5 for this month for all Cloudflare usage." | D137: ceiling $10/month ($5 plan + up to $5 usage). Stress-tested: Cloudflare has no hard $ stop; budget alerts only notify. Built: daily scheduled cost guard in infra-check (fails above $4, GitHub emails the owner). Suggested owner action: Budget Alert at $5. | 🔶 owner: optional budget alert |
+| 271 | "Good, investigate." (on the D1 rows-read risk) | Measuring first: infra-check lists the top D1 queries by rows read this period (Cloudflare `d1QueriesAdaptiveGroups`); fixes follow from the measurement. | 🔶 investigating |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -334,7 +335,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-03 after entry #270: all checks pass (137 decisions, 270 entries); no open ⚠.*
+*Last run 2026-11-03 after entry #271: all checks pass (137 decisions, 271 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*

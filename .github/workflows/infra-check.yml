@@ -96,3 +96,19 @@ jobs:
           print("estimated usage charges ($):", {k: round(v, 2) for k, v in cost.items()}, "total", round(total, 2), "(Workers CPU from the dashboard: $0.02 per extra million ms)")
           if total > 4: print("::error::estimated usage charges above $4 this period (owner ceiling $5, D137)"); sys.exit(1)
           PY
+      - name: Top D1 queries by rows read this period (owner #271)
+        run: |
+          wrangler d1 list --json 2>/dev/null > /tmp/dbs.json || echo "[]" > /tmp/dbs.json
+          python3 - <<'PY' | mask
+          import datetime as dt, json, os, urllib.request
+          today = dt.date.today(); start = today.replace(day=2) if today.day >= 2 else (today.replace(day=1) - dt.timedelta(days=1)).replace(day=2)
+          names = {d.get("uuid"): d.get("name") for d in json.load(open("/tmp/dbs.json"))} if os.path.getsize("/tmp/dbs.json") else {}
+          q = {"query": "query($a:String!,$f:Date!){viewer{accounts(filter:{accountTag:$a}){d1QueriesAdaptiveGroups(limit:30,filter:{date_geq:$f},orderBy:[sum_rowsRead_DESC]){count sum{rowsRead rowsWritten queryDurationMs}dimensions{query databaseId}}}}}",
+               "variables": {"a": os.environ["CLOUDFLARE_ACCOUNT_ID"], "f": str(start)}}
+          req = urllib.request.Request("https://api.cloudflare.com/client/v4/graphql", data=json.dumps(q).encode(), headers={"Authorization": "Bearer " + os.environ["CLOUDFLARE_API_TOKEN"], "Content-Type": "application/json", "User-Agent": "disclo-infra-check/1"})
+          d = json.load(urllib.request.urlopen(req, timeout=60))
+          if d.get("errors"): print("graphql:", [e.get("message") for e in d["errors"]])
+          else:
+              for r in d["data"]["viewer"]["accounts"][0]["d1QueriesAdaptiveGroups"]:
+                  s = r["sum"]; print(f'{s["rowsRead"]:>14,} read {s["rowsWritten"]:>11,} written {r["count"]:>8,}x  {names.get(r["dimensions"]["databaseId"], "?"):<22} {" ".join(r["dimensions"]["query"].split())[:260]}')
+          PY
