@@ -46,6 +46,13 @@ export default {
   },
   async fetch(req: Request, env: Env) {
     const path = new URL(req.url).pathname;
+    if (path === "/held") {
+      // Read-only: held/excluded items of one class, with their file URLs, for class-by-class fixes (D140).
+      const u = new URL(req.url);
+      const like = (u.searchParams.get("like") ?? "").slice(0, 40) + "%";
+      const rows = (await env.DB_FILINGS.prepare("SELECT l.job_id, l.status, substr(l.detail,1,160) AS detail, j.kind, j.symbol, j.url FROM fin_load l JOIN fetch_job j ON j.job_id = l.job_id WHERE l.status IN ('review','failed','excluded') AND l.detail LIKE ?1 ORDER BY l.job_id LIMIT 60").bind(like).all()).results;
+      return Response.json(rows, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/ca-lists") {
       const u = new URL(req.url);
       return Response.json(await caLists(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), Number(u.searchParams.get("after") ?? 0), Math.min(200, Number(u.searchParams.get("limit") ?? 200))), { headers: { "cache-control": "no-store" } });

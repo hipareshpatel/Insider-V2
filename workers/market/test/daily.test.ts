@@ -268,3 +268,18 @@ describe("factor repair from the per-company lists (SHRIRAMFIN 1:5 split missing
     expect(await repairFactors(m, a, new Date("2025-01-11T00:00:00Z"))).toBeNull(); // once per version
   });
 });
+
+describe("stale Bc ex-date (FMEA C28, V1 hint #276)", () => {
+  it("when the true-date factor is applied automatically, a same-ratio review factor of the previous 15 days is removed and its item closed", async () => {
+    const { market, app, deps } = setup();
+    await runDay("2025-06-13", deps);
+    const [sec] = await market.all<{ security_id: number }>("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value='BAJFINANCE'");
+    const sid = sec!.security_id;
+    // a stale Bc row days earlier left a review factor with the same ratio, and its review item
+    market.raw.exec(`INSERT INTO adj_factor (security_id,ex_date,factor,method,status) VALUES (${sid},'2025-06-06','0.1','bc_ratio','review')`);
+    app.raw.exec(`INSERT INTO review_item (kind,subject_db,subject_ref,summary,created_at) VALUES ('corp_action','market','${sid}|2025-06-06','stale','x')`);
+    await runDay("2025-06-16", deps);
+    expect(await market.all("SELECT ex_date, status FROM adj_factor WHERE security_id=? ORDER BY ex_date", [sid])).toEqual([{ ex_date: "2025-06-16", status: "auto" }]);
+    expect(await app.all("SELECT status FROM review_item WHERE subject_ref=?", [`${sid}|2025-06-06`])).toEqual([{ status: "superseded" }]);
+  });
+});
