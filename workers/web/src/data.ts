@@ -25,7 +25,7 @@ export async function dashboard(db: Dbs) {
   const d0 = num(s0), d1 = s1 ? num(s1) : null;
   const marks = KEY_INDICES.map(() => "?").join(",");
   // Independent reads run together (one round trip each, in parallel).
-  const [idx, hist, rows, exRows, sectors, fii, oiDay, banDay, surv, dealDays, symRows] = await Promise.all([
+  const [idx, hist, rows, exRows, sectors, fii, oiDay, banDay, surv, dealDays, symRows, upd] = await Promise.all([
     // Indices: latest two sessions; P/E percentile vs the index's own history in our data (2024 →).
     m.all<{ index_name: string; d: number; close: string; pe: string | null; pb: string | null; div_yield: string | null }>(
       "SELECT index_name, d, close, pe, pb, div_yield FROM index_daily WHERE d IN (?, ?) ORDER BY index_name", [d0, d1 ?? d0]),
@@ -48,6 +48,7 @@ export async function dashboard(db: Dbs) {
     // deal's key starts with kind: latest day per kind uses the key (a plain max(d) scans the table)
     m.all<{ d: number | null }>("SELECT max(d) AS d FROM deal WHERE kind='bulk' UNION ALL SELECT max(d) FROM deal WHERE kind='block'"),
     m.all<{ security_id: number; value: string }>("SELECT security_id, value FROM security_identifier WHERE id_type='nse_symbol' AND valid_to IS NULL"),
+    m.all<{ at: string | null }>("SELECT max(finished_at) AS at FROM pipeline_run WHERE status='ok'"),
   ]);
   const pctl = new Map(hist.map((h) => [h.index_name, { pe_percentile: Math.round((h.below / h.n) * 100), since: iso(h.first) }]));
   const byName = new Map<string, { today?: (typeof idx)[number]; prev?: (typeof idx)[number] }>();
@@ -80,7 +81,7 @@ export async function dashboard(db: Dbs) {
   const ban = banRows.map((r) => r.symbol);
   const oiDay0 = oiD, banDay0 = banD, dealDay0 = dealD;
   return {
-    as_of: s0, previous_session: s1 ?? null, source: "NSE end-of-day files (bhavcopy, index closes, NSCCL, NSE API lists)",
+    as_of: s0, previous_session: s1 ?? null, updated_at: upd[0]?.at ?? null, source: "NSE end-of-day files (bhavcopy, index closes, NSCCL, NSE API lists)",
     indices,
     breadth: { advances: adv, declines: dec, unchanged: eq.length - adv - dec, universe: eq.length },
     movers: { gainers: liquid.slice(0, 10), losers: liquid.slice(-10).reverse(), rule: "equity series, turnover ≥ ₹1 crore, no corporate-action ex-date today" },
@@ -137,7 +138,7 @@ export async function stock(db: Dbs, symbol: string, timing: string[] = []) {
   const marksS = sym.map(() => "?").join(",");
   const q = (lines: string[]) => lines.map(() => "?").join(",");
   // One round trip: every read in parallel; dependent lookups are subqueries.
-  const [secR, ids, clsR, idxR, raw, factors, breakR, shR, actions, dlR, fin, shp, insider, meetings, ratings] = await Promise.all([
+  const [secR, ids, clsR, idxR, raw, factors, breakR, shR, actions, dlR, fin, shp, insider, meetings, ratings, upd] = await Promise.all([
     m.all<{ name: string; kind: string; listed_on: string | null; delisted_on: string | null }>("SELECT name, kind, listed_on, delisted_on FROM security WHERE security_id=?", [sid]),
     m.all<{ id_type: string; value: string; valid_from: string; valid_to: string | null }>("SELECT id_type, value, valid_from, valid_to FROM security_identifier WHERE security_id=? ORDER BY id_type, valid_from", [sid]),
     m.all<{ as_of: string; sector: string | null; industry_detail: string | null; sector_source: string; source_ref: string }>(
@@ -165,6 +166,7 @@ export async function stock(db: Dbs, symbol: string, timing: string[] = []) {
     f.all<Record<string, unknown>>(`SELECT person, category, txn, mode, qty, value_rs, from_d, to_d, disclosed_at FROM insider_trade WHERE symbol IN (${marksS}) ORDER BY disclosed_at DESC LIMIT 15`, sym),
     f.all<Record<string, unknown>>(`SELECT meeting_d, purpose, announced_at FROM board_meeting WHERE symbol IN (${marksS}) ORDER BY meeting_d DESC LIMIT 8`, sym),
     f.all<Record<string, unknown>>(`SELECT agency, rating, outlook, action, rated_on, disclosed_at FROM credit_rating WHERE symbol IN (${marksS}) ORDER BY rated_on DESC LIMIT 8`, sym),
+    m.all<{ at: string | null }>("SELECT max(finished_at) AS at FROM pipeline_run WHERE status='ok'"),
   ]);
   lap("main");
   const sec = secR[0], cls = clsR[0], sh = shR[0];
@@ -190,6 +192,7 @@ export async function stock(db: Dbs, symbol: string, timing: string[] = []) {
   }
   const group = (st: string) => [...periods.entries()].filter(([k]) => k.startsWith(st + "|")).map(([, v]) => v);
   return {
+    updated_at: upd[0]?.at ?? null,
     symbol, name: sec?.name ?? symbol, kind: sec?.kind, listed_on: sec?.listed_on ?? null, delisted_on: sec?.delisted_on ?? null,
     identifiers: ids,
     classification: cls ? { ...cls, label: cls.sector_source === "index_csv" ? "NSE index list" : cls.sector_source === "announcement_map" ? "from NSE announcement industry (mapped, D150)" : "unclassified" } : null,

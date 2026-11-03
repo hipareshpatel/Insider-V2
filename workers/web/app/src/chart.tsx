@@ -12,7 +12,7 @@ export default function PriceChart({ rows }: { rows: Row[] }) {
     const v = (n: string) => css.getPropertyValue(n).trim();
     const chart = createChart(el.current, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: v("--bg") }, textColor: v("--muted"), attributionLogo: true },
+      layout: { background: { type: ColorType.Solid, color: v("--bg") }, textColor: v("--muted"), attributionLogo: false /* D105: notice on the credits page */ },
       grid: { vertLines: { color: v("--line") }, horzLines: { color: v("--line") } },
       rightPriceScale: { borderColor: v("--line") }, timeScale: { borderColor: v("--line") },
     });

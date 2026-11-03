@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Dashboard, Health, Stock } from "./pages";
+import { Contact, Credits, Disclaimer, Privacy, Terms } from "./legal";
 import "./styles.css";
 
 /** Tiny router: / (dashboard), /s/:symbol (stock), /health. */
@@ -60,7 +61,9 @@ function Search() {
 function App() {
   const path = usePath();
   const m = /^\/s\/([^/]+)/.exec(path);
-  useEffect(() => { document.title = m ? `${decodeURIComponent(m[1]!)} · Disclo` : path === "/health" ? "Data health · Disclo" : "Disclo"; }, [path]);
+  const PAGES: Record<string, [string, () => React.ReactElement]> = { "/health": ["Data health", Health], "/credits": ["Credits", Credits], "/disclaimer": ["Disclaimer", Disclaimer], "/terms": ["Terms", Terms], "/privacy": ["Privacy", Privacy], "/contact": ["Contact", Contact] };
+  const page = PAGES[path];
+  useEffect(() => { document.title = m ? `${decodeURIComponent(m[1]!)} · Disclo` : page ? `${page[0]} · Disclo` : "Disclo"; }, [path]);
   return (
     <>
       <header className="top">
@@ -68,8 +71,11 @@ function App() {
         <nav><Link to="/">Markets</Link><Link to="/health">Data health</Link></nav>
         <Search />
       </header>
-      <main>{m ? <Stock symbol={decodeURIComponent(m[1]!).toUpperCase()} /> : path === "/health" ? <Health /> : <Dashboard />}</main>
-      <footer>Facts from NSE filings and end-of-day files, each with its source and date. Not investment advice. Early version: figures can be wrong — check the linked filing.</footer>
+      <main>{m ? <Stock symbol={decodeURIComponent(m[1]!).toUpperCase()} /> : page ? (() => { const P = page[1]; return <P />; })() : <Dashboard />}</main>
+      <footer>
+        <nav aria-label="Site"><Link to="/disclaimer">Disclaimer</Link><Link to="/terms">Terms</Link><Link to="/privacy">Privacy</Link><Link to="/credits">Credits</Link><Link to="/contact">Contact</Link></nav>
+        Facts from NSE filings and end-of-day files, each with its source and date. Not investment advice. Early version: figures can be wrong — check the linked filing.
+      </footer>
     </>
   );
 }

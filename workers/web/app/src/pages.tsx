@@ -37,6 +37,14 @@ function Table({ id, caption, head, rows }: { id: string; caption: React.ReactNo
     </div>
   );
 }
+/** "Data updated 21:43 IST, 3 Nov" (D46; stored UTC, shown IST — D114). */
+export function Fresh({ at }: { at: string | null | undefined }) {
+  if (!at) return null;
+  const t = new Date(at.endsWith("Z") || at.includes("+") ? at : at + "Z");
+  const f = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false, day: "numeric", month: "short" }).formatToParts(t);
+  const g = (k: string) => f.find((x) => x.type === k)?.value ?? "";
+  return <span className="fresh">Data updated {g("hour")}:{g("minute")} IST, {g("day")} {g("month")}</span>;
+}
 const Loading = ({ s }: { s: { loading: boolean; error: string | null } }) => (s.loading ? <p className="muted">Loading…</p> : <p className="note">Could not load: {s.error}</p>);
 
 export function Dashboard() {
@@ -48,7 +56,7 @@ export function Dashboard() {
   const rest = d.indices.filter((x: any) => !x.key);
   return (
     <>
-      <h1>Markets</h1>
+      <div className="controls"><h1 style={{ margin: 0 }}>Markets</h1><Fresh at={d.updated_at} /></div>
       <p className="muted">End of day {d.as_of} (previous session {d.previous_session}). Source: {d.source}.</p>
       <div className="grid">
         {key.map((x: any) => (
@@ -101,18 +109,21 @@ const LINE_LABEL: Record<string, string> = {
   total_assets: "Total assets", total_equity: "Total equity", shareholders_funds: "Shareholders' funds", borrowings_noncurrent: "Long-term borrowings", borrowings_current: "Short-term borrowings", cash: "Cash",
   cfo: "Operating cash flow", cfi: "Investing cash flow", cff: "Financing cash flow",
 };
-function Statement({ id, title, periods, lines, kind }: { id: string; title: string; periods: any[]; lines: string[]; kind?: string }) {
+function Statement({ id, title, periods, lines, kind, restated = true }: { id: string; title: string; periods: any[]; lines: string[]; kind?: string; restated?: boolean }) {
   const ps = periods.filter((p) => !kind || p.period_kind === kind).slice(0, 12);
   const used = lines.filter((l) => ps.some((p) => p.lines[l] !== undefined || p.restated[l] !== undefined));
   if (!ps.length || !used.length) return null;
   const cell = (p: any, l: string) => {
     const v = p.lines[l], r = p.restated[l];
     const fmt = (x: string | null) => (l === "eps_basic" ? (x === null ? "—" : n2.format(Number(x))) : cr(x));
-    return <>{v === undefined ? "—" : fmt(v)}{r !== undefined && r !== v ? <span className="restated" title="Restated in a later filing">restated {fmt(r)}</span> : null}</>;
+    const changed = r !== undefined && r !== v;
+    // D91: restated is the default view; the other version is shown under it when they differ.
+    if (restated && changed) return <>{fmt(r)}<span className="restated" title="As first reported">original {v === undefined ? "—" : fmt(v)}</span></>;
+    return <>{v === undefined ? "—" : fmt(v)}{changed ? <span className="restated" title="Restated in a later filing">restated {fmt(r)}</span> : null}</>;
   };
   return (
     <>
-      <Table id={id} caption={<>{title} <span className="muted">₹ crore unless stated · original figures; restatements shown under them</span></>}
+      <Table id={id} caption={<>{title} <span className="muted">₹ crore unless stated · {restated ? "restated where a later filing changed a figure (original under it)" : "as first reported (restated under it)"} · period links open the filing</span></>}
         head={["", ...ps.map((p) => <a href={p.source ?? undefined} target="_blank" rel="noreferrer" title={`Filed ${p.disclosed_at}`}>{p.period_end}</a>)]}
         rows={used.map((l) => [LINE_LABEL[l] ?? l, ...ps.map((p) => cell(p, l))])} />
     </>
@@ -123,13 +134,19 @@ export function Stock({ symbol }: { symbol: string }) {
   const s = useJson(`/api/v1/stocks/${encodeURIComponent(symbol)}`);
   const d = s.data;
   const [basis, setBasis] = useState<"consolidated" | "standalone" | null>(null);
+  const [restated, setRestated] = useState(true);
   if (!d) return <Loading s={s} />;
+  const isin = d.identifiers.find((i: any) => i.id_type === "isin" && !i.valid_to)?.value ?? null;
+  const yr = d.prices.rows.slice(-250);
+  const hi52 = yr.length ? Math.max(...yr.map((r: any) => r.high ?? r.close)) : null, lo52 = yr.length ? Math.min(...yr.map((r: any) => r.low ?? r.close)) : null;
+  const SECTIONS: [string, string, boolean][] = [["price", "Price", true], ["financials", "Financials", d.financials.pl.length > 0], ["shareholding", "Shareholding", !!d.shareholding], ["insider", "Insider trades", d.insider_trades.length > 0],
+    ["meetings", "Board meetings", d.board_meetings.length > 0], ["ratings", "Credit ratings", d.credit_ratings.length > 0], ["actions", "Corporate actions", d.corporate_actions.length > 0], ["ids", "Identifiers", true]];
   const bases = [...new Set(d.financials.pl.map((p: any) => p.basis))] as ("consolidated" | "standalone")[];
   const b = basis ?? (bases.includes("consolidated") ? "consolidated" : bases[0] ?? "standalone");
   const of = (st: any[]) => st.filter((p: any) => p.basis === b);
   return (
     <>
-      <h1>{d.name} <span className="muted">{d.symbol}</span></h1>
+      <div className="controls"><h1 style={{ margin: 0 }}>{d.name} <span className="muted">{d.symbol}{isin ? ` · ${isin}` : ""}</span></h1><Fresh at={d.updated_at} /></div>
       <p className="muted">
         {d.classification ? <>{d.classification.sector ?? "Unclassified"}{d.classification.industry_detail ? ` · ${d.classification.industry_detail}` : ""} ({d.classification.label}) · </> : null}
         {d.indices.length ? d.indices.join(", ") : "Not in our tracked index lists"}
@@ -139,58 +156,62 @@ export function Stock({ symbol }: { symbol: string }) {
         <div className="tile"><div className="label">Close ₹ ({d.quote?.date ?? "—"})</div><div className="value">{f2(d.quote?.close)}</div><div className="muted">{d.quote?.source} · series {d.quote?.series}</div></div>
         <div className="tile"><div className="label">Market cap ₹ crore</div><div className="value">{f2(d.shares?.mcap_cr)}</div><div className="muted">{d.shares ? `${d.shares.date} · ${d.shares.mcap_source === "nse" ? "NSE" : "derived"}` : ""}</div></div>
         <div className="tile"><div className="label">Shares outstanding</div><div className="value">{f0(d.shares?.issue_size)}</div><div className="muted">face value ₹{d.shares?.face_value ?? "—"}</div></div>
+        <div className="tile"><div className="label">52-week range ₹ (adjusted)</div><div className="value">{f2(lo52)} – {f2(hi52)}</div><div className="muted">{yr.length} sessions</div></div>
         <div className="tile"><div className="label">Delivery % (last session)</div><div className="value">{f2(d.quote?.delivery_pct)}</div><div className="muted">volume {f0(d.quote?.volume)}</div></div>
       </div>
-      <h2>Price (adjusted)</h2>
+      <nav className="sections" aria-label="Sections">{SECTIONS.filter(([, , on]) => on).map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}</nav>
+      <section id="price"><h2>Price (adjusted)</h2>
       {d.prices.starts_after_break ? <p className="note">Series break on {d.prices.starts_after_break}: earlier prices are not comparable and are not shown (D146).</p> : null}
       {d.prices.pending_review ? <p className="note">{d.prices.pending_review} corporate-action adjustment(s) still under review; they are not applied.</p> : null}
       <Suspense fallback={<div className="chart" aria-busy="true" />}>{d.prices.rows.length ? <PriceChart rows={d.prices.rows} /> : <p className="muted">No prices.</p>}</Suspense>
       <p className="muted">Adjusted for {d.prices.adjusted_by.length ? d.prices.adjusted_by.map((a: any) => `${a.ex_date} ×${Number(a.factor).toFixed(4)} (${a.method.replace("_", " ")})`).join("; ") : "no corporate actions"}.</p>
 
-      <h2>Financials</h2>
-      {bases.length > 1 && (
-        <p role="group" aria-label="Basis">
-          {bases.map((x) => <button key={x} type="button" aria-pressed={x === b} onClick={() => setBasis(x)} style={{ marginInlineEnd: 8, fontWeight: x === b ? 700 : 400 }}>{x}</button>)}
-        </p>
-      )}
+      </section>
+      <section id="financials"><h2>Financials</h2>
+      <div className="controls">
+        {bases.length > 1 && <span role="group" aria-label="Basis">{bases.map((x) => <button key={x} type="button" aria-pressed={x === b} onClick={() => setBasis(x)}>{x}</button>)}</span>}
+        <span role="group" aria-label="Version"><button type="button" aria-pressed={restated} onClick={() => setRestated(true)}>Restated</button> <button type="button" aria-pressed={!restated} onClick={() => setRestated(false)}>Original</button></span>
+      </div>
       {d.financials.pl.length ? (
         <>
-          <Statement id="t-q" title={`Quarterly results (${b})`} periods={of(d.financials.pl)} kind="Q" lines={["revenue", "total_income", "interest_earned", "gross_premium", "net_premium", "operating_profit", "pbt", "pat", "eps_basic"]} />
+          <Statement restated={restated} id="t-q" title={`Quarterly results (${b})`} periods={of(d.financials.pl)} kind="Q" lines={["revenue", "total_income", "interest_earned", "gross_premium", "net_premium", "operating_profit", "pbt", "pat", "eps_basic"]} />
           <h2>Balance sheet</h2>
-          <Statement id="t-bs" title={`Balance sheet (${b})`} periods={of(d.financials.bs)} lines={["total_assets", "total_equity", "shareholders_funds", "borrowings_noncurrent", "borrowings_current", "cash"]} />
+          <Statement restated={restated} id="t-bs" title={`Balance sheet (${b})`} periods={of(d.financials.bs)} lines={["total_assets", "total_equity", "shareholders_funds", "borrowings_noncurrent", "borrowings_current", "cash"]} />
           <h2>Cash flow</h2>
-          <Statement id="t-cf" title={`Cash flow, year to date (${b})`} periods={of(d.financials.cf)} lines={["cfo", "cfi", "cff"]} />
+          <Statement restated={restated} id="t-cf" title={`Cash flow, year to date (${b})`} periods={of(d.financials.cf)} lines={["cfo", "cfi", "cff"]} />
         </>
       ) : <p className="muted">No financial results loaded yet for this company.</p>}
+      </section>
 
       {d.shareholding ? (
-        <><h2>Shareholding</h2>
+        <section id="shareholding"><h2>Shareholding</h2>
           <Table id="t-shp" caption={<span className="muted">As of {d.shareholding.as_of} (shareholding pattern filing)</span>} head={["Category", "Shares", "% of shares"]}
-            rows={d.shareholding.categories.map((c: any) => [c.category, f0(c.shares), c.pct ?? "—"])} /></>
+            rows={d.shareholding.categories.map((c: any) => [c.category, f0(c.shares), c.pct ?? "—"])} /></section>
       ) : null}
       {d.insider_trades.length ? (
-        <><h2>Insider trades (SEBI PIT)</h2>
+        <section id="insider"><h2>Insider trades (SEBI PIT)</h2>
           <Table id="t-pit" caption={<span className="muted">Latest {d.insider_trades.length} disclosures</span>} head={["Person", "Category", "Type", "Mode", "Qty", "Value ₹", "Disclosed"]}
-            rows={d.insider_trades.map((t: any) => [t.person, t.category, t.txn, t.mode, f0(t.qty), t.value_rs, (t.disclosed_at ?? "").slice(0, 10)])} /></>
+            rows={d.insider_trades.map((t: any) => [t.person, t.category, t.txn, t.mode, f0(t.qty), t.value_rs, (t.disclosed_at ?? "").slice(0, 10)])} /></section>
       ) : null}
       {d.board_meetings.length ? (
-        <><h2>Board meetings</h2>
+        <section id="meetings"><h2>Board meetings</h2>
           <Table id="t-bm" caption={<span className="muted">Latest {d.board_meetings.length}</span>} head={["Meeting date", "Purpose", "Announced"]}
-            rows={d.board_meetings.map((m: any) => [m.meeting_d ? String(m.meeting_d).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3") : "—", m.purpose, (m.announced_at ?? "").slice(0, 10)])} /></>
+            rows={d.board_meetings.map((m: any) => [m.meeting_d ? String(m.meeting_d).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3") : "—", m.purpose, (m.announced_at ?? "").slice(0, 10)])} /></section>
       ) : null}
       {d.credit_ratings.length ? (
-        <><h2>Credit ratings</h2>
+        <section id="ratings"><h2>Credit ratings</h2>
           <Table id="t-cr" caption={<span className="muted">As disclosed to NSE</span>} head={["Agency", "Rating", "Outlook", "Action", "Rated on"]}
-            rows={d.credit_ratings.map((r: any) => [r.agency, r.rating, r.outlook, r.action, r.rated_on ? String(r.rated_on).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3") : "—"])} /></>
+            rows={d.credit_ratings.map((r: any) => [r.agency, r.rating, r.outlook, r.action, r.rated_on ? String(r.rated_on).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3") : "—"])} /></section>
       ) : null}
       {d.corporate_actions.length ? (
-        <><h2>Corporate actions</h2>
+        <section id="actions"><h2>Corporate actions</h2>
           <Table id="t-ca" caption={<span className="muted">NSE corporate-action records (latest 40)</span>} head={["Ex-date", "Type", "Purpose as filed"]}
-            rows={d.corporate_actions.map((a: any) => [a.ex_date, a.type, a.raw_purpose])} /></>
+            rows={d.corporate_actions.map((a: any) => [a.ex_date, a.type, a.raw_purpose])} /></section>
       ) : null}
-      <h2>Identifiers</h2>
+      <section id="ids"><h2>Identifiers</h2>
       <Table id="t-id" caption={<span className="muted">Symbol / ISIN history</span>} head={["Type", "Value", "From", "To"]}
         rows={d.identifiers.map((i: any) => [i.id_type, i.value, i.valid_from, i.valid_to ?? "current"])} />
+      </section>
     </>
   );
 }
