@@ -283,3 +283,36 @@ describe("stale Bc ex-date (FMEA C28, V1 hint #276)", () => {
     expect(await app.all("SELECT status FROM review_item WHERE subject_ref=?", [`${sid}|2025-06-06`])).toEqual([{ status: "superseded" }]);
   });
 });
+
+import { loadStructure } from "../src/structure.js";
+describe("market-structure loader (M1, D144)", () => {
+  it("loads every source from R2 in date order, flags API-capped days, keeps bands as intervals, records missing files", async () => {
+    const { market } = setup();
+    market.raw.exec("INSERT INTO trading_calendar (trade_date, is_session, universe_rows) VALUES ('2026-10-29', 1, 2500), ('2026-10-30', 1, 2500)");
+    const FXD = join(import.meta.dirname, "..", "..", "..", "packages", "core", "test", "fixtures", "nse");
+    const f = (n: string) => readFileSync(join(FXD, n), "utf8");
+    const bandsDay1 = f("sec_list_30102026_head.csv");
+    const bandsDay2 = bandsDay1.replace("ABAN,BE,ABAN OFFSHORE LIMITED,2,", "ABAN,BE,ABAN OFFSHORE LIMITED,5,");
+    const objs: Record<string, string> = {
+      "cache/content/nsccl/fao_participant_oi_30102026.csv": f("fao_participant_oi_30102026.csv"),
+      "cache/archives/fo/sec_ban/fo_secban_29102026.csv": "Securities in Ban For Trade Date 29-OCT-2026:\n1,SAIL\n",
+      "cache/archives/fo/sec_ban/fo_secban_30102026.csv": "Securities in Ban For Trade Date 30-OCT-2026:\n1,KAYNES\n2,SAIL\n",
+      "cache/content/equities/sec_list_29102026.csv": bandsDay1,
+      "cache/content/equities/sec_list_30102026.csv": bandsDay2,
+      "api/market_structure/bulk_deals/2026-10-30.json": f("api_bulk_deals_30102026.json"),
+      "api/market_structure/short_selling/2026-10-30.json": f("api_short_selling_30102026.json"),
+    };
+    const raw = { async get(k: string) { const t = objs[k]; return t === undefined ? null : { customMetadata: {}, text: async () => t }; } } as unknown as R2Bucket;
+    const out = await loadStructure({ market, raw, now: () => new Date("2026-11-10T12:00:00Z") }, 60_000);
+    expect(out).toMatchObject({ fo_oi: 1, fo_ban: 2, price_band: 2, bulk: 1, short: 1 });
+    const days = await market.all<{ source: string; d: number; rows: number; note: string | null }>("SELECT source, d, rows, note FROM ms_day ORDER BY source, d");
+    expect(days.find((x) => x.source === "fo_oi" && x.d === 20261029)).toMatchObject({ rows: -1, note: "missing in R2" });
+    expect(days.find((x) => x.source === "bulk" && x.d === 20261030)).toMatchObject({ rows: 70, note: "possibly truncated (API cap 70)" });
+    expect(await market.all("SELECT band, valid_from, valid_to FROM price_band WHERE symbol='ABAN' ORDER BY valid_from")).toEqual([
+      { band: "2", valid_from: 20261029, valid_to: 20261029 }, { band: "5", valid_from: 20261030, valid_to: null }]);
+    expect(await market.all("SELECT symbol FROM fo_ban WHERE d=20261030 ORDER BY symbol")).toEqual([{ symbol: "KAYNES" }, { symbol: "SAIL" }]);
+    expect((await market.all("SELECT 1 FROM fo_oi_participant WHERE d=20261030")).length).toBe(5);
+    // second run: nothing new to load
+    expect(await loadStructure({ market, raw, now: () => new Date("2026-11-10T12:00:00Z") }, 60_000)).toEqual({});
+  });
+});

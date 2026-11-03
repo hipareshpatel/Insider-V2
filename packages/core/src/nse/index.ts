@@ -9,3 +9,4 @@ export * from "./equityList.js";
 export * from "./indexList.js";
 export * from "./delivery.js";
 export * from "./indexClose.js";
+export * from "./structure.js";

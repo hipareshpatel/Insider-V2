@@ -5,6 +5,7 @@ import { acceptance } from "./acceptance.js";
 import { jumps } from "./jumps.js";
 import { evidence } from "./evidence.js";
 import { chargeBudget, runPending } from "./runner.js";
+import { loadStructure } from "./structure.js";
 
 export interface Env {
   DB_MARKET: D1Database;
@@ -36,11 +37,18 @@ export default {
     ctx.waitUntil((async () => {
       const meter = { rows: 0 }; // every billed row this run writes (owner #266 cap)
       const deps = { market: d1Sql(env.DB_MARKET, meter), app: d1Sql(env.DB_APP, meter), raw: r2Raw(env.RAW), fetch: r2FirstFetcher(env.RAW, archiveFetcher(), env.CACHE_AUTHORITATIVE_UNTIL), now: () => new Date(), cachedFromR2: true };
-      const out = await withLock(env.DB_MARKET, 14 * 60_000, () => runPending(deps, { maxDates: 40, budgetMs: 8 * 60_000, revisitSessions: 5, from: env.BACKFILL_FROM, monthlyCap: env.MONTHLY_WRITE_CAP ? Number(env.MONTHLY_WRITE_CAP) : undefined }));
+      let structure: Record<string, number> | null = null;
+      const out = await withLock(env.DB_MARKET, 14 * 60_000, async () => {
+        const t0 = Date.now();
+        const r = await runPending(deps, { maxDates: 40, budgetMs: 8 * 60_000, revisitSessions: 5, from: env.BACKFILL_FROM, monthlyCap: env.MONTHLY_WRITE_CAP ? Number(env.MONTHLY_WRITE_CAP) : undefined });
+        // M1 market structure (D144): R2 only, in date order, within what is left of this run.
+        structure = await loadStructure({ market: deps.market, raw: env.RAW, now: deps.now }, Math.max(0, 11 * 60_000 - (Date.now() - t0)));
+        return r;
+      });
       // runPending already charged each date's price/factor rows; charge the rest (identity, ledger, reviews, snapshot).
       const charged = (out ?? []).reduce((n, r) => n + (r.written ?? 0), 0);
       if (out && meter.rows > charged) await chargeBudget(d1Sql(env.DB_MARKET), new Date(), meter.rows - charged);
-      console.log(JSON.stringify({ env: env.ENVIRONMENT, rows_written: meter.rows, ran: out?.map((r) => ({ d: r.date, s: r.status, c: r.counts, why: r.reasons?.slice(0, 3) })) ?? "locked" }));
+      console.log(JSON.stringify({ env: env.ENVIRONMENT, rows_written: meter.rows, structure, ran: out?.map((r) => ({ d: r.date, s: r.status, c: r.counts, why: r.reasons?.slice(0, 3) })) ?? "locked" }));
     })());
   },
 
@@ -88,6 +96,7 @@ export default {
       sessions_loaded: (await q("SELECT count(*) AS n, min(trade_date) AS first, max(trade_date) AS last FROM trading_calendar WHERE is_session=1"))[0],
       securities: (await q("SELECT count(*) AS n FROM security"))[0],
       // Owner #271: no count(*) over price_daily here (1.6M rows read per call); latest session's rows instead.
+      market_structure: await q("SELECT source, count(*) AS days, max(d) AS last, sum(rows < 0) AS missing, sum(note LIKE 'possibly truncated%') AS truncated, sum(max(rows,0)) AS rows FROM ms_day GROUP BY source"),
       latest_session_rows: (await q("SELECT trade_date, universe_rows FROM trading_calendar WHERE is_session=1 AND universe_rows IS NOT NULL ORDER BY trade_date DESC LIMIT 1"))[0],
       ledger_keys: await q("SELECT substr(r2_key, 1, instr(r2_key, '/')) AS store, count(*) AS n FROM source_file GROUP BY 1"),
       written_today: (await q("SELECT day, rows FROM write_budget ORDER BY day DESC LIMIT 2")),
