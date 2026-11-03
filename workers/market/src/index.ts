@@ -57,7 +57,7 @@ export default {
     const url = new URL(req.url);
     if (url.pathname === "/closes") {
       // D141 second cycle: one security's closes in a window (read-only).
-      const rows = (await env.DB_MARKET.prepare("SELECT d, series, open, close FROM price_daily WHERE security_id=?1 AND d BETWEEN ?2 AND ?3 ORDER BY d, series='EQ' DESC")
+      const rows = (await env.DB_MARKET.prepare("SELECT p.d, p.series, p.open, p.close, s.issue_size, s.face_value_paise FROM price_daily p LEFT JOIN shares_daily s ON s.security_id = p.security_id AND s.d = p.d WHERE p.security_id=?1 AND p.d BETWEEN ?2 AND ?3 ORDER BY p.d, p.series='EQ' DESC")
         .bind(Number(url.searchParams.get("sid")), Number(url.searchParams.get("from")), Number(url.searchParams.get("to"))).all()).results;
       return Response.json(rows, { headers: { "cache-control": "no-store" } });
     }
