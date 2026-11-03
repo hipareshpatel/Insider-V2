@@ -71,6 +71,16 @@ export default {
         board_meetings: await one("SELECT count(*) AS n FROM board_meeting WHERE symbol=?1 AND coalesce(meeting_d, 0) BETWEEN ?2 AND ?3"),
       }, { headers: { "cache-control": "no-store" } });
     }
+    if (path === "/fy-check") {
+      // Read-only, on demand (scans fin_load once): D90 full-year outcomes and failure reasons, from each file's load detail.
+      const q = async (sql: string) => (await env.DB_FILINGS.prepare(sql).all()).results;
+      return Response.json({
+        fy_loaded: (await q("SELECT count(*) AS n FROM fin_load WHERE status='loaded' AND instr(detail, ' loaded') > 0 AND instr(detail, 'FY not loaded') = 0"))[0],
+        fy_not_loaded: await q("SELECT substr(detail, instr(detail, 'FY not loaded: ') + 15, 50) AS reason, count(*) AS n FROM fin_load WHERE instr(detail, 'FY not loaded: ') > 0 GROUP BY 1 ORDER BY 2 DESC LIMIT 15"),
+        failed: await q("SELECT substr(detail, 1, 70) AS reason, count(*) AS n FROM fin_load WHERE status='failed' GROUP BY 1 ORDER BY 2 DESC LIMIT 15"),
+        backfill: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'"),
+      }, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/held") {
       // Read-only: held/excluded items of one class, with their file URLs, for class-by-class fixes (D140).
       const u = new URL(req.url);
