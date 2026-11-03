@@ -13,7 +13,7 @@
 **Maintenance:** to reset market data, first apply a pause migration (`INSERT … job_lock 'paused'`), confirm `/status` shows no `running_lock`, then the wipe migration (which lifts the pause). Never deploy the market worker during a long backfill unless needed (a deploy interrupts the current run; it resumes safely).
 
 ## Read first, in this order
-1. `docs/PLAN.md`: the consolidated design. Decisions D1–D129 are in Appendix A; live NSE evidence is in Appendix B.
+1. `docs/PLAN.md`: the consolidated design. Decisions D1–D130 are in Appendix A; live NSE evidence is in Appendix B.
 2. `docs/discussion-log.md`: every owner statement (#1–#227), mapped to where it's recorded, plus open items.
 3. `docs/field-catalogue.md`: query fields (v1).
 4. `docs/setup-guide.md`: owner's Cloudflare/GoDaddy/GitHub setup steps.
