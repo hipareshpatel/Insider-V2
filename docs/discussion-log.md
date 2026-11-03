@@ -341,6 +341,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 283 | "Go ahead with item 4 and fix other things." | Item 4 batch: OneD preferred explicitly (C29), no-period files excluded (D145, new status), alternative line names only when every identity check passes (V1 hint), median-of-4 scale anchor (C34); retries of those classes. Deploys 29–30 had failed (63-byte LIKE, C35; root-fix test added); live 13:20 IST. Readable rate 99.66% on 36.9k processed. Other things: C28 test added; LIKE-length guard test (C35); BSE Ltd shareholding fixed where NSE's share count confirms (7 of 17; C36). | ✅ (full-population rate when the backlog is loaded) |
 | 284 | "Hope whatever downloads are required are already done or going on. Update pending items from M0 to M3 also." | Checked live: all historical downloads for M0–M3 done (214,858 attachments, all API lists, market history, market-structure history, bulk/block/short); daily snapshots from tonight; compression running. Pending list by milestone written to HANDOVER and PLAN §16. | ✅ |
 | 285 | "Go ahead with M1 market-structure loaders first and the 7 review items still open after it." Owner items: trademark check (pending); "email test (last) — working"; "$5 budget alert — done"; sector map — "share once ready". | Email test and budget alert closed; trademark stays with the owner; sector map to be shared when drafted. M1 market-structure loaders built and live (D148). 7 open review items: 6 decided from NSE's own share counts and face values (AKSHAR and DHARAN bonuses at their true ex-dates, ARIHANTACA bonus, ADROITINFO and NAGREEKEXP rights via TERP, UMANGDAIRY series end); UEL left open (price ×3.7 across a demerger; needs official terms). | ✅ |
+| 286 | "History is loading now and will finish overnight — what history is this?" Next (M2 readers: balance sheet + cash flow first, then PIT, SAST, ratings, board meetings): "OK". | Explained: market-structure data 2024 → today, already stored in R2, being loaded into D1 tables day by day (not a download). Claude's "overnight" estimate was wrong (from one partial run): measured 14:51 IST — F&O OI and ban list complete (704 days), price bands 418/704; ≈ 1–2 h left. Starting balance sheet + cash flow. | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -349,7 +350,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-03 after entry #285: all checks pass (148 decisions, 285 entries); no open ⚠.*
+*Last run 2026-11-03 after entry #286: all checks pass (148 decisions, 286 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
