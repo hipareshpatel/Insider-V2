@@ -3,8 +3,11 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { app, type Env } from "../src/index.js";
+import { resetSymbolCache } from "../src/data.js";
+
+beforeEach(() => resetSymbolCache());
 
 const MIG = join(import.meta.dirname, "..", "..", "..", "db", "migrations");
 function d1(domain: string): D1Database & { raw: DatabaseSync } {

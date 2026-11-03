@@ -101,18 +101,35 @@ export async function securities(m: Sql) {
 
 const PL_LINES = ["revenue", "total_income", "interest_earned", "gross_premium", "net_premium", "pbt", "pat", "eps_basic", "operating_profit", "net_interest_income"];
 
+/** NSE symbol → security id (and all symbols a security has had), kept in memory for 10 minutes per isolate, so a
+ *  stock page needs one database round trip instead of three (M3 performance targets). */
+let symCache: { at: number; bySymbol: Map<string, number>; symbols: Map<number, string[]> } | null = null;
+async function symbolMap(m: Sql, now = Date.now()) {
+  if (symCache && now - symCache.at < 600_000) return symCache;
+  const rows = await m.all<{ security_id: number; value: string; valid_to: string | null; valid_from: string }>(
+    "SELECT security_id, value, valid_to, valid_from FROM security_identifier WHERE id_type='nse_symbol' ORDER BY valid_to IS NULL, valid_from");
+  const bySymbol = new Map<string, number>(), symbols = new Map<number, string[]>();
+  for (const r of rows) { bySymbol.set(r.value, r.security_id); const l = symbols.get(r.security_id) ?? []; l.push(r.value); symbols.set(r.security_id, l); } // current rows last, so they win
+  symCache = { at: now, bySymbol, symbols };
+  return symCache;
+}
+export function resetSymbolCache() { symCache = null; }
+
+const BS_LINES = ["total_assets", "total_equity", "shareholders_funds", "borrowings_noncurrent", "borrowings_current", "cash"], CF_LINES = ["cfo", "cfi", "cff"];
+
 export async function stock(db: Dbs, symbol: string, timing: string[] = []) {
-  const m = db.market;
+  const m = db.market, f = db.filings;
   let t = Date.now();
   const lap = (name: string) => { const n = Date.now(); timing.push(`${name};dur=${n - t}`); t = n; };
-  const [id] = await m.all<{ security_id: number }>(
-    "SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=? ORDER BY valid_to IS NULL DESC, valid_from DESC LIMIT 1", [symbol]);
-  if (!id) return null;
+  const map = await symbolMap(m);
+  const sid = map.bySymbol.get(symbol);
   lap("id");
-  const sid = id.security_id;
-  const f = db.filings;
-  // Round trip 2: every read that needs only the security id, in parallel.
-  const [secR, ids, clsR, idxR, raw, factors, breakR, shR, actions, fin, shpR] = await Promise.all([
+  if (sid === undefined) return null;
+  const sym = map.symbols.get(sid) ?? [symbol];
+  const marksS = sym.map(() => "?").join(",");
+  const q = (lines: string[]) => lines.map(() => "?").join(",");
+  // One round trip: every read in parallel; dependent lookups are subqueries.
+  const [secR, ids, clsR, idxR, raw, factors, breakR, shR, actions, dlR, fin, shp, insider, meetings, ratings] = await Promise.all([
     m.all<{ name: string; kind: string; listed_on: string | null; delisted_on: string | null }>("SELECT name, kind, listed_on, delisted_on FROM security WHERE security_id=?", [sid]),
     m.all<{ id_type: string; value: string; valid_from: string; valid_to: string | null }>("SELECT id_type, value, valid_from, valid_to FROM security_identifier WHERE security_id=? ORDER BY id_type, valid_from", [sid]),
     m.all<{ as_of: string; sector: string | null; industry_detail: string | null; sector_source: string; source_ref: string }>(
@@ -127,15 +144,22 @@ export async function stock(db: Dbs, symbol: string, timing: string[] = []) {
     m.all<{ d: number; issue_size: number; mcap_paise: number | null; mcap_source: string; face_value_paise: number | null }>(
       "SELECT d, issue_size, mcap_paise, mcap_source, face_value_paise FROM shares_daily WHERE security_id=? ORDER BY d DESC LIMIT 1", [sid]),
     m.all<{ ex_date: string; type: string; raw_purpose: string; status: string }>("SELECT ex_date, type, raw_purpose, status FROM corp_action WHERE security_id=? ORDER BY ex_date DESC LIMIT 40", [sid]),
-    // Financials (filings DB): key P&L, balance-sheet and cash-flow lines, both bases, original and restated apart (D48).
-    f.all<{ statement: string; line: string; period_end: string; period_kind: string; basis: string; version: string; value: string | null; disclosed_at: string; template: string; filing_id: number }>(
-      `SELECT statement, line, period_end, period_kind, basis, version, value, disclosed_at, template, filing_id FROM fin_value
-       WHERE security_id=? AND dims='' AND ((statement='pl' AND line IN (${PL_LINES.map(() => "?").join(",")})) OR (statement='bs' AND line IN ('total_assets','total_equity','shareholders_funds','borrowings_noncurrent','borrowings_current','cash')) OR (statement='cf' AND line IN ('cfo','cfi','cff')))
-       ORDER BY period_end DESC, disclosed_at`, [sid, ...PL_LINES]),
-    f.all<{ as_of: string; filing_id: number }>("SELECT as_of, filing_id FROM shareholding WHERE security_id=? ORDER BY as_of DESC LIMIT 1", [sid]),
+    m.all<{ series: string; deliverable_qty: number | null }>("SELECT series, deliverable_qty FROM delivery_daily WHERE security_id=?1 AND d=(SELECT max(d) FROM price_daily WHERE security_id=?1)", [sid]),
+    // Financials (filings DB): key lines, both bases, original and restated apart (D48); one keyed lookup per statement.
+    f.all<{ statement: string; line: string; period_end: string; period_kind: string; basis: string; version: string; value: string | null; disclosed_at: string; template: string; filing_id: number; source_url: string | null }>(
+      `SELECT v.statement, v.line, v.period_end, v.period_kind, v.basis, v.version, v.value, v.disclosed_at, v.template, v.filing_id, fl.source_url FROM (
+         SELECT * FROM fin_value WHERE security_id=?1 AND statement='pl' AND line IN (${q(PL_LINES)}) AND dims=''
+         UNION ALL SELECT * FROM fin_value WHERE security_id=?1 AND statement='bs' AND line IN (${q(BS_LINES)}) AND dims=''
+         UNION ALL SELECT * FROM fin_value WHERE security_id=?1 AND statement='cf' AND line IN (${q(CF_LINES)}) AND dims='') v
+       LEFT JOIN filing fl ON fl.filing_id = v.filing_id ORDER BY v.period_end DESC, v.disclosed_at`, [sid, ...PL_LINES, ...BS_LINES, ...CF_LINES]),
+    f.all<{ as_of: string; category: string; shares: number | null; pct: string | null }>(
+      "SELECT as_of, category, shares, pct FROM shareholding WHERE filing_id=(SELECT filing_id FROM shareholding WHERE security_id=? ORDER BY as_of DESC LIMIT 1) AND holder_name='' ORDER BY category", [sid]),
+    f.all<Record<string, unknown>>(`SELECT person, category, txn, mode, qty, value_rs, from_d, to_d, disclosed_at FROM insider_trade WHERE symbol IN (${marksS}) ORDER BY disclosed_at DESC LIMIT 15`, sym),
+    f.all<Record<string, unknown>>(`SELECT meeting_d, purpose, announced_at FROM board_meeting WHERE symbol IN (${marksS}) ORDER BY meeting_d DESC LIMIT 8`, sym),
+    f.all<Record<string, unknown>>(`SELECT agency, rating, outlook, action, rated_on, disclosed_at FROM credit_rating WHERE symbol IN (${marksS}) ORDER BY rated_on DESC LIMIT 8`, sym),
   ]);
   lap("main");
-  const sec = secR[0], cls = clsR[0], sh = shR[0], shpDay = shpR[0];
+  const sec = secR[0], cls = clsR[0], sh = shR[0];
   const indices = idxR.map((r) => r.index_name);
   const day = new Map<number, (typeof raw)[number]>();
   for (const r of raw) { const o = day.get(r.d); if (!o || SERIES.indexOf(r.series) < SERIES.indexOf(o.series)) day.set(r.d, r); }
@@ -146,27 +170,12 @@ export async function stock(db: Dbs, symbol: string, timing: string[] = []) {
   const mult = (date: string) => applied.reduce((p, x) => (x.ex_date > date ? p * Number(x.factor) : p), 1);
   const prices = days.map((r) => { const k = mult(iso(r.d)); return { date: iso(r.d), open: r.open === null ? null : (r.open / 100) * k, high: r.high === null ? null : (r.high / 100) * k, low: r.low === null ? null : (r.low / 100) * k, close: (r.close / 100) * k, volume: r.volume, series: r.series }; });
   const last = days.at(-1);
-  // Round trip 3: reads that depend on round trip 2, in parallel.
-  const filingIds = [...new Set(fin.map((r) => r.filing_id))];
-  const parts: number[][] = [];
-  for (let i = 0; i < filingIds.length; i += 80) parts.push(filingIds.slice(i, i + 80));
-  const sym = ids.filter((i) => i.id_type === "nse_symbol").map((i) => i.value);
-  const marksS = sym.map(() => "?").join(",");
-  const [dlR, srcParts, shp, insider, meetings, ratings] = await Promise.all([
-    last ? m.all<{ deliverable_qty: number | null }>("SELECT deliverable_qty FROM delivery_daily WHERE security_id=? AND d=? AND series=?", [sid, last.d, last.series]) : Promise.resolve([]),
-    Promise.all(parts.map((part) => f.all<{ filing_id: number; source_url: string }>(`SELECT filing_id, source_url FROM filing WHERE filing_id IN (${part.map(() => "?").join(",")})`, part))),
-    shpDay ? f.all<{ category: string; shares: number | null; pct: string | null }>("SELECT category, shares, pct FROM shareholding WHERE filing_id=? AND holder_name='' ORDER BY category", [shpDay.filing_id]) : Promise.resolve([]),
-    f.all<Record<string, unknown>>(`SELECT person, category, txn, mode, qty, value_rs, from_d, to_d, disclosed_at FROM insider_trade WHERE symbol IN (${marksS}) ORDER BY disclosed_at DESC LIMIT 15`, sym),
-    f.all<Record<string, unknown>>(`SELECT meeting_d, purpose, announced_at FROM board_meeting WHERE symbol IN (${marksS}) ORDER BY meeting_d DESC LIMIT 8`, sym),
-    f.all<Record<string, unknown>>(`SELECT agency, rating, outlook, action, rated_on, disclosed_at FROM credit_rating WHERE symbol IN (${marksS}) ORDER BY rated_on DESC LIMIT 8`, sym),
-  ]);
-  lap("detail");
-  const dl = dlR[0];
-  const src = new Map<number, string>(srcParts.flat().map((r) => [r.filing_id, r.source_url]));
+  const dl = last ? dlR.find((x) => x.series === last.series) : undefined;
+  const shpDay = shp.length ? { as_of: shp[0]!.as_of } : undefined;
   const periods = new Map<string, { period_end: string; period_kind: string; basis: string; template: string; lines: Record<string, string | null>; restated: Record<string, string | null>; disclosed_at: string; source: string | null }>();
   for (const r of fin) {
     const k = `${r.statement}|${r.period_end}|${r.period_kind}|${r.basis}`;
-    const p = periods.get(k) ?? { period_end: r.period_end, period_kind: r.period_kind, basis: r.basis, template: r.template, lines: {}, restated: {}, disclosed_at: r.disclosed_at, source: src.get(r.filing_id) ?? null };
+    const p = periods.get(k) ?? { period_end: r.period_end, period_kind: r.period_kind, basis: r.basis, template: r.template, lines: {}, restated: {}, disclosed_at: r.disclosed_at, source: r.source_url };
     if (r.version === "original") { if (!(r.line in p.lines)) p.lines[r.line] = r.value; }
     else p.restated[r.line] = r.value; // latest restatement wins (ordered by disclosed_at)
     periods.set(k, p);
@@ -182,7 +191,7 @@ export async function stock(db: Dbs, symbol: string, timing: string[] = []) {
     prices: { adjusted_by: applied.map((x) => ({ ex_date: x.ex_date, factor: x.factor, method: x.method })), pending_review: factors.filter((x) => x.status === "review").length, series_breaks: breaks, starts_after_break: lastBreak, rows: prices },
     corporate_actions: actions,
     financials: { pl: group("pl"), bs: group("bs"), cf: group("cf"), unit: "₹ (rupees, as filed)", note: "Original = earliest disclosure; restated values shown separately (D48)." },
-    shareholding: shpDay ? { as_of: shpDay.as_of, categories: shp } : null,
+    shareholding: shpDay ? { as_of: shpDay.as_of, categories: shp.map(({ as_of: _a, ...c }) => c) } : null,
     insider_trades: insider, board_meetings: meetings, credit_ratings: ratings,
   };
 }
