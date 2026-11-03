@@ -1,5 +1,5 @@
 // Decides which dates to (re)run, in order, within a time budget. Used by both the nightly cron and the backfill.
-import { type Sql, batchAll, dec, diso, insertRows, mul, round, toText } from "@disclo/core";
+import { type Sql, batchAll, dec, diso, dnum, insertRows, mul, round, toText } from "@disclo/core";
 import { type DayReport, type Deps, runDay } from "./daily.js";
 import { snapshotIndices } from "./snapshot.js";
 import { addDays, datesBetween, eligible, istNow } from "./dates.js";
@@ -71,17 +71,25 @@ export async function maybeSnapshot(deps: Deps): Promise<string> {
 /** D6: January 2024 has no MCAP file; market cap = close × February's first share count,
  *  scaled back through any split/bonus between the date and that February day. Marked mcap_source = 'derived'. */
 export async function deriveJanuary2024(db: Sql): Promise<number> {
-  const [feb] = await db.all<{ d: number | null }>("SELECT min(d) AS d FROM shares_daily WHERE d >= 20240201 AND mcap_source='nse'");
+  // Done once: a marker row in pipeline_run (indexed) instead of two scans of shares_daily on every run (owner #271).
+  if ((await db.all("SELECT 1 FROM pipeline_run WHERE pipeline='market.derive_jan2024' AND status='ok' LIMIT 1")).length) return 0;
+  const [feb] = await db.all<{ d: string | null }>("SELECT min(trade_date) AS d FROM trading_calendar WHERE is_session=1 AND trade_date >= '2024-02-01' AND universe_rows IS NOT NULL");
   if (!feb?.d) return 0;
+  const febD = dnum(feb.d)!;
   const todo = await db.all<{ security_id: number; d: number; close: number; issue_size: number; face_value_paise: number | null }>(
     `SELECT p.security_id, p.d, p.close, s.issue_size, s.face_value_paise
      FROM price_daily p JOIN shares_daily s ON s.security_id = p.security_id AND s.d = ?
      WHERE p.d < 20240201 AND p.series = 'EQ'
        AND NOT EXISTS (SELECT 1 FROM shares_daily x WHERE x.security_id = p.security_id AND x.d = p.d)
-     LIMIT 5000`, [feb.d]);
-  if (!todo.length) return 0;
+     LIMIT 5000`, [febD]);
+  if (!todo.length) {
+    // Prices load in strict date order, so once March 2024 is loaded, January and the February share counts are final.
+    const [m] = await db.all<{ d: string | null }>("SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session=1 AND universe_rows IS NOT NULL");
+    if (m?.d && m.d >= "2024-03-01") await db.run("INSERT INTO pipeline_run (pipeline, run_key, started_at, finished_at, status) VALUES ('market.derive_jan2024', '2024-01', ?, ?, 'ok')", [new Date().toISOString(), new Date().toISOString()]);
+    return 0;
+  }
   const factors = await db.all<{ security_id: number; ex_date: string; factor: string }>(
-    "SELECT security_id, ex_date, factor FROM adj_factor WHERE status IN ('auto','confirmed') AND ex_date < ? AND ex_date > '2023-12-31'", [diso(feb.d)]);
+    "SELECT security_id, ex_date, factor FROM adj_factor WHERE status IN ('auto','confirmed') AND ex_date < ? AND ex_date > '2023-12-31'", [feb.d]);
   const rows = todo.map((t) => {
     let issue = dec(t.issue_size);
     const iso = diso(t.d);

@@ -330,6 +330,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   const prevClose = new Map<number, string>();
   const prevFv = new Map<number, string>();
   if (prevDate) {
+    // Whole day needed (D129 checks every security); served by ix_shares_d (market/0015, owner #271).
     for (const r of await deps.market.all<{ security_id: number; issue_size: number; face_value_paise: number | null }>("SELECT security_id, issue_size, face_value_paise FROM shares_daily WHERE d=?", [dnum(prevDate)])) {
       prevShares.set(r.security_id, r.issue_size);
       if (r.face_value_paise !== null) prevFv.set(r.security_id, fromPaise(r.face_value_paise)!);

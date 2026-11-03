@@ -63,7 +63,8 @@ export default {
       running_lock: (await q("SELECT expires_at FROM job_lock WHERE name='market.daily'"))[0] ?? null,
       sessions_loaded: (await q("SELECT count(*) AS n, min(trade_date) AS first, max(trade_date) AS last FROM trading_calendar WHERE is_session=1"))[0],
       securities: (await q("SELECT count(*) AS n FROM security"))[0],
-      price_rows: (await q("SELECT count(*) AS n FROM price_daily"))[0],
+      // Owner #271: no count(*) over price_daily here (1.6M rows read per call); latest session's rows instead.
+      latest_session_rows: (await q("SELECT trade_date, universe_rows FROM trading_calendar WHERE is_session=1 AND universe_rows IS NOT NULL ORDER BY trade_date DESC LIMIT 1"))[0],
       ledger_keys: await q("SELECT substr(r2_key, 1, instr(r2_key, '/')) AS store, count(*) AS n FROM source_file GROUP BY 1"),
       written_today: (await q("SELECT day, rows FROM write_budget ORDER BY day DESC LIMIT 2")),
       written_month: (await q("SELECT substr(day,1,7) AS month, sum(rows) AS rows FROM write_budget GROUP BY 1 ORDER BY 1 DESC LIMIT 1"))[0],

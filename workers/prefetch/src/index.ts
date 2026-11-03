@@ -9,8 +9,7 @@ export interface Env { DB_FILINGS: D1Database; RAW: R2Bucket; ENVIRONMENT: strin
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
 async function seed(db: Sql, raw: R2Bucket, today: string): Promise<number> {
-  const [n] = await db.all<{ n: number }>("SELECT count(*) AS n FROM fetch_job");
-  if ((n?.n ?? 0) > 0) return 0;
+  if ((await db.all("SELECT 1 FROM fetch_job LIMIT 1")).length) return 0; // owner #271: not count(*) every minute
   // Company list: prefetched copy in R2 first (D128), else NSE with retries.
   let text: string | null = null;
   const cached = await raw.get("cache/content/equities/EQUITY_L.csv");

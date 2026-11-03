@@ -15,7 +15,7 @@
 | Tests | 169 pass; consistency check passes (137 decisions, 270 entries) |
 
 **To-do (ordered):**
-1. **D1 reads:** list the top queries by rows read (Cloudflare `d1QueriesAdaptiveGroups`), index or rewrite them; make the idle filings run cheap.
+1. **D1 reads:** measured and fixed 2026-11-03 09:15 (FMEA C18: `shares_daily` date index, back-fill marker, cheap `/status`). Re-run infra-check ≈ 5 Nov and confirm the daily read rate is far below 25B/month ÷ 30.
 2. When the reload catches up (≈ 09:10): first index snapshot → Phase 1 test 2; `/acceptance`; D1 size.
 3. Census classes: old bank-format results (249 files); Integrated Filings with alias tag names (112) — inspect, then decide; re-run `/census` after each reader change (D134).
 4. **Daily discovery of new filings** into the ledger (D135 gap: nothing filed after 2026-11-03 is queued yet).
