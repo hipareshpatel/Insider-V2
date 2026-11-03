@@ -44,6 +44,8 @@
 
 **Focus (D155, owner #316):** filings load only for Nifty 50 + Next 50 + Midcap 150 (`FOCUS_INDICES` on disclo-filings; "ALL" widens); censuses still read every file.
 
+**Widening checklist (D155, owner #318 — learnings first, then the wider universe):** (1) every M1/M2 gate verified on the 250; (2) re-run every census on all stored files (results/FY/BS-CF, line items, shareholding) — "0 newly failing" vs the last run; (3) each FMEA rule (C1–C49…) has its test and, where it applies, a census check; (4) widen in steps (`FOCUS_INDICES`: 250 → top 500 → ALL), repeating (2) and the count checks at each step; (5) write-budget projection before each step.
+
 **Order now (D152, owner #300 — data first, website stopped):** (1) filings backlog speed + every downloaded file read; (2) FY figures (Q4 files carry them; reader takes the quarter only) + 5-year coverage per company vs NSE lists, top 1,000 (D90/D111); (3) ✅ event counts vs NSE: 29/29 match (3 Nov 20:25 IST; insider-trade date filters fall back to disclosure date); (4) ✅ M1 acceptance tests 4–5 **pass** (3 Nov 20:30 IST: staging re-run of 4 days 'unchanged', 0 data rows changed; staging rebuild from stored files identical to production on all 8 sessions × 5 tables, ≈ 78k rows; `/digest`, staging `POST /rerun`; C49 fixed on the way); left in this item: D138 corporate-action re-run, bulk-deal 70-cap; (5) held classes; (6) data-readiness map for every D91/D62/D67 element; then design mockups for owner approval (no UI code before).
 
 **Pending by milestone (owner #284):**
