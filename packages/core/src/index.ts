@@ -15,3 +15,4 @@ export * from "./results.js";
 export * from "./compact.js";
 export * from "./shareholding.js";
 export * from "./balance.js";
+export * from "./detail.js";
