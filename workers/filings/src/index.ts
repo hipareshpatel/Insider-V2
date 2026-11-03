@@ -28,6 +28,7 @@ export default {
       review_reasons: await q("SELECT substr(detail,1,60) AS reason, count(*) AS n FROM fin_load WHERE status IN ('review','failed') GROUP BY 1 ORDER BY 2 DESC LIMIT 15"),
       filings: await q("SELECT count(*) AS n FROM filing"),
       values: await q("SELECT basis, count(*) AS n FROM fin_value GROUP BY basis"),
+      review_samples: await q("SELECT l.status, substr(l.detail,1,120) AS detail, j.symbol, j.url FROM fin_load l JOIN fetch_job j ON j.job_id = l.job_id WHERE l.status IN ('review','failed') ORDER BY l.at DESC LIMIT 8"),
     }, { headers: { "cache-control": "no-store" } });
   },
 };
