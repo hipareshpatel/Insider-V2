@@ -80,3 +80,15 @@ describe("shareholding loader", () => {
     expect((await filings.all<{ n: number }>("SELECT count(*) AS n FROM shareholding WHERE holder_name='NANDAN M NILEKANI'"))[0]!.n).toBe(1);
   });
 });
+
+describe("scale guard anchor (FMEA C6)", () => {
+  it("a held value anchors the next filing, so a lasting step change holds only its first period", async () => {
+    const { filings, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    // earlier period was held at a similar level to this filing -> this filing loads
+    filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (99,7,'results_quarterly','2024-07-17T00:00:00Z','old');
+      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version)
+      VALUES (7,'industrial','pl','revenue','','2024-06-30','Q','standalone','original','3409000000','2024-07-17T00:00:00Z',99,'reported','t');
+      INSERT INTO fin_held (security_id,line,basis,period_kind,period_end,value,job_id) VALUES (7,'revenue','standalone','Q','2024-09-30','340000000000',1)`);
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded" });
+  });
+});

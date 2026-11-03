@@ -99,12 +99,20 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
 
   // B7 scale guard: revenue-type core line vs this company's latest earlier value for the same basis and period kind.
   const core = CORE[r.template][0]!;
+  // Anchor = the nearest earlier period, loaded or held (FMEA C6: a held value anchors the next filing).
   const [prev] = await deps.filings.all<{ value: string }>(
-    `SELECT value FROM fin_value WHERE security_id=? AND statement='pl' AND line=? AND basis=? AND period_kind=? AND period_end < ? AND value IS NOT NULL
+    `SELECT value FROM (
+       SELECT period_end, value FROM fin_value WHERE security_id=?1 AND statement='pl' AND line=?2 AND basis=?3 AND period_kind=?4 AND period_end < ?5 AND value IS NOT NULL
+       UNION ALL
+       SELECT period_end, value FROM fin_held WHERE security_id=?1 AND line=?2 AND basis=?3 AND period_kind=?4 AND period_end < ?5)
      ORDER BY period_end DESC LIMIT 1`, [sec.security_id, core, r.basis, r.periodKind, r.periodEnd]);
   if (prev && dec(prev.value).units !== 0n && dec(r.lines[core]!).units !== 0n) {
     const ratio = Math.abs(Number(toText(div(dec(r.lines[core]!), dec(prev.value), 6))));
-    if (ratio >= 10 || ratio <= 0.1) return { jobId: job.job_id, status: "review", detail: `scale guard: ${core} ${r.lines[core]} vs previous ${prev.value} (×${ratio.toFixed(2)})` };
+    if (ratio >= 10 || ratio <= 0.1) {
+      await deps.filings.run("INSERT OR REPLACE INTO fin_held (security_id,line,basis,period_kind,period_end,value,job_id) VALUES (?,?,?,?,?,?,?)",
+        [sec.security_id, core, r.basis, r.periodKind, r.periodEnd, r.lines[core]!, job.job_id]);
+      return { jobId: job.job_id, status: "review", detail: `scale guard: ${core} ${r.lines[core]} vs previous ${prev.value} (×${ratio.toFixed(2)})` };
+    }
   }
 
   if (job.parent_key && !listCache.has(job.parent_key)) listCache.set(job.parent_key, await deps.getText(job.parent_key));

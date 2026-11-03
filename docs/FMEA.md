@@ -48,3 +48,5 @@ Each mitigation is in code with a test unless marked *process*.
 | C3 | Pledge confused with other encumbrances (VEDL: 0 pledged, NDU + other) | Pledge = encumbered − NDU − other unless tagged; three numbers kept |
 | C4 | Results XBRL whose facts reference a context the file never defines (2021 in-bse-fin files) | Period taken from the filing's own reporting-period facts in that context id; identities still checked |
 | C5 | Integrated Filing revision rows have no broadcast time | `creation_Date` (NSE receipt time) as `disclosed_at` |
+| C6 | Scale guard cascade: after a real step change (ABREL post-divestment, −92%), every later quarter was compared with the stale pre-change figure and held | A held value anchors the next filing; only the first period of a lasting change is held |
+| C7 | Filing's own expense breakdown doesn't add to its total (360ONE, ABSLAMC: an untagged expense line) | Held (correct); later refinement: load the lines whose checks pass, mark the breakdown "not in filing" |
