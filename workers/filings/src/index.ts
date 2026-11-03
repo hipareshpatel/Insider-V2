@@ -38,7 +38,7 @@ export default {
         const ldeps = { filings: d1Sql(env.DB_FILINGS, meter), market: d1Sql(env.DB_MARKET), getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: env.BSCF_LOAD === "1" };
         out = await loadBatch(ldeps, 300, 8);
         if (ldeps.bscf && out.length < 300) await backfillBsCf(ldeps, 200); // M2: balance sheet + cash flow for earlier filings, when the queue is light
-        await loadEvents(ldeps.filings, ldeps.getText, 60); // M2 events: PIT, SAST, board meetings, credit ratings (owner #289)
+        await loadEvents(ldeps.filings, ldeps.getText, 200); // M2 events: PIT, SAST, board meetings, credit ratings (owner #289)
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
       }
