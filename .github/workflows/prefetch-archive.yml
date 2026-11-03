@@ -10,7 +10,7 @@ on:
     inputs:
       from: { description: "from date (blank = today IST)", default: "" }
       to: { description: "to date (blank = today IST)", default: "" }
-      set: { description: "market | structure | snapshot | daily (all three, today)", default: "daily" }
+      set: { description: "market | structure | snapshot | indices | daily (market+structure+snapshot, today)", default: "daily" }
 
 permissions:
   contents: read

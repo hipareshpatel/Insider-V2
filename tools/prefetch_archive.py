@@ -1,7 +1,8 @@
 """Prefetch NSE archive history into R2 (D128). Runs on a GitHub runner.
 Usage: python3 tools/prefetch_archive.py <bucket> <from YYYY-MM-DD> <to YYYY-MM-DD> [set]
 set = market (default: UDiFF bhavcopy, PR bundle, delivery, index closes) | structure (D144: F&O participant OI,
-F&O ban list, price bands) | snapshot (today's bulk.csv / block.csv, complete; the history API caps at 70 rows).
+F&O ban list, price bands) | snapshot (today's bulk.csv / block.csv, complete; the history API caps at 70 rows)
+| indices (D156: daily index file only — OHLC, P/E, P/B, yield of every index — for the 10-year index history).
 Uploads each file to R2 at cache/<url path> (snapshots: cache/<path>_<date>). Does NOT check R2 first, so run it
 only for dates not yet fetched (the daily schedule runs today only; owner #265: never download twice)."""
 import concurrent.futures as cf, datetime as dt, json, os, subprocess, sys, tempfile, time, urllib.request, urllib.error
@@ -11,6 +12,8 @@ HOST = "https://nsearchives.nseindia.com"
 
 def urls(d: dt.date, which: str = "market"):
     y, m, dd = d.strftime("%Y"), d.strftime("%m"), d.strftime("%d")
+    if which == "indices":
+        return [f"{HOST}/content/indices/ind_close_all_{dd}{m}{y}.csv"]
     if which == "structure":
         return [f"{HOST}/content/nsccl/fao_participant_oi_{dd}{m}{y}.csv",
                 f"{HOST}/archives/fo/sec_ban/fo_secban_{dd}{m}{y}.csv",
