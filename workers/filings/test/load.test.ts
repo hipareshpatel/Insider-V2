@@ -71,6 +71,21 @@ describe("skipped jobs do not block the queue (C43)", () => {
   });
 });
 
+describe("FY22 old-format March-quarter file (contexts referenced but undefined): full year loads (D90, C4 for the year)", () => {
+  it("INFY Mar 2022 consolidated: quarter and FY22 both stored", async () => {
+    const URL22 = "https://nsearchives.nseindia.com/corporate/xbrl/INDAS_83516_634679_13042022084838_WEB.xml";
+    const filings = sqlite("filings"), market = sqlite("market");
+    market.raw.exec("DELETE FROM job_lock; INSERT INTO security (security_id,name) VALUES (7,'Infosys'); INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (7,'nse_symbol','INFY','2020-01-01','t')");
+    const list22 = JSON.stringify([{ broadCastDate: "13-Apr-2022 20:48:38", resultDetailedDataLink: URL22 }]);
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES (1,'results_quarterly','INFY','u1','api/results_quarterly/INFY/x.json','done');
+      INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status,parent_id) VALUES (2,'xbrl_results_quarterly','INFY','${URL22}','att/xbrl/fy22.xml','done',1)`);
+    const x22 = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_Q4FY22_cons_undefinedctx.xml"), "utf8");
+    const deps = { filings, market, getText: async (k: string) => (k === "att/xbrl/fy22.xml" ? x22 : list22), now: () => new Date("2026-11-03T02:00:00Z") };
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded", detail: expect.stringContaining("FY22 loaded") });
+    expect(await filings.all("SELECT period_kind, value FROM fin_value WHERE line='revenue' ORDER BY period_kind")).toEqual([{ period_kind: "FY", value: "1216410000000" }, { period_kind: "Q", value: "322760000000" }]);
+  });
+});
+
 describe("backfill survives storage read errors (C48)", () => {
   it("a failing read pauses the backfill at that file; after 3 runs it is skipped and listed, and the position moves on", async () => {
     const { filings, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });

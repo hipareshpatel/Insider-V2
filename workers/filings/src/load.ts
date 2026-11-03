@@ -246,7 +246,8 @@ export async function loadFy(inst: XbrlInstance, q: CanonicalResult, sid: number
   const fyStart = inst.facts.find((x) => /:DateOfStartOfFinancialYear$/.test(x.tag))?.value ?? null;
   if (!fyStart || months(fyStart, q.periodEnd) !== 12) return { rows: 0, note: "" };
   let fy: CanonicalResult;
-  try { fy = canonicalResult(inst, { span: "ytd" }); } catch (e) { return { rows: 0, note: `; FY not loaded: ${String(e).slice(0, 60)}` }; }
+  // C4-for-year switch on after its census: 2,829 more FY files, 0 newly failing
+  try { fy = canonicalResult(inst, { span: "ytd", undefinedYtd: true }); } catch (e) { return { rows: 0, note: `; FY not loaded: ${String(e).slice(0, 60)}` }; }
   if (fy.periodKind !== "FY" || fy.template !== q.template) return { rows: 0, note: "; FY not loaded: year-to-date context is not a full year" };
   const core = CORE[fy.template];
   if (core.some((k) => fy.lines[k] === undefined)) return { rows: 0, note: `; FY not loaded: missing ${core.filter((k) => fy.lines[k] === undefined).join(",")}` };
