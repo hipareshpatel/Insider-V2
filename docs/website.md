@@ -1,6 +1,6 @@
 # Website — everything discussed, decided, built and pending
 
-**Compiled 2026-11-03** from: the full transcript of the first planning chat (owner statements #1–#227, read directly, not from summaries), `docs/discussion-log.md` (#228–#302, the build chat), `docs/PLAN.md` (D1–D153, §7.5, §8, §12, §14, §16), `docs/HANDOVER.md` and `docs/field-catalogue.md`.
+**Compiled 2026-11-03** from: the full transcript of the first planning chat (**both sides**: owner statements #1–#227 and Claude's proposals they answered, read directly, not from summaries; §10b), `docs/discussion-log.md` (#228–#302, the build chat), `docs/PLAN.md` (D1–D153, §7.5, §8, §12, §14, §16), `docs/HANDOVER.md` and `docs/field-catalogue.md`.
 **Rule used:** nothing assumed. Every line cites its decision (D…) or log entry (#…). Where something was proposed but never decided, it says so.
 
 **Status marks:** ✅ decided · 🔨 built in site v0 (now offline) · 🔶 open / pending · ❌ rejected · ⚠ conflict or gap to resolve
@@ -239,6 +239,51 @@ From HANDOVER / #297–#298:
 11. Data-readiness map for every stock-page and dashboard element (source table, completeness, verified).
 12. Custom domain `disclo.in` on the site + zone bot protection; measure performance from India.
 13. Quality gate (M7) before AI cards/write-ups go public; legal consult for judgement write-ups (D80) and public estimates (D82).
+
+---
+
+## 10b. Claude's proposals you accepted ("ok", "yes", "agree", or no objection) — first chat
+Source: **Claude's own messages** in the first planning chat, matched with your reply. "Recorded" = already in PLAN/website.md before this pass; **"added now"** = was missing and is recorded here for the first time.
+
+| # | Claude proposed | Your reply | Status |
+|---|---|---|---|
+| 1 | Separate API Worker (Hono) + React/Vite front end; same API for site and future clients; responses edge-cached until the next data update | "Option 1" | Recorded (§3, D93) |
+| 2 | Dashboard contents (167 indices, valuation percentiles vs own history, breadth, sector performance, FII/DII, results-season tracker, cards, calendar, search); **EOD, and the page must say so** (live needs a licensed real-time feed) | "Content as above, will add more later" | Recorded (D62). *Added now:* the EOD label is a requirement |
+| 3 | Everything readable without an account; account only for watchlists, saved filters, on-site alerts | "You are right" | Recorded (D60) |
+| 4 | Query builder: 3 modes, plain English → our language → editable chips, LLM never writes SQL, signed-in + daily cap, saved screens + "what changed", "not understood" instead of guessing | "All 3", "Gemini call needed and understand" | Recorded (D64) |
+| 5 | **Factual materiality** (order = x% of revenue, deal = y% of market cap) instead of a score, so cards can still be sorted/filtered | No objection after "No score at all" | Recorded (§7.5 card field) |
+| 6 | "More useful card" list: explain *why* (profit bridge); every number clickable to filing + page; claim-strength labels; commitment tracker; corrections replace earlier facts; connected numbers (order book ÷ revenue, OCF ÷ PAT, debt after capex); neutral language; "what changed since last quarter"; **layered depth: 30-second summary on top, full detail one click away** | Your answer: "A card where investors can take a decision… full context" | Recorded (§7.5 writing rules, D25). *Added now:* the full list is the card design brief |
+| 7 | **12-section decision-grade card**: (1) one-line factual verdict, (2) [score + drivers, dropped by D21], (3) reported vs adjusted + profit bridge, (4) vs own past: 8-quarter trend, guidance tracker, commitments due, (5) quality of earnings, (6) management said (claim-labelled, speaker) + analysts asked, (7) what changed since last quarter, (8) red flags + missing disclosures, (9) linked companies, (10) market context from bhavcopy, (11) what to watch with dates, (12) every number linked to its source. Suggested default view: 1, 3 and 11, the rest folded under "full context" | "Will decide later based on content and quality of card" | *Added now* as the **starting proposal** for the card-section decision (D25 open) |
+| 8 | Shareable image generated **from** the web card (web card = main format) | "Card for social media or sharing yes" | Recorded (D25) |
+| 9 | Stock page = one long page because: Ctrl+F works, **a link can point to a section**, nothing hidden behind clicks (tabs tidier on mobile) | "One long page" | Recorded (D91). *Added now:* **shareable links to each section** (anchor per section) |
+| 10 | AI write-up placement: considered "What changed → Key facts → write-up"; asked if write-up should be first because it's what people pay for | "AI write-up first" | Recorded (D91) |
+| 11 | Latest-quarter brief: 5–8 bullets, sources listed, claim labels, guidance changes, analyst concerns, declined-to-answer, updates through the day | "Format ok, keep declined to answer" | Recorded (D92) |
+| 12 | Freshness line "data updated HH:MM IST" | "Status yes" | Recorded (D46) |
+| 13 | "Report an error" link on every card | "Report error link yes" | Recorded (D42) |
+| 14 | Correction process: versioned cards, visible "corrected" note | "All ok" | Recorded (D35, D42) |
+| 15 | Closed beta (invite-only, ~50 users via Access, free) for testers and pitching | Rejected: "Keep open public… not going to tell everyone" | Recorded (D89) |
+| 16 | Unlisted ≠ private: noindex, robots, no sitemap; rate limits + bot protection mainly for **cost and scrapers**; costly features signed-in only | "Ok" / "Who uses workers.dev?" | Recorded (D89, #163) |
+| 17 | Open public only after the quality gate | "Wait for quality gate" | Recorded (D89, §14 M7) |
+| 18 | Accessibility: WCAG 2.1 AA recommended | "Later" | Recorded (D102: basic contrast/keyboard/alt text from day 1, Claude's addition, not objected) |
+| 19 | Analytics: Cloudflare Web Analytics, free, **no cookies, so no consent banner needed** | "Analytics yes" | Recorded (D98). *Added now:* no cookie-consent banner required for analytics (sign-in cookies are essential cookies; the privacy page explains them, D115) |
+| 20 | Charts: Lightweight Charts with on-chart logo off + notice on credits page (full removal = licence violation) | "Yes… hide it" | Recorded (D105) |
+| 21 | Exports: built day 1, owner-only until licence, then signed-in users | No objection | Recorded (D106) |
+| 22 | Search scope options; full-text inside filings = "most powerful, most work" | "Everything" | Recorded (D104) |
+| 23 | No app; mobile-first web (app = separate NSE licence medium) | "Web only but mobile first" | Recorded (D101) |
+| 24 | Plain-English queries cost a Gemini call each → signed-in only, per-user daily cap, cache identical questions | "Understand" | Recorded (D64) |
+| 25 | Hosting at scale: page-level aggregated endpoints (1–3 calls per page), CDN caching on the **custom domain** (workers.dev can't), < 50 ms public queries, separate feature-table database | No objection; "stay on Cloudflare" | Recorded (D108) |
+| 26 | Legal pages needed before Google sign-in (OAuth consent screen needs privacy + terms URLs on our domain) | "Update all documentation" (accepted as part of D114–D118) | Recorded (D115) |
+| 27 | Security headers + secure session cookies | Same | Recorded (D117) |
+| 28 | Cloudflare one-click toggles: Bot Fight Mode decide **at launch** with rate limiting (can block legitimate API callers on Free); leaked-credentials protection **not needed** (Google sign-in, no passwords); Client-side security + Speed optimizations **review at launch** | Owner proceeded ("Done") | Recorded in setup guide only. *Added now* as a **site launch checklist item** |
+| 29 | `www.disclo.in` DNS record was deleted with GoDaddy's leftovers; **recreate it when the site deploys** | "Done" | Setup log only (#214). *Added now* as a launch checklist item |
+| 30 | Owner-only data never cached publicly, separate API routes; owner panel on the stock page | No objection | Recorded (D53, D91, D93) |
+| 31 | Portfolio X-ray owner-only now, "also useful for signed-in users later" | "Yes" (adopt 4–6) | Recorded (§8.2 note) |
+| 32 | Licence: get vendor quotes first, **never charge users before a licence** | Chose option D (license before charging) | Recorded (D88) |
+| 33 | Name tests before buying: say it on a phone call, buy a common misspelling as redirect | Not answered | Open, optional (if the launch name changes) |
+
+**Site launch checklist (from rows 2, 16, 19, 25, 28, 29 + D89/D108/D115):** EOD label on dashboard · custom domain on the site + CDN cache rules · recreate `www` record · Bot Fight Mode / rate limits decided · noindex kept until owner decides · legal pages live · privacy page explains essential sign-in cookies · analytics on · measure performance from India · quality gate passed.
+
+**Build chat (#228–#302):** Claude does not have that chat's transcript in this session. Its log records your words and what each answer led to (including where you answered "OK" / "Accepted" to the other chat's proposals, e.g. #236, #238, #274, #297), and those are reflected above. The other chat should confirm nothing it proposed and you accepted is missing from its log.
 
 ---
 
