@@ -178,3 +178,21 @@ describe("more purpose spellings (seen in the reload)", () => {
     expect(parsePurpose("DISTRIBUTION - 2.5").components).toEqual([{ type: "dividend", amount: "2.5", kind: "final" }]);
   });
 });
+
+describe("whole-population spellings (all 6,863 actions 2024-01 → 2026-11, D134)", () => {
+  it.each(["RGTS 1:5PRM RS 120", "RIGHTN 1:4 @PRM RS 30/-", "RHTS 1:3@PRM RE 0.5", "RIGTS 2:7 @ PRM RS 45/-", "RGHT 1:6 @PRM RS 10"])("%s → rights", (p) => {
+    expect(parsePurpose(p).components[0]?.type).toBe("rights");
+  });
+  it.each(["FSTCAL - 5 PER SH", "FIRST CL RS 5 PR SH", "SCNDFINCL RS2PR SH", "FRSTCAL RS 3 PER SH"])("%s → call", (p) => {
+    expect(parsePurpose(p)).toEqual({ components: [{ type: "call" }], unparsed: [] });
+  });
+  it.each([["CNSLDATN RE 1 TO RS 10", "consolidation"], ["DSTRBUTION RS 2 PR UT", "dividend"], ["DISTRIBUTION - RE 0.5/-", "dividend"], ["EOGM", "meeting"], ["DELISTING", "status"], ["SUSPENSION DUE TO SCHEME", "status"], ["CHANGE IN ATTRIBUTE", "status"], ["DIVIDEND", "dividend"]])("%s → %s", (p, t) => {
+    const r = parsePurpose(p);
+    expect(r.unparsed).toEqual([]);
+    expect(r.components[0]?.type).toBe(t);
+  });
+  it.each(["SCH AGMT-BONUS NCRPS 1:1", "FV SPLT FRM RS 10 TO", "RIGHTS- NCCPS/ NWRNTS:1", "RIGHTS 1:4", "CONSO/CAP RED"])("%s stays for review", (p) => {
+    const r = parsePurpose(p);
+    expect(r.unparsed.length + r.components.filter((c) => c.type === "capital_reduction").length).toBeGreaterThan(0);
+  });
+});

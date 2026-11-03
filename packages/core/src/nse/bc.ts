@@ -33,15 +33,17 @@ export type CaComponent =
   | { type: "demerger" | "capital_reduction" | "merger" | "buyback" }
   | { type: "meeting" }
   | { type: "debt_service" }
-  | { type: "call" };             // call money on partly paid shares: a payment, not a price adjustment     // bond/debenture interest or redemption: never price-adjusting for shares
+  | { type: "call" }              // call money on partly paid shares: a payment, not a price adjustment
+  | { type: "status" };           // delisting, suspension, change in attribute: information, not a price adjustment     // bond/debenture interest or redemption: never price-adjusting for shares
 
 export interface ParsedPurpose { components: CaComponent[]; unparsed: string[] }
 
 const NUM = String.raw`(\d+(?:\.\d+)?)`;
 const SPLIT = new RegExp(String.raw`FV\s*SPLI?T\s*(?:FRM|FROM)?\s*R[SE]\.?\s*${NUM}\s*(?:\/-)?\s*TO\s*R[SE]\.?\s*${NUM}`, "i");
-const CONS = new RegExp(String.raw`(?:FV\s*)?CONSOL\w*\s*(?:FRM|FROM)?\s*R[SE]\.?\s*${NUM}\s*TO\s*R[SE]\.?\s*${NUM}`, "i");
+const CONS = new RegExp(String.raw`(?:FV\s*)?C(?:ONSOL|NSLD)\w*?\s*(?:FRM|FROM)?\s*R[SE]\.?\s*${NUM}\s*TO\s*R[SE]\.?\s*${NUM}`, "i");
 const BONUS = new RegExp(String.raw`^BONUS\s*${NUM}\s*:\s*${NUM}`, "i");
-const RIGHTS = new RegExp(String.raw`RI?GHTS\s*${NUM}\s*:\s*${NUM}\s*@?\s*PRE?M\s*R[SE]\.?\s*${NUM}`, "i");
+// Rights in every spelling seen 2024–2026: RIGHTS, RGHTS, RGTS, RIGHTN, RHTS, RIGTS, RGHT.
+const RIGHTS = new RegExp(String.raw`R(?:IGHTS?|IGHTN|GHTS?|GTS|HTS|IGTS)\s*-?\s*${NUM}\s*:\s*${NUM}\s*@?\s*PRE?M\s*R[SE]\.?\s*${NUM}`, "i");
 const DIV = new RegExp(String.raw`^(INT\s*DIV|INTDIV|SPL\s*DIV|SPLDIV|SPDV|SP\s*DIV|DIV|DI|DV)\s*-?\s*R[SE]\.?\s*-?\s*${NUM}`, "i");
 
 /** Parse one Bc purpose into components, e.g. "AGM/DIV - RS 5 PER SH" -> meeting + final dividend 5. */
@@ -79,9 +81,11 @@ export function parsePurpose(purpose: string): ParsedPurpose {
     if (amounts.length) return { components, unparsed };
     components.length = 0;
   }
-  for (const raw of text.split("/").map((p) => p.trim()).filter(Boolean)) {
+  for (const raw of text.split("/").map((p) => p.trim()).filter((p) => p && !/^[-.,&\s]*$/.test(p))) {
     const part = raw.replace(/\s*PER\s*SH(ARE)?\s*$/, "").trim();
-    if (/^(AGM|EGM|ANNUAL GENERAL MEETING|EXTRAORDNRY GENRL MEETNG|EXTRA ?ORDINARY GENERAL MEETING)$/.test(part)) { components.push({ type: "meeting" }); continue; }
+    if (/^(AGM|EGM|EOGM|ANNUAL GENERAL MEETING|EXTRAORDNRY GENRL MEETNG|EXTRA ?ORDINARY GENERAL MEETING)$/.test(part)) { components.push({ type: "meeting" }); continue; }
+    if (/^(DELISTING|SUSPENSION\b.*|CHANGE IN ATTRIBUTE)$/.test(part)) { components.push({ type: "status" }); continue; }
+    if (/^DIVIDEND$/.test(part)) { components.push({ type: "dividend", amount: "", kind: "final" }); continue; } // amount not stated
     if ((m = BONUS.exec(part))) { components.push({ type: "bonus", newShares: m[1]!, held: m[2]! }); continue; }
     if ((m = DIV.exec(part))) {
       const head = m[1]!.replace(/\s/g, "");
@@ -90,9 +94,10 @@ export function parsePurpose(purpose: string): ParsedPurpose {
       continue;
     }
     if (/^(INTEREST PAYMENT|INTEREST|INT PAYMENT|INT PAYMN?T|INT PAY|PART REDEMPTI?O?N|REDEMPTI?O?N|PART REDEMPTN|REDEMPTN|FULL REDEMPTION|MATURITY)$/.test(part)) { components.push({ type: "debt_service" }); continue; }
-    if (/^(FIRST|FST|SECOND|SECND|SCND|THIRD|FINAL|FNL)?\s*(AND\s*FINAL\s*)?(FIN)?\s*CALL?\w*\s*(MONEY)?\s*(-\s*)?(R[SE]\.?\s*[0-9.]+)?(\s*P(ER|R)\s*SH\w*)?$/.test(part) || /FINCAL|FSTFIN|SECNDFIN|FIRSTCAL|CALL MONEY/.test(part)) { components.push({ type: "call" }); continue; }
+    if (/^(FIRST|FRST|FST|SECOND|SECND|SCND|THIRD|FINAL|FNL)?\s*(AND\s*FINAL\s*)?(FIN)?\s*C(AL)?L?\w*\s*(MONEY)?\s*(-\s*)?(R[SE]\.?\s*)?[0-9.]*\s*(P(ER|R)\s*SH\w*)?$/.test(part) && /C(AL|L)/.test(part)
+        || /FINCAL|FINCL|FSTFIN|SECNDFIN|FIRSTCAL|FRSTCAL|FSTCAL|CALL MONEY/.test(part)) { components.push({ type: "call" }); continue; }
     // REIT/InvIT unit distributions (any spelling): payouts, not price-adjusting (like dividends, D7)
-    if ((m = /^(?:DIV\s*\/*\s*)?DISTR?I?B?U?T?I?O?N?\w*\s*-?\s*(?:R[SE]\.?)?\s*(\d+(?:\.\d+)?)/.exec(part))) { components.push({ type: "dividend", amount: m[1]!, kind: "final" }); continue; }
+    if ((m = /^(?:DIV\s*\/*\s*)?DI?STR?B?U?T?I?O?N?\w*\s*-?\s*(?:R[SE]\.?)?\s*(\d+(?:\.\d+)?)/.exec(part))) { components.push({ type: "dividend", amount: m[1]!, kind: "final" }); continue; }
     if (/^DEMERGER$/.test(part)) { components.push({ type: "demerger" }); continue; }
     if (/^MERGER$/.test(part)) { components.push({ type: "merger" }); continue; }
     if (/^BUY ?BACK$/.test(part)) { components.push({ type: "buyback" }); continue; }

@@ -2,10 +2,7 @@ name: deploy-filings
 
 # Test -> filings migrations (production) -> deploy disclo-filings. Separate from deploy-market so a market reload isn't interrupted.
 on:
-  workflow_dispatch:
-  push:
-    branches: [ccr-eb822347-c3zp4b]
-    paths: ["workers/filings/**", "db/migrations/filings/**", "packages/core/src/**", ".github/workflows/deploy-filings.yml"]
+  workflow_dispatch:   # superseded by deploy.yml (D134); kept for manual use
 
 permissions:
   contents: read

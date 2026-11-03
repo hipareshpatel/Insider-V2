@@ -3,10 +3,7 @@ name: db
 # Creates the D1 databases (6 domains x production/staging, D43) and applies migrations in db/migrations/<domain>.
 # Staging first; production only if staging succeeded. Output is masked (public logs).
 on:
-  workflow_dispatch:
-  push:
-    branches: [ccr-eb822347-c3zp4b]
-    paths: ["db/migrations/**", "tools/d1.mjs", ".github/workflows/db.yml"]
+  workflow_dispatch:   # superseded by deploy.yml (D134); kept for manual use
 
 permissions:
   contents: read

@@ -1,0 +1,63 @@
+name: deploy
+
+# D134: the ONE deploy pipeline. Every push that touches code or migrations runs: tests -> all migrations (staging,
+# production) -> every Worker. A newer queued run replaces an older one, and it always contains the older changes,
+# so no change is ever dropped. Logs are masked (public repo).
+on:
+  workflow_dispatch:
+  push:
+    branches: [ccr-eb822347-c3zp4b]
+    paths: ["db/migrations/**", "workers/**", "packages/core/src/**", "tools/d1.mjs", ".github/workflows/deploy.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Tests (a failure stops everything)
+        run: npm run check
+      - name: Mask filter
+        run: |
+          mkdir -p "$HOME/bin"
+          printf '%s\n' '#!/bin/sh' "sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}/<email hidden>/g; s/│ [^│]*Account[^│]*│/│ <account hidden> │/g'" > "$HOME/bin/mask"
+          chmod +x "$HOME/bin/mask"; echo "$HOME/bin" >> "$GITHUB_PATH"
+      - name: Databases exist
+        run: set -o pipefail; node tools/d1.mjs ensure 2>&1 | mask | grep -v "^exists" || true
+      - name: Migrations (staging, then production; every domain)
+        run: |
+          set -o pipefail
+          for env in staging production; do
+            node tools/d1.mjs config . $env >/dev/null
+            for d in market filings announce memory graph app; do
+              b="DB_$(echo $d | tr a-z A-Z)"
+              npx wrangler d1 migrations apply "$b" --remote -c wrangler.migrate.json 2>&1 | mask | grep -E "✅|✘|ERROR|No migrations" | sed "s/^/$env $d: /"
+            done
+          done
+      - name: Worker configs
+        run: for w in market prefetch filings; do node tools/d1.mjs worker workers/$w | mask; done
+      - name: Deploy market (staging, production)
+        working-directory: workers/market
+        run: |
+          set -o pipefail
+          npx wrangler deploy --env staging 2>&1 | mask | grep -E "Uploaded|Deployed|ERROR|✘"
+          npx wrangler deploy --env="" 2>&1 | mask | grep -E "Uploaded|Deployed|ERROR|✘"
+      - name: Deploy prefetch
+        working-directory: workers/prefetch
+        run: set -o pipefail; npx wrangler deploy 2>&1 | mask | grep -E "Uploaded|Deployed|ERROR|✘"
+      - name: Deploy filings
+        working-directory: workers/filings
+        run: set -o pipefail; npx wrangler deploy 2>&1 | mask | grep -E "Uploaded|Deployed|ERROR|✘"

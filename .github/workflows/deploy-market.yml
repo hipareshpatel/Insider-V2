@@ -2,10 +2,7 @@ name: deploy-market
 
 # Test -> deploy staging -> deploy production for workers/market. Logs masked (public repo).
 on:
-  workflow_dispatch:
-  push:
-    branches: [ccr-eb822347-c3zp4b]
-    paths: ["workers/market/**", "workers/prefetch/**", "packages/core/src/**", "db/migrations/market/**", ".github/workflows/deploy-market.yml", "tools/d1.mjs"]
+  workflow_dispatch:   # superseded by deploy.yml (D134); kept for manual use
 
 permissions:
   contents: read
