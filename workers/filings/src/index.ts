@@ -50,6 +50,13 @@ export default {
   },
   async fetch(req: Request, env: Env) {
     const path = new URL(req.url).pathname;
+    if (path === "/revisions") {
+      // Read-only (D48): periods with more than one results filing for the same security and basis, with key figures.
+      const rows = (await env.DB_FILINGS.prepare(`SELECT f.security_id, f.period_end, f.period_kind, f.basis, count(*) AS n, group_concat(f.disclosed_at, ' | ') AS disclosed
+        FROM filing f WHERE f.kind <> 'shareholding' GROUP BY f.security_id, f.period_end, f.period_kind, f.basis HAVING count(*) > 1 ORDER BY n DESC LIMIT 40`).all()).results;
+      const total = (await env.DB_FILINGS.prepare(`SELECT count(*) AS groups, sum(n) AS filings FROM (SELECT count(*) AS n FROM filing WHERE kind <> 'shareholding' GROUP BY security_id, period_end, period_kind, basis HAVING count(*) > 1)`).first());
+      return Response.json({ total, sample: rows }, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/events-count") {
       // Read-only: loaded event rows for one symbol and date range (owner #290: counts checked against NSE's own lists).
       const u = new URL(req.url), sym = u.searchParams.get("symbol") ?? "", from = Number(u.searchParams.get("from") ?? 0), to = Number(u.searchParams.get("to") ?? 99991231);
