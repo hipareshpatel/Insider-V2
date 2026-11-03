@@ -153,6 +153,7 @@ export default {
       factors: (await q("SELECT status, count(*) AS n FROM adj_factor GROUP BY status")),
       last_runs: await q("SELECT run_key, status, started_at, substr(detail,1,300) AS detail FROM pipeline_run ORDER BY run_id DESC LIMIT 10"),
       failed_or_rejected: (await q("SELECT count(*) AS n FROM pipeline_run WHERE status='failed'"))[0],
+      failed_runs: await q("SELECT pipeline, run_key, started_at, substr(detail,1,160) AS detail FROM pipeline_run WHERE status='failed' ORDER BY run_id DESC LIMIT 10"),
       open_reviews: (await (env.DB_APP.prepare("SELECT kind, count(*) AS n FROM review_item WHERE status='open' GROUP BY kind").all())).results,
     };
     return Response.json(body, { headers: { "cache-control": "no-store" } });

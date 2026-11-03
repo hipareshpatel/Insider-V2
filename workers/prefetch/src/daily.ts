@@ -41,8 +41,17 @@ export async function dueSlot(db: Sql, now: Date): Promise<"evening" | "morning"
   const day = istDay(now), m = istMinutes(now);
   const slot = m >= 20 * 60 + 30 ? "evening" : m >= 7 * 60 + 30 ? "morning" : null;
   if (!slot) return null;
-  return (await db.all("SELECT 1 FROM daily_refresh WHERE day=? AND slot=?", [day, slot])).length ? null : slot;
+  if ((await db.all("SELECT 1 FROM daily_refresh WHERE day=? AND slot=?", [day, slot])).length) return null;
+  // A slot whose API fetches failed is retried (3 Nov evening: "fetch failed" was recorded as done and never retried):
+  // every 10 minutes, at most SLOT_TRIES times; the tries stay visible on /status as '<slot>:retry'.
+  const [t] = await db.all<{ detail: string; at: string }>("SELECT detail, at FROM daily_refresh WHERE day=? AND slot=?", [day, `${slot}:retry`]);
+  if (t) {
+    const tries = Number((JSON.parse(t.detail) as { tries?: number }).tries ?? 0);
+    if (tries >= SLOT_TRIES || now.getTime() - Date.parse(t.at) < 10 * 60_000) return null;
+  }
+  return slot;
 }
+export const SLOT_TRIES = 6;
 
 /** Fetch one URL once, keep it in R2, record it in the ledger; returns the text (null if not 200). */
 async function fetchKept(d: Deps, kind: string, url: string, key: string): Promise<{ text: string | null; jobId: number | null }> {
@@ -133,6 +142,15 @@ export async function dailyRefresh(d: Deps, slot: "evening" | "morning") {
     for (const [k, url] of [["asm", `${API}reportASM`], ["gsm", `${API}reportGSM`], ["fii_dii", `${API}fiidiiTradeReact`]] as const)
       await fetchKept(d, `snap_${k}`, `${url}?d=${day}`, `api/market_structure/${k}/${day}.json`);
     out.snapshots = 3;
+  }
+  if (!an.text) out.announcements = "fetch failed";
+  const failed = Object.values(out).some((v) => v === "fetch failed");
+  if (failed) {
+    const [t] = await d.db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day=? AND slot=?", [day, `${slot}:retry`]);
+    const tries = Number((t ? (JSON.parse(t.detail) as { tries?: number }).tries : 0) ?? 0) + 1;
+    await d.db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES (?, ?, ?, ?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail",
+      [day, `${slot}:retry`, d.now.toISOString(), JSON.stringify({ ...out, tries })]);
+    return { ...out, tries };
   }
   await d.db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES (?, ?, ?, ?)", [day, slot, d.now.toISOString(), JSON.stringify(out)]);
   return out;

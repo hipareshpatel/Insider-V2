@@ -57,6 +57,30 @@ describe("daily freshness (plan item 2)", () => {
   });
 });
 
+describe("a slot whose NSE fetches fail is retried (3 Nov evening, C51)", () => {
+  it("not marked done on failure; retried after 10 minutes, at most SLOT_TRIES times; done once the fetches succeed", async () => {
+    const { SLOT_TRIES } = await import("../src/daily.js");
+    const db = sqlite("filings"), market = sqlite("market");
+    const raw = { async put() {}, async get() { return null; } } as unknown as R2Bucket;
+    let up = false;
+    const get = async (url: string) => (up || url.includes("report") || url.includes("fiidii") ? { status: 200, bytes: enc(NSE[key(url)] ?? []) } : { status: 403, bytes: new Uint8Array() });
+    const t = (min: number) => new Date(Date.parse("2026-11-03T15:00:00Z") + min * 60_000); // 20:30 IST + min
+    const out = await dailyRefresh({ db, market, raw, get, gzip: async (b) => b, now: t(0) }, "evening");
+    expect(out).toMatchObject({ corp_actions: "fetch failed", shareholding_attachments: "fetch failed", announcements: "fetch failed", tries: 1 });
+    expect(await dueSlot(db, t(5))).toBeNull(); // waits 10 minutes
+    expect(await dueSlot(db, t(11))).toBe("evening"); // then retried
+    for (let i = 2; i <= SLOT_TRIES; i++) await dailyRefresh({ db, market, raw, get, gzip: async (b) => b, now: t(11 * i) }, "evening");
+    expect(await dueSlot(db, t(200))).toBeNull(); // gave up after SLOT_TRIES: visible as evening:retry
+    expect(await db.all("SELECT slot FROM daily_refresh")).toEqual([{ slot: "evening:retry" }]);
+    // a fresh day, NSE answering again: done on the first try
+    up = true;
+    const next = new Date("2026-11-04T15:05:00Z");
+    expect(await dueSlot(db, next)).toBe("evening");
+    expect(await dailyRefresh({ db, market, raw, get, gzip: async (b) => b, now: next }, "evening")).toMatchObject({ corp_actions: 2 });
+    expect(await dueSlot(db, next)).toBeNull();
+  });
+});
+
 describe("full history for the 20-row-capped lists (C40)", () => {
   it("queues monthly all-company feeds and one dated PIT/governance/BRSR call per company, once", async () => {
     const db = sqlite("filings");
