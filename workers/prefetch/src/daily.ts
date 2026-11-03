@@ -50,7 +50,7 @@ async function fetchKept(d: Deps, kind: string, url: string, key: string): Promi
   const [j] = await d.db.all<{ job_id: number; status: string }>("SELECT job_id, status FROM fetch_job WHERE url=?", [url]);
   if (j?.status === "done") { const o = await d.raw.get(key); return { text: o ? await new Response(o.body.pipeThrough(new DecompressionStream("gzip"))).text() : null, jobId: j.job_id }; }
   const r = await d.get(url);
-  const ok = r.status === 200;
+  const ok = r.status === 200 && /^\s*[[{]/.test(new TextDecoder().decode(r.bytes.subarray(0, 64))); // JSON only (V1 lesson #280)
   if (ok) await d.raw.put(key, await d.gzip(r.bytes), { httpMetadata: { contentType: "application/json" }, customMetadata: { url, fetched_at: d.now.toISOString(), enc: "gzip" } });
   await d.db.run("UPDATE fetch_job SET status=?, attempts=attempts+1, http_status=?, bytes=?, sha256=?, fetched_at=? WHERE url=?",
     [ok ? "done" : "failed", r.status, r.bytes.length, ok ? await sha256Hex(r.bytes) : null, d.now.toISOString(), url]);

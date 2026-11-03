@@ -42,3 +42,13 @@ describe("R2 compression of older objects (D147)", () => {
     expect(await compressStep(db, bucket, async (b) => b, 10)).toBeNull(); // finished
   });
 });
+
+import { xmlComplete } from "../src/index.js";
+describe("ingest completeness check (V1 lesson: cut-off downloads)", () => {
+  const e = (s: string) => new TextEncoder().encode(s);
+  it("accepts a closed document, rejects a cut one", () => {
+    expect(xmlComplete(e('<?xml version="1.0"?><xbrli:xbrl><a>1</a></xbrli:xbrl>\n'))).toBe(true);
+    expect(xmlComplete(e('<?xml version="1.0"?><xbrli:xbrl><a>1</a><b>2'))).toBe(false);
+    expect(xmlComplete(e(""))).toBe(false);
+  });
+});

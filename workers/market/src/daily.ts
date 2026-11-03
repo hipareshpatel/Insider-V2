@@ -269,7 +269,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   stmts.push(...insertRows(
     "INSERT INTO price_daily (security_id,d,series,open,high,low,close,prev_close,volume,turnover_paise,trades,file_id)", 12,
     rowsAll.map((r) => [secOf.get(r.symbol), D, r.series, toPaise(r.open), toPaise(r.high), toPaise(r.low), toPaise(r.close), toPaise(r.prevClose), r.volume, toPaise(r.turnoverRs), r.trades, fileIds.udiff_bhavcopy]),
-    "ON CONFLICT (security_id,d,series) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,prev_close=excluded.prev_close,volume=excluded.volume,turnover_paise=excluded.turnover_paise,trades=excluded.trades,file_id=excluded.file_id"));
+    "ON CONFLICT (security_id,d,series) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,prev_close=excluded.prev_close,volume=excluded.volume,turnover_paise=excluded.turnover_paise,trades=excluded.trades,file_id=excluded.file_id WHERE price_daily.open IS NOT excluded.open OR price_daily.high IS NOT excluded.high OR price_daily.low IS NOT excluded.low OR price_daily.close IS NOT excluded.close OR price_daily.prev_close IS NOT excluded.prev_close OR price_daily.volume IS NOT excluded.volume OR price_daily.turnover_paise IS NOT excluded.turnover_paise OR price_daily.trades IS NOT excluded.trades OR price_daily.file_id IS NOT excluded.file_id"));
   // One shares row per security per day: prefer the EQ series' MCAP row.
   const bySec = new Map<number, unknown[]>();
   for (const r of [...rowsAll].sort((x, y) => (x.series === "EQ" ? 0 : 1) - (y.series === "EQ" ? 0 : 1))) {
@@ -279,23 +279,24 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   }
   const shareRowsUnique = [...bySec.values()];
   stmts.push(...insertRows("INSERT INTO shares_daily (security_id,d,issue_size,mcap_paise,mcap_source,face_value_paise)", 6, shareRowsUnique,
-    "ON CONFLICT (security_id,d) DO UPDATE SET issue_size=excluded.issue_size,mcap_paise=excluded.mcap_paise,mcap_source=excluded.mcap_source,face_value_paise=excluded.face_value_paise"));
+    "ON CONFLICT (security_id,d) DO UPDATE SET issue_size=excluded.issue_size,mcap_paise=excluded.mcap_paise,mcap_source=excluded.mcap_source,face_value_paise=excluded.face_value_paise WHERE shares_daily.issue_size IS NOT excluded.issue_size OR shares_daily.mcap_paise IS NOT excluded.mcap_paise OR shares_daily.mcap_source IS NOT excluded.mcap_source OR shares_daily.face_value_paise IS NOT excluded.face_value_paise"));
   if (fileIds.delivery) {
     const dRows = delivery.filter((d) => secOf.has(d.symbol) && d.tradeDate === date)
       .filter((d) => d.deliverableQty !== null).map((d) => [secOf.get(d.symbol), D, d.series, d.deliverableQty]);
     stmts.push(...insertRows("INSERT INTO delivery_daily (security_id,d,series,deliverable_qty)", 4, dRows,
-      "ON CONFLICT (security_id,d,series) DO UPDATE SET deliverable_qty=excluded.deliverable_qty"));
+      "ON CONFLICT (security_id,d,series) DO UPDATE SET deliverable_qty=excluded.deliverable_qty WHERE delivery_daily.deliverable_qty IS NOT excluded.deliverable_qty"));
   }
   if (fileIds.index_close) {
     const iRows = indices.filter((i) => i.tradeDate === date).map((i) => [i.indexName, D, i.open, i.high, i.low, i.close, i.pe, i.pb, i.divYield]);
     stmts.push(...insertRows("INSERT INTO index_daily (index_name,d,open,high,low,close,pe,pb,div_yield)", 9, iRows,
-      "ON CONFLICT (index_name,d) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,pe=excluded.pe,pb=excluded.pb,div_yield=excluded.div_yield"));
+      "ON CONFLICT (index_name,d) DO UPDATE SET open=excluded.open,high=excluded.high,low=excluded.low,close=excluded.close,pe=excluded.pe,pb=excluded.pb,div_yield=excluded.div_yield WHERE index_daily.open IS NOT excluded.open OR index_daily.high IS NOT excluded.high OR index_daily.low IS NOT excluded.low OR index_daily.close IS NOT excluded.close OR index_daily.pe IS NOT excluded.pe OR index_daily.pb IS NOT excluded.pb OR index_daily.div_yield IS NOT excluded.div_yield"));
   }
   stmts.push({ sql: "INSERT OR REPLACE INTO trading_calendar (trade_date, is_session, note, universe_rows) VALUES (?, 1, NULL, ?)", params: [date, rows.length] });
   lap("identity");
   written += await batchAll(deps.market, stmts, 250);
   lap("prices_written");
 
+  // Upserts above rewrite a row only when a value changed (V1 lesson #280: an unchanged rewrite is still a billed write).
   // Corporate actions (D6, D7): record every Bc row; decide factors for actions whose ex-date is today.
   // Second official source (market/0016): NSE's per-company lists carry actions some Bc files omit.
   const extra = (await deps.market.all<{ symbol: string; purpose: string; series: string }>(

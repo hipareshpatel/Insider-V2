@@ -54,6 +54,12 @@ async function cookies(): Promise<string> {
   } catch { return ""; }
 }
 
+/** Complete XML: ends with a closing tag (after trailing whitespace). A cut-off download ends mid-element. */
+export function xmlComplete(bytes: Uint8Array): boolean {
+  const tail = new TextDecoder().decode(bytes.subarray(Math.max(0, bytes.length - 256))).trimEnd();
+  return bytes.length > 0 && /<\/[\w:.-]+>$/.test(tail);
+}
+
 /** D131: gzip text objects in R2 (marked with customMetadata.enc = "gzip"); readers accept both. */
 async function gzip(bytes: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
@@ -94,7 +100,10 @@ export async function runBatch(env: Env, now = new Date()) {
         }
         if (r.status !== 200) { failed++; results.push([j.job_id, "failed", j.attempts + 1, r.status, bytes.length, null, now.toISOString(), `HTTP ${r.status}`]); continue; }
         const sha = await sha256Hex(bytes);
-        const isEmpty = bytes.length <= 4 || /^\s*(\[\s*\]|\{\s*"data"\s*:\s*\[\s*\]\s*\})/.test(new TextDecoder().decode(bytes.subarray(0, 64)));
+        const head = new TextDecoder().decode(bytes.subarray(0, 64));
+        // V1 lesson #280: an error page is not data. NSE can answer 200 with HTML; only JSON counts as fetched.
+        if (!/^\s*[[{]/.test(head)) { failed++; results.push([j.job_id, "failed", j.attempts + 1, r.status, bytes.length, null, now.toISOString(), "not JSON (HTML/error page)"]); continue; }
+        const isEmpty = bytes.length <= 4 || /^\s*(\[\s*\]|\{\s*"data"\s*:\s*\[\s*\]\s*\})/.test(head);
         await env.RAW.put(j.r2_key, await gzip(bytes), { httpMetadata: { contentType: r.headers.get("content-type") ?? "application/json" }, customMetadata: { url: j.url, fetched_at: now.toISOString(), enc: "gzip" } });
         if (isEmpty) empty++; else ok++;
         results.push([j.job_id, isEmpty ? "empty" : "done", j.attempts + 1, 200, bytes.length, sha, now.toISOString(), null]);
@@ -163,6 +172,12 @@ export default {
       const [job] = await d1Sql(env.DB_FILINGS).all<{ r2_key: string; url: string; attempts: number }>("SELECT r2_key, url, attempts FROM fetch_job WHERE job_id=?", [id]);
       if (!job) return new Response("no job", { status: 404 });
       const bytes = new Uint8Array(await req.arrayBuffer());
+      // V1 lesson #280: a cut-off XML must not be kept as done; it is retried (attempts < 3).
+      if (status === "done" && job.r2_key.endsWith(".xml") && !xmlComplete(bytes)) {
+        await env.DB_FILINGS.prepare("UPDATE fetch_job SET status='failed', attempts=attempts+1, http_status=?2, bytes=?3, error='truncated XML', fetched_at=?4 WHERE job_id=?1")
+          .bind(id, Number(url.searchParams.get("http") ?? 200), bytes.length, new Date().toISOString()).run();
+        return new Response("truncated", { status: 200 });
+      }
       if (status === "done") await env.RAW.put(job.r2_key, await gzip(bytes), { customMetadata: { url: job.url, fetched_at: new Date().toISOString(), enc: "gzip" } });
       await env.DB_FILINGS.prepare("UPDATE fetch_job SET status=?2, attempts=attempts+1, http_status=?3, bytes=?4, sha256=?5, fetched_at=?6 WHERE job_id=?1")
         .bind(id, status, Number(url.searchParams.get("http") ?? 200), bytes.length, status === "done" ? await sha256Hex(bytes) : null, new Date().toISOString()).run();
@@ -184,6 +199,8 @@ export default {
       // Owner #278: what is stored, by kind (raw bytes before gzip) and whether any PDF was downloaded.
       storage_by_kind: await q("SELECT kind, count(*) AS n, sum(bytes) AS bytes FROM fetch_job WHERE status='done' GROUP BY kind ORDER BY 3 DESC"),
       pdf_files: (await q("SELECT count(*) AS n FROM fetch_job WHERE lower(url) LIKE '%.pdf'"))[0],
+      // V1 lesson #280 audit: a large answer identical across several URLs is an error page, not data.
+      suspect_identical: await q("SELECT sha256, count(*) AS n, max(bytes) AS bytes, min(kind) AS kind FROM fetch_job WHERE status='done' AND sha256 IS NOT NULL AND bytes > 5000 GROUP BY sha256 HAVING count(*) > 2 ORDER BY n DESC LIMIT 5"),
       daily_refresh: await q("SELECT day, slot, at, detail FROM daily_refresh ORDER BY day DESC, slot DESC LIMIT 6"),
       sweep_misses: (await q("SELECT count(*) AS n FROM fetch_job a JOIN fetch_job p ON p.job_id = a.parent_id WHERE p.r2_key LIKE '%-sweep.json'"))[0],
       last_runs: await q("SELECT at, detail FROM prefetch_log ORDER BY id DESC LIMIT 5"),
