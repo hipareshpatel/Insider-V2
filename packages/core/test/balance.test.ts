@@ -35,3 +35,11 @@ describe("balance sheet + cash flow (M2) on real files", () => {
     expect(r.bs!.checks.filter((c) => !c.ok)).toEqual([]);
   });
 });
+
+describe("assets held for sale shown outside current / non-current (census class, 3,862 files)", () => {
+  it("balances once held-for-sale assets are counted", () => {
+    const r = balanceAndCash(fx("xbrl_heldforsale_Q2FY25.xml"));
+    expect(r.bs!.lines.assets_held_for_sale).toBe("8500000");
+    expect(r.bs!.checks.filter((c) => !c.ok)).toEqual([]);
+  });
+});

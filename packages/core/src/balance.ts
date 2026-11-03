@@ -23,6 +23,9 @@ const BS_INDAS: Record<string, string> = {
   minority_interest: "NonControllingInterest", total_liabilities: "Liabilities", noncurrent_liabilities: "NoncurrentLiabilities",
   current_liabilities: "CurrentLiabilities", borrowings_noncurrent: "BorrowingsNoncurrent", borrowings_current: "BorrowingsCurrent",
   trade_payables: "TradePayablesCurrent", equity_and_liabilities: "EquityAndLiabilities",
+  // Ind AS Schedule III shows these outside current / non-current (census: 3,862 + 996 files failed without them)
+  assets_held_for_sale: "NoncurrentAssetsClassifiedAsHeldForSale", regulatory_debit: "RegulatoryDeferralAccountDebitBalancesAndRelatedDeferredTaxAssets",
+  liabilities_held_for_sale: "LiabilitiesDirectlyAssociatedWithAssetsInDisposalGroupClassifiedAsHeldForSale", regulatory_credit: "RegulatoryDeferralAccountCreditBalancesAndRelatedDeferredTaxLiability",
 };
 const BS_OLDGAAP: Record<string, string> = {
   total_assets: "Assets", noncurrent_assets: "NoncurrentAssets", current_assets: "CurrentAssets", fixed_assets: "FixedAssets",
@@ -80,10 +83,13 @@ export function balanceAndCash(inst: XbrlInstance): BalanceAndCash {
         near("asset lines = assets", sum(v, "cash_rbi", "balances_banks", "investments", "advances", "fixed_assets", "other_assets"), v("total_assets"), st.checks);
       } else {
         near("assets = equity and liabilities", v("total_assets"), v("equity_and_liabilities"), st.checks);
-        near("current + non-current assets = assets", sum(v, "current_assets", "noncurrent_assets"), v("total_assets"), st.checks);
+        // optional components count as 0 when the filing omits them
+        const z = (k: string) => v(k) ?? dec("0");
+        const opt = (base: Dec | null, ...ks: string[]) => (base ? ks.reduce((a, k) => add(a, z(k)), base) : null);
+        near("current + non-current assets = assets", opt(sum(v, "current_assets", "noncurrent_assets"), "assets_held_for_sale", "regulatory_debit"), v("total_assets"), st.checks);
         if (template === "indas") {
           near("equity + liabilities = total", sum(v, "total_equity", "total_liabilities"), v("equity_and_liabilities"), st.checks);
-          near("current + non-current liabilities = liabilities", sum(v, "current_liabilities", "noncurrent_liabilities"), v("total_liabilities"), st.checks);
+          near("current + non-current liabilities = liabilities", opt(sum(v, "current_liabilities", "noncurrent_liabilities"), "liabilities_held_for_sale", "regulatory_credit"), v("total_liabilities"), st.checks);
         }
       }
       bs = { ...st, date: end };
