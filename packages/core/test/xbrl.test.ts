@@ -80,6 +80,30 @@ describe("life-insurance template (SBILIFE Q2 FY27, trimmed real file)", async (
   });
 });
 
+describe("full-year figures from March-quarter files (D90, real INFY files)", async () => {
+  const { canonicalResult } = await import("../src/index.js");
+  const fx = (n: string) => parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", n), "utf8"));
+  it("Integrated Filing Mar 2026: quarter from OneD, full year from FourD (Apr–Mar); identities hold for both", () => {
+    const inst = fx("xbrl_INFY_IF_Q4FY26_cons.xml");
+    const q = canonicalResult(inst), fy = canonicalResult(inst, { span: "ytd" });
+    expect(q).toMatchObject({ periodKind: "Q", periodStart: "2026-01-01", periodEnd: "2026-03-31", basis: "consolidated" });
+    expect(q.lines.revenue).toBe("464020000000");
+    expect(fy).toMatchObject({ periodKind: "FY", periodStart: "2025-04-01", periodEnd: "2026-03-31", label: "FY26" });
+    expect(fy.lines.revenue).toBe("1786500000000");
+    expect(fy.checks.length).toBeGreaterThanOrEqual(3);
+    expect(fy.checks.filter((c) => !c.ok)).toEqual([]);
+  });
+  it("old in-bse-fin Mar 2024: FourD carries the quarter's dates but holds the full year (C29) — read as FY", () => {
+    const inst = fx("xbrl_INFY_Q4FY24_cons.xml");
+    expect(inst.contexts.get("FourD")).toMatchObject({ start: "2024-01-01", end: "2024-03-31" });
+    const q = canonicalResult(inst), fy = canonicalResult(inst, { span: "ytd" });
+    expect(q.lines.revenue).toBe("379230000000");
+    expect(fy).toMatchObject({ periodKind: "FY", periodStart: "2023-04-01", periodEnd: "2024-03-31" });
+    expect(fy.lines.revenue).toBe("1536700000000");
+    expect(fy.checks.filter((c) => !c.ok)).toEqual([]);
+  });
+});
+
 describe("general-insurer Integrated Filing (GODIGIT Q1 FY27 IFGI, real file)", async () => {
   const { canonicalResult, giChecks } = await import("../src/index.js");
   const r = canonicalResult(parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_GODIGIT_Q1FY27_gi.xml"), "utf8")));

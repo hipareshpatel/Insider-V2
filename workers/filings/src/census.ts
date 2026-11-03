@@ -4,7 +4,7 @@
 import { type Sql, balanceAndCash, canonicalResult, isOldGaap, parseXbrl } from "@disclo/core";
 import { RESULT_KINDS } from "./load.js";
 
-export interface CensusRow { job: number; schema: string; prefix: string; template?: string; oldGaap?: boolean; aliasLines?: string[]; aliasUsedAuto?: string[]; error?: string; periodCtxs?: { id: string; revenue: string | null }[]; chosen?: string; ctxSample?: string[]; bs?: { t: string; ok: boolean; fail: string[]; n: number; key?: string } | null; cf?: { ok: boolean; fail: string[]; n: number } | null }
+export interface CensusRow { job: number; schema: string; prefix: string; template?: string; oldGaap?: boolean; aliasLines?: string[]; aliasUsedAuto?: string[]; error?: string; periodCtxs?: { id: string; revenue: string | null }[]; chosen?: string; ctxSample?: string[]; bs?: { t: string; ok: boolean; fail: string[]; n: number; key?: string } | null; cf?: { ok: boolean; fail: string[]; n: number } | null; fy?: { ok: boolean; n: number; fail: string[]; ratio: number | null; err?: string } | null }
 
 const shortSchema = (ref: string | null) => (ref ?? "").replace(/^.*\//, "").replace(/[_-]?\d{4}-\d{2}-\d{2}/, "").replace(/\.xsd$/, "") || "(none)";
 
@@ -34,6 +34,18 @@ export async function census(db: Sql, getText: (k: string) => Promise<string | n
       row.bs = b.bs ? { t: b.template, ok: b.bs.checks.length > 0 && b.bs.checks.every((c) => c.ok), fail: b.bs.checks.filter((c) => !c.ok).map((c) => `${c.name}: ${c.detail}`), n: b.bs.checks.length, key: b.bs.checks.every((c) => c.ok) ? undefined : j.r2_key } : null;
       row.cf = b.cf ? { ok: b.cf.checks.length > 0 && b.cf.checks.every((c) => c.ok), fail: b.cf.checks.filter((c) => !c.ok).map((c) => c.name), n: b.cf.checks.length } : null;
     } catch (e) { row.bs = null; row.cf = null; }
+    // D90: full-year figures from March-quarter (fiscal-year-end) files — readable, identities pass, and FY ÷ quarter revenue.
+    try {
+      const fyS = meta("DateOfStartOfFinancialYear"), months = (a: string, b: string) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7)) + 1;
+      if (fyS && en && months(st ?? en, en) === 3 && months(fyS, en) === 12) {
+        try {
+          const q = canonicalResult(inst), fy = canonicalResult(inst, { span: "ytd" });
+          const core = (x: typeof q) => x.lines.revenue ?? x.lines.interest_earned ?? x.lines.gross_premium ?? x.lines.total_income;
+          const qv = Number(core(q)), fv = Number(core(fy));
+          row.fy = { ok: fy.checks.length > 0 && fy.checks.every((c) => c.ok), n: fy.checks.length, fail: fy.checks.filter((c) => !c.ok).map((c) => c.name), ratio: qv > 0 && fv > 0 ? Math.round((fv / qv) * 100) / 100 : null };
+        } catch (e) { row.fy = { ok: false, n: 0, fail: [], ratio: null, err: String(e).slice(0, 80) }; }
+      }
+    } catch { /* not a results file layout */ }
     try {
       const none = canonicalResult(inst, { aliases: "none" }), all = canonicalResult(inst, { aliases: "all" }), auto = canonicalResult(inst);
       row.template = none.template;
