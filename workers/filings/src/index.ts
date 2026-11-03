@@ -82,6 +82,16 @@ export default {
         board_meetings: await one("SELECT count(*) AS n FROM board_meeting WHERE symbol=?1 AND coalesce(meeting_d, 0) BETWEEN ?2 AND ?3"),
       }, { headers: { "cache-control": "no-store" } });
     }
+    if (path === "/fresh") {
+      // Plan item 2 check (read-only): filings and events disclosed in the last 4 days (IST dates), as loaded now.
+      const q = async (sql: string) => (await env.DB_FILINGS.prepare(sql).all()).results;
+      return Response.json({
+        filings: await q("SELECT substr(datetime(disclosed_at, '+330 minutes'), 1, 10) AS ist_day, kind, count(*) AS n FROM filing WHERE disclosed_at >= datetime('now', '-4 days') GROUP BY 1, 2 ORDER BY 1 DESC, 2"),
+        newest: await q("SELECT kind, max(disclosed_at) AS latest FROM filing GROUP BY kind ORDER BY 2 DESC"),
+        insider_trades_latest: await q("SELECT max(disclosed_at) AS latest FROM insider_trade"),
+        sast_latest: await q("SELECT max(disclosed_at) AS latest FROM sast_disclosure"),
+      }, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/fy-check") {
       // Read-only, on demand (scans fin_load once): D90 full-year outcomes and failure reasons, from each file's load detail.
       const q = async (sql: string) => (await env.DB_FILINGS.prepare(sql).all()).results;
