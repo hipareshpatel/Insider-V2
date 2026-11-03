@@ -46,3 +46,5 @@ Each mitigation is in code with a test unless marked *process*.
 | C1 | Shareholding % on the wrong base (SCRR base excludes ADR/employee-trust shares; INFY promoters 13.9% filed vs 12.73% of all shares; HDFCBANK public 100% filed) | Store both; filed % is the display default, labelled |
 | C2 | Promoter encumbrance % read as % of the company (VEDL: 100% of the *promoter holding* is encumbered) | Field named `pctOfPromoterHolding`; test on VEDL |
 | C3 | Pledge confused with other encumbrances (VEDL: 0 pledged, NDU + other) | Pledge = encumbered − NDU − other unless tagged; three numbers kept |
+| C4 | Results XBRL whose facts reference a context the file never defines (2021 in-bse-fin files) | Period taken from the filing's own reporting-period facts in that context id; identities still checked |
+| C5 | Integrated Filing revision rows have no broadcast time | `creation_Date` (NSE receipt time) as `disclosed_at` |

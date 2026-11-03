@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     branches: [ccr-eb822347-c3zp4b]
-    paths: ["workers/filings/**", "db/migrations/filings/**", ".github/workflows/deploy-filings.yml"]
+    paths: ["workers/filings/**", "db/migrations/filings/**", "packages/core/src/**", ".github/workflows/deploy-filings.yml"]
 
 permissions:
   contents: read

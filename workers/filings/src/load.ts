@@ -15,11 +15,11 @@ const MON: Record<string, string> = { JAN: "01", FEB: "02", MAR: "03", APR: "04"
 
 /** "23-Oct-2026 20:19:37" (IST) -> UTC ISO. */
 export function nseIstToUtc(s: string | undefined | null): string | null {
-  const m = /^(\d{2})-([A-Za-z]{3})-(\d{4})(?: (\d{2}):(\d{2}):(\d{2}))?/.exec(String(s ?? "").trim());
+  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})(?: (\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(String(s ?? "").trim());
   if (!m) return null;
   const mon = MON[m[2]!.toUpperCase()];
   if (!mon) return null;
-  const t = Date.parse(`${m[3]}-${mon}-${m[1]}T${m[4] ?? "00"}:${m[5] ?? "00"}:${m[6] ?? "00"}Z`) - 330 * 60_000;
+  const t = Date.parse(`${m[3]}-${mon}-${m[1]!.padStart(2, "0")}T${m[4] ?? "00"}:${m[5] ?? "00"}:${m[6] ?? "00"}Z`) - 330 * 60_000;
   return new Date(t).toISOString();
 }
 
@@ -29,7 +29,12 @@ export function broadcastFor(listJson: string, url: string): string | null {
   try { const d = JSON.parse(listJson); rows = Array.isArray(d) ? d : (d.data ?? []); } catch { return null; }
   const row = rows.find((r) => JSON.stringify(r).includes(url));
   if (!row) return null;
-  return nseIstToUtc((row.broadcast_Date ?? row.broadCastDate ?? row.exchdisstime ?? row.filingDate) as string);
+  // broadcast time first; revisions in Integrated Filing lists have none, but carry creation_Date (when NSE received it)
+  for (const k of ["broadcast_Date", "broadCastDate", "exchdisstime", "creation_Date", "revised_Date", "filingDate"]) {
+    const t = nseIstToUtc(row[k] as string);
+    if (t) return t;
+  }
+  return null;
 }
 
 const TEMPLATE: Record<CanonicalResult["template"], string> = { industrial: "industrial", bank: "bank", life_insurance: "insurance" };

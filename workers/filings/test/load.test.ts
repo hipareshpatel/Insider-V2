@@ -57,3 +57,11 @@ describe("results loader (M2)", () => {
     expect((await jump.filings.all<{ n: number }>("SELECT count(*) AS n FROM fin_value WHERE period_end='2024-12-31'"))[0]!.n).toBe(0);
   });
 });
+
+describe("disclosure time fallbacks", () => {
+  it("Integrated Filing revision rows: creation_Date when broadcast_Date is empty", () => {
+    const l = JSON.stringify({ data: [{ broadcast_Date: null, creation_Date: "23-May-2025 18:05:57", xbrl: "https://x/a.xml" }] });
+    expect(broadcastFor(l, "https://x/a.xml")).toBe("2025-05-23T12:35:57.000Z");
+    expect(nseIstToUtc("23-MAY-2025 18:05:57")).toBe("2025-05-23T12:35:57.000Z");
+  });
+});

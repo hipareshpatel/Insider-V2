@@ -132,7 +132,13 @@ export function canonicalResult(inst: XbrlInstance): CanonicalResult {
   const start = meta("DateOfStartOfReportingPeriod"), end = meta("DateOfEndOfReportingPeriod");
   if (!start || !end) throw new Error("results: reporting period not found");
   // Current-period context: entity level (no dimensions) spanning exactly the reporting period.
-  const ctx = [...inst.contexts.values()].find((c) => c.start === start && c.end === end && Object.keys(c.dims).length === 0);
+  let ctx = [...inst.contexts.values()].find((c) => c.start === start && c.end === end && Object.keys(c.dims).length === 0);
+  if (!ctx) {
+    // Some filings (seen: 2021 in-bse-fin files) reference a context id they never define. The filing's own
+    // DateOfStart/EndOfReportingPeriod facts sit in that same context id, so they define its period (FMEA C4).
+    const ref = inst.facts.find((f) => f.tag === P + "DateOfEndOfReportingPeriod")?.contextRef;
+    if (ref && !inst.contexts.has(ref)) ctx = { id: ref, entity: meta("Symbol"), start, end, instant: null, dims: {} };
+  }
   if (!ctx) throw new Error(`results: no context for ${start}..${end}`);
   const n = months(start, end);
   const kind: PeriodKind = n === 3 ? "Q" : n === 6 ? "H" : n === 9 ? "9M" : n === 12 ? "FY" : (() => { throw new Error(`results: ${n}-month period`); })();

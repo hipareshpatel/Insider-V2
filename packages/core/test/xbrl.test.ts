@@ -79,3 +79,13 @@ describe("life-insurance template (SBILIFE Q2 FY27, trimmed real file)", async (
     expect(r.checks.filter((c) => !c.ok)).toEqual([]);
   });
 });
+
+describe("malformed filing: facts reference an undefined context (20MICRONS Q1 FY22, real file)", async () => {
+  const { canonicalResult } = await import("../src/index.js");
+  it("period comes from the filing's own reporting-period facts; identities still checked", () => {
+    const r = canonicalResult(parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_20MICRONS_Q1FY22_missingctx.xml"), "utf8")));
+    expect(r).toMatchObject({ periodStart: "2021-04-01", periodEnd: "2021-06-30", label: "Q1 FY22" });
+    expect(r.lines.revenue).toBeTruthy();
+    expect(r.checks.filter((c) => !c.ok)).toEqual([]);
+  });
+});
