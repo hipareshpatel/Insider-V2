@@ -324,6 +324,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 266 | Quoting Claude's message that the 3M limit had paused the catch-up and the limit was raised to 6M: "Go free, no limits till we use 30M." | Correction given first: the catch-up was not paused (the running job kept the old limit; 3M would have stopped the next run). Stress-tested: (1) our counter undercounted (table rows, not billed rows incl. index writes) → now D1 `rows_written`; (2) a monthly cap that stops everything could freeze daily prices for the rest of the month after one runaway → daily job (last 7 days) exempt. Built: D136 (30M/month, market + filings, baseline from Cloudflare analytics). Measured (Cloudflare analytics 08:30 IST): **24.4M billed rows written this period** (our counter ≈ 5M) → baseline seeded (market/0014); 5.6M left under the cap. Owner also shared the R2 usage page (#267). | ✅ owner chose 45M (#268) |
 | 267 | "Does it help?" (screenshot: R2 usage Nov 2–Dec 2: Class A 192k, Class B 46k, storage 11.49 GB; billable $0.00) | Yes for R2: 11.49 GB vs 10 GB included ≈ $0.02/month; operations far below the free 1M/10M. The cap is about D1 rows written (different page); measured automatically by infra-check instead. Billing period runs Nov 2 – Dec 2. | ✅ |
 | 268 | "45M" (answer to: keep the 30M cap or raise it, given 24.4M already used this period). | D136 cap set to 45M (market + filings workers); still inside the 50M included, $0. | ✅ |
+| 269 | Owner shared the Workers usage page (Nov 2 – Dec 2): requests 167.95k / 10M, CPU 1.91M / 30M ms, observability 168.54k / 20M, build minutes 0 / 6k, billable $0.00. | Read: all far inside included; CPU is the only one to watch (≈ 1.3M ms/day during bulk loads; normal days much lower; worst-case overage ≈ $0.16). infra-check now also reports Workers usage by script. | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -332,7 +333,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-03 after entry #268: all checks pass (136 decisions, 268 entries); no open ⚠.*
+*Last run 2026-11-03 after entry #269: all checks pass (136 decisions, 269 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*

@@ -51,4 +51,13 @@ jobs:
           for r in g: by_day[r["dimensions"]["date"]] = by_day.get(r["dimensions"]["date"], 0) + r["sum"]["rowsWritten"]
           for k in sorted(by_day): print(k, by_day[k])
           print("MONTH_ROWS_WRITTEN", sum(by_day.values()), "rows_read", sum(r["sum"]["rowsRead"] for r in g))
+          # Workers CPU time this period (included 30M ms; owner #269)
+          q2 = {"query": "query($a:String!,$f:Date!){viewer{accounts(filter:{accountTag:$a}){workersInvocationsAdaptive(limit:1000,filter:{date_geq:$f}){sum{requests}quantiles{cpuTimeP50}dimensions{scriptName date}}}}}", "variables": q["variables"]}
+          try:
+              d2 = json.load(urllib.request.urlopen(urllib.request.Request(req.full_url, data=json.dumps(q2).encode(), headers=dict(req.header_items())), timeout=60))
+              rows = (d2.get("data") or {}).get("viewer", {}).get("accounts", [{}])[0].get("workersInvocationsAdaptive", []) if not d2.get("errors") else []
+              by = {}
+              for r in rows: by[r["dimensions"]["scriptName"]] = by.get(r["dimensions"]["scriptName"], 0) + r["sum"]["requests"]
+              print("WORKER_REQUESTS", by if by else d2.get("errors"))
+          except Exception as e: print("workers analytics:", str(e)[:120])
           PY
