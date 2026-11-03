@@ -5,8 +5,7 @@ name: backup
 # Logs of a public repo are public: output goes through `mask`; no data is printed.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "41 21 * * 6"   # Sunday 03:11 IST
+  # Weekly schedule (Sunday 03:11 IST: cron "41 21 * * 6") switched on only when the data is frozen and OK (owner #324).
 
 permissions:
   contents: read

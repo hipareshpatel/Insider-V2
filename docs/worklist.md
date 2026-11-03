@@ -12,7 +12,7 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | D11, D14, D97 | Storage split; public repo; docs only in `docs/`; no data or secrets in git | ✅ | — |
 | D12 | TypeScript everywhere | ✅ (prefetch helpers are Python on GitHub runners) | — |
 | D43 | Staging D1/R2 | ✅ (staging DBs + bucket; used by Phase 1 test 4) | — |
-| **D44** | **Backups: D1 Time Travel 30 days + weekly export to R2 kept 12 weeks; full rebuild from raw tested** | 🔶 Time Travel on by default; rebuild proven for market data (test 5). **Weekly export not built** | Build the weekly D1 export (market, filings, app) → R2, keep 12 weeks |
+| **D44** | **Backups: D1 Time Travel 30 days + weekly export to R2 kept 12 weeks; full rebuild from raw tested** | 🔶 Built + tested 3 Nov (all 6 databases → R2 `backups/slot-NN/`, 12 rotating weekly slots); **schedule off until the data is frozen and OK** (owner #324). Note: an export briefly blocks other queries on that database (a census request failed during it) | Switch the Sunday schedule on at freeze |
 | **D45** | **Owner alerts by email: pipeline stalled > 1 h, Gemini spend > 80%, dead-letter item, NSE error spike** | 🔶 only the daily cost guard (GitHub email) | Stall + NSE-error-spike alerts to `alerts@` |
 | D79 | Occasional downtime acceptable; freshness shows staleness | ✅ | — |
 | D96 | Owner review ≤ 30 min/day | ✅ (D141) | — |

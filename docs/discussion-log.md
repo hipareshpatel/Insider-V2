@@ -379,6 +379,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 321 | On extending stock prices to 10 years: "NO. Let's freeze it what we have, prove everything first. It's hardly a few hours' job to download more data and I am ready to skip it now. I would suggest go line by line from docs and decide what to do instead I give instructions." | D158: no 10-year stock prices; `docs/worklist.md` built line by line from §14 (M0–M3 gates), §16 still-to-verify, HANDOVER, website.md and FMEA — each line with source, status and next action; Claude works it in order and asks only for owner decisions. Index history (D156) stays unless the owner says the freeze covers indices too. | ✅ |
 | 322 | *(Work list, D158)* | Closed: 1.9 (no price-affecting corporate action missing for the 250), 1.11 (scale-guard re-check works), 2.13, 16.3 (no Reg 31 API; pledges from SHP), 16.4 (RPT in standalone IF financials XBRL; PAN never shown), 16.6 (BRSR headcount fields). D154 deployed 21:01: P&L +17 lines, every reported BS line (census 99.58%), CF detail where all sums pass (first census 55.9%: fair-value adjustments are reported signed — fixed; re-census running), backfill restarted. | ✅ |
 | 323 | "Your new D158 missing many items, check all the documentation, plan etc." | Agreed: the first list came mainly from §14, §16 and HANDOVER. Rebuilt `docs/worklist.md` as a full trace: every decision D1–D158 has a row (milestone, status, next action; checked mechanically — none missing), plus §5.8 feature table, §6 pipelines, §9.1 gates, §10 operations, §11 budget, the field catalogue (114 fields), website.md §10–§11 and open FMEA items. Newly surfaced in scope: D44 weekly D1 backup export (not built), D45 owner alert emails (only the cost guard exists), D50/D51 primary basis + basis-switch series breaks, D40 promoter groups, D47 segments, D49/D52/D66 computed views, §5.8 feature table, D146 series-break table, D117 security headers. | ✅ |
+| 324 | "Backup is applicable when you have everything ready and OK." | Agreed: D44 backup job built and tested once (all 6 databases exported to R2, 12 rotating weekly slots); weekly schedule switched off until the freeze. The test run showed an export briefly blocks other queries (the detail census got HTTP 500 during it) — another reason to back up only a quiet, frozen system. Census re-run with more retries. | ✅ |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -387,7 +388,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-03 after entry #323: all checks pass (158 decisions, 323 entries); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
+*Last run 2026-11-03 after entry #324: all checks pass (158 decisions, 324 entries); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
