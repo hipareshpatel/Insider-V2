@@ -39,7 +39,7 @@ export async function census(db: Sql, getText: (k: string) => Promise<string | n
       const fyS = meta("DateOfStartOfFinancialYear"), months = (a: string, b: string) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7)) + 1;
       if (fyS && en && months(st ?? en, en) === 3 && months(fyS, en) === 12) {
         try {
-          const q = canonicalResult(inst), fy = canonicalResult(inst, { span: "ytd" });
+          const q = canonicalResult(inst), fy = canonicalResult(inst, { span: "ytd", undefinedYtd: true }); // census with the C4-for-year switch on (D134)
           const core = (x: typeof q) => x.lines.revenue ?? x.lines.interest_earned ?? x.lines.gross_premium ?? x.lines.total_income;
           const qv = Number(core(q)), fv = Number(core(fy));
           row.fy = { ok: fy.checks.length > 0 && fy.checks.every((c) => c.ok), n: fy.checks.length, fail: fy.checks.filter((c) => !c.ok).map((c) => c.name), ratio: qv > 0 && fv > 0 ? Math.round((fv / qv) * 100) / 100 : null };

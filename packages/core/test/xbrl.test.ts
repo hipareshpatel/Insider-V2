@@ -93,6 +93,16 @@ describe("full-year figures from March-quarter files (D90, real INFY files)", as
     expect(fy.checks.length).toBeGreaterThanOrEqual(3);
     expect(fy.checks.filter((c) => !c.ok)).toEqual([]);
   });
+  it("FY22 in-bse-fin Mar 2022: contexts referenced but never defined (C4) — quarter and full year still read", () => {
+    const inst = fx("xbrl_INFY_Q4FY22_cons_undefinedctx.xml");
+    expect(inst.contexts.has("FourD")).toBe(false);
+    expect(() => canonicalResult(inst, { span: "ytd" })).toThrow(/year-to-date/); // switch off: unchanged behaviour
+    const q = canonicalResult(inst), fy = canonicalResult(inst, { span: "ytd", undefinedYtd: true });
+    expect(q.lines.revenue).toBe("322760000000");
+    expect(fy).toMatchObject({ periodKind: "FY", periodStart: "2021-04-01", periodEnd: "2022-03-31" });
+    expect(fy.lines.revenue).toBe("1216410000000");
+    expect(fy.checks.filter((c) => !c.ok)).toEqual([]);
+  });
   it("old in-bse-fin Mar 2024: FourD carries the quarter's dates but holds the full year (C29) — read as FY", () => {
     const inst = fx("xbrl_INFY_Q4FY24_cons.xml");
     expect(inst.contexts.get("FourD")).toMatchObject({ start: "2024-01-01", end: "2024-03-31" });

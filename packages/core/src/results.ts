@@ -186,7 +186,7 @@ function months(a: string, b: string): number {
 /** span "ytd": read the year-to-date context instead of the quarter (Q4 files → full-year figures, D90). NSE convention
  *  (checked on INFY Mar 2024 in-bse-fin and Mar 2026 Integrated Filing): FourD is FY start → period end even when it
  *  carries the quarter's own dates (C29); without FourD, the context from FY start to period end. */
-export interface CanonicalOptions { aliases?: "auto" | "all" | "none"; span?: "period" | "ytd" }
+export interface CanonicalOptions { aliases?: "auto" | "all" | "none"; span?: "period" | "ytd"; undefinedYtd?: boolean }
 
 export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {}): CanonicalResult {
   const P = prefixOf(inst);
@@ -200,7 +200,9 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
   // V1 hint (C29): the year-to-date context (FourD) can carry the quarter's own dates; prefer the quarter (OneD)
   // explicitly instead of relying on document order (20,437 files had both).
   const spans = [...inst.contexts.values()].filter((c) => c.start === start && c.end === end && Object.keys(c.dims).length === 0);
-  let ctx = ytd ? (inst.contexts.get("FourD") ?? spans[0])
+  let ctx = ytd ? (inst.contexts.get("FourD") ?? spans[0]
+      // C4 for the year (switch, D134 census first): FY22 in-bse-fin files reference "FourD" without defining it (2,812 March-quarter files)
+      ?? (opts.undefinedYtd && inst.facts.some((f) => f.contextRef === "FourD") ? { id: "FourD", entity: meta("Symbol"), start, end, instant: null, dims: {} } : undefined))
     : spans.find((c) => c.id === "OneD") ?? spans.find((c) => !/^four/i.test(c.id)) ?? spans[0];
   if (ytd && !ctx) throw new Error(`results: no year-to-date context for ${start}..${end}`);
   if (!ctx) {
@@ -233,7 +235,7 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
   // V1 hint (#276): alternative line names (e.g. ProfitLossForThePeriod in Integrated Filings) are the same concept
   // only if the file's own arithmetic proves it: retry with aliases and accept only when every check passes.
   if (mode === "auto" && !useAliases && template === "industrial" && missing.some((m) => ["revenue", "total_income", "pat"].includes(m))) {
-    const alt = canonicalResult(inst, { aliases: "all", span: opts.span });
+    const alt = canonicalResult(inst, { aliases: "all", span: opts.span, undefinedYtd: opts.undefinedYtd });
     const filled = ["revenue", "total_income", "pat"].every((k) => alt.lines[k] !== undefined);
     if (filled && alt.checks.length >= 3 && alt.checks.every((c) => c.ok)) return { ...alt, aliasProven: true };
   }
