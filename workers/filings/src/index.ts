@@ -6,7 +6,17 @@ import { census, tagCensus } from "./census.js";
 import { loadEvents } from "./events.js";
 import { caLists } from "./calists.js";
 
-export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; BSCF_LOAD?: string }
+export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string }
+
+/** D155 (owner #316): load filings only for the focus indices' companies (default Nifty 50 + Next 50 + Midcap 150); "ALL" = everyone. */
+export async function focusSymbols(market: D1Database, spec = "NIFTY 50,NIFTY NEXT 50,NIFTY MIDCAP 150"): Promise<string[] | undefined> {
+  if (spec.trim().toUpperCase() === "ALL") return undefined;
+  const names = spec.split(",").map((x) => x.trim()).filter(Boolean);
+  const r = await market.prepare(`SELECT DISTINCT i.value FROM index_membership m JOIN security_identifier i ON i.security_id = m.security_id AND i.id_type = 'nse_symbol'
+    WHERE m.valid_to IS NULL AND m.index_name IN (SELECT value FROM json_each(?1))`).bind(JSON.stringify(names)).all<{ value: string }>();
+  const syms = r.results.map((x) => x.value);
+  return syms.length ? syms : undefined; // no snapshot yet → don't block loading
+}
 
 /** Owner #266: one monthly cap on billed D1 writes, shared with the market worker (ledger in the market DB). */
 const istDay = (d: Date) => new Date(d.getTime() + 330 * 60_000).toISOString().slice(0, 10);
@@ -35,7 +45,7 @@ export default {
       const meter = { rows: 0 };
       let out: Awaited<ReturnType<typeof loadBatch>> = [];
       try {
-        const ldeps = { filings: d1Sql(env.DB_FILINGS, meter), market: d1Sql(env.DB_MARKET), getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: env.BSCF_LOAD === "1" };
+        const ldeps = { filings: d1Sql(env.DB_FILINGS, meter), market: d1Sql(env.DB_MARKET), getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: env.BSCF_LOAD === "1", focus: await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES) };
         // C47: events first. Placed last, they never ran while the results backlog filled every run (cursor stuck at
         // job 250168; INFY 20 of NSE's 2,199 insider trades). Lists are small; 150 per run.
         await loadEvents(ldeps.filings, ldeps.getText, 150); // M2 events: PIT, SAST, board meetings, credit ratings (owner #289)
@@ -112,6 +122,7 @@ export default {
       bs_cf_values: await q("SELECT statement, count(*) AS n FROM fin_value WHERE statement IN ('bs','cf') GROUP BY statement"),
       restatements: { flags: (await q("SELECT count(*) AS n FROM restatement_flag"))[0], versions: await q("SELECT version, count(*) AS n FROM fin_value GROUP BY version"), backfill: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='version_backfill'") },
       bscf_backfill: await q("SELECT at, detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'"),
+      focus: { indices: env.FOCUS_INDICES ?? "default", symbols: (await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES))?.length ?? "all" },
       events: { cursor: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='events_cursor'"), insider_trades: (await q("SELECT count(*) AS n FROM insider_trade"))[0], sast: (await q("SELECT count(*) AS n FROM sast_disclosure"))[0], board_meetings: (await q("SELECT count(*) AS n FROM board_meeting"))[0], credit_ratings: (await q("SELECT count(*) AS n FROM credit_rating"))[0] },
       review_samples: await q("SELECT l.status, substr(l.detail,1,120) AS detail, j.symbol, j.url FROM fin_load l JOIN fetch_job j ON j.job_id = l.job_id WHERE l.status IN ('review','failed') ORDER BY l.at DESC LIMIT 8"),
     }, { headers: { "cache-control": "no-store" } });

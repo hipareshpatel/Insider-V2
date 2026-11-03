@@ -100,6 +100,15 @@ describe("backfill survives storage read errors (C48)", () => {
   });
 });
 
+describe("focus companies (D155)", () => {
+  it("loads only the focus symbols' files; the rest wait untouched", async () => {
+    const a = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    expect(await loadBatch({ ...a.deps, focus: ["TCS", "HDFCBANK"] })).toEqual([]);
+    expect((await a.filings.all<{ n: number }>("SELECT count(*) AS n FROM fin_load"))[0]!.n).toBe(0);
+    expect((await loadBatch({ ...a.deps, focus: ["INFY"] }))[0]).toMatchObject({ status: "loaded" });
+  });
+});
+
 describe("disclosure time fallbacks", () => {
   it("Integrated Filing revision rows: creation_Date when broadcast_Date is empty", () => {
     const l = JSON.stringify({ data: [{ broadcast_Date: null, creation_Date: "23-May-2025 18:05:57", xbrl: "https://x/a.xml" }] });

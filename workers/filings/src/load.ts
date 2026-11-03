@@ -9,7 +9,11 @@ export interface Deps {
   getText(key: string): Promise<string | null>; // R2 read, gzip-aware
   bscf?: boolean; // M2 balance sheet + cash flow loading (off until the census confirms pass rates, D134)
   now: () => Date;
+  /** D155: load only these NSE symbols' filings (all symbols a focus security has had); undefined = everything. */
+  focus?: string[];
 }
+/** SQL fragment + params restricting fetch_job rows aliased `j` to the focus symbols (one JSON parameter, D1-safe). */
+const focusSql = (deps: Deps) => (deps.focus ? { sql: " AND j.symbol IN (SELECT value FROM json_each(?))", params: [JSON.stringify(deps.focus)] } : { sql: "", params: [] as unknown[] });
 
 export const RESULT_KINDS = ["xbrl_results_quarterly", "xbrl_results_annual", "xbrl_integrated_financials"];
 export const SHP_KINDS = ["xbrl_shareholding"];
@@ -271,7 +275,7 @@ export async function backfillBsCf(deps: Deps, limit = 200, budgetMs = 45_000): 
   const save = () => deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','bscf_backfill',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
   const jobs = await deps.filings.all<{ job_id: number; r2_key: string; url: string; kind: string }>(
     `SELECT j.job_id, j.r2_key, j.url, j.kind FROM fin_load l JOIN fetch_job j ON j.job_id = l.job_id
-     WHERE l.status='loaded' AND l.job_id > ? AND j.kind IN (${RESULT_KINDS.map(() => "?").join(",")}) ORDER BY l.job_id LIMIT ?`, [cur.after, ...RESULT_KINDS, limit]);
+     WHERE l.status='loaded' AND l.job_id > ? AND j.kind IN (${RESULT_KINDS.map(() => "?").join(",")})${focusSql(deps).sql} ORDER BY l.job_id LIMIT ?`, [cur.after, ...RESULT_KINDS, ...focusSql(deps).params, limit]);
   let n = 0, complete = true;
   for (const j of jobs) {
     // C48: the position was saved only after the whole batch, so a run cut off by its time limit redid the same files
@@ -316,8 +320,8 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8): Promise<
   const marks = kinds.map(() => "?").join(",");
   const jobs = await deps.filings.all<{ job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }>(
     `SELECT j.job_id, j.kind, j.symbol, j.url, j.r2_key, p.r2_key AS parent_key FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
-     WHERE j.status='done' AND j.kind IN (${marks}) AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND ((l.status <> 'skipped' AND NOT (l.status = 'review' AND substr(l.detail, 1, 12) = 'scale guard:') AND NOT (l.status = 'failed' AND substr(l.detail, 1, 11) = 'Error: get:')) OR l.at > ?))
-     ORDER BY j.job_id LIMIT ?`, [...kinds, retryBefore, limit]);
+     WHERE j.status='done' AND j.kind IN (${marks})${focusSql(deps).sql} AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND ((l.status <> 'skipped' AND NOT (l.status = 'review' AND substr(l.detail, 1, 12) = 'scale guard:') AND NOT (l.status = 'failed' AND substr(l.detail, 1, 11) = 'Error: get:')) OR l.at > ?))
+     ORDER BY j.job_id LIMIT ?`, [...kinds, ...focusSql(deps).params, retryBefore, limit]);
   const cache = new Map<string, string | null>();
   const out: LoadOutcome[] = [];
   let i = 0;
