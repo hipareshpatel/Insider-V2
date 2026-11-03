@@ -184,3 +184,17 @@ describe("BSE Ltd shareholding: wrong/missing filed total, Integrated Filing tax
     expect(r.categories.find((c) => c.category === "public")!.shares).toBeGreaterThan(100_000_000);
   });
 });
+
+describe("balance sheet + cash flow loading (M2)", () => {
+  it("INFY Sep 2024 consolidated: P&L plus balance sheet (H, 2024-09-30) and April–September cash flow rows", async () => {
+    const file = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_Q2FY25_cons.xml"), "utf8");
+    const { filings, deps } = setup({ "att/xbrl/a.xml": file, "api/results_quarterly/INFY/x.json": list });
+    const [o] = await loadBatch({ ...deps, bscf: true });
+    expect(o).toMatchObject({ status: "loaded" });
+    const st = await filings.all<{ statement: string; period_kind: string; n: number }>("SELECT statement, period_kind, count(*) AS n FROM fin_value GROUP BY statement, period_kind ORDER BY statement");
+    expect(st.find((x) => x.statement === "bs")).toMatchObject({ period_kind: "H" });
+    expect(st.find((x) => x.statement === "cf")).toMatchObject({ period_kind: "H" });
+    const [cfo] = await filings.all<{ value: string; period_end: string }>("SELECT value, period_end FROM fin_value WHERE statement='cf' AND line='cfo'");
+    expect(cfo).toEqual({ value: "164580000000", period_end: "2024-09-30" });
+  });
+});

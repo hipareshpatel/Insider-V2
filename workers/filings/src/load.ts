@@ -1,12 +1,13 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, type Sql, batchAll, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, type Sql, type XbrlInstance, balanceAndCash, batchAll, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
 
 export interface Deps {
   filings: Sql;
   market: Sql;
   getText(key: string): Promise<string | null>; // R2 read, gzip-aware
+  bscf?: boolean; // M2 balance sheet + cash flow loading (off until the census confirms pass rates, D134)
   now: () => Date;
 }
 
@@ -102,7 +103,8 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   if (!xml) return { jobId: job.job_id, status: "failed", detail: "file not in R2" };
   if (!/<\/(?:[\w-]+:)?xbrl>\s*$/.test(xml.trim())) return { jobId: job.job_id, status: "failed", detail: "truncated XML (root not closed)" }; // FMEA B11
   let r: CanonicalResult;
-  try { r = canonicalResult(parseXbrl(xml)); } catch (e) {
+  let inst: XbrlInstance;
+  try { inst = parseXbrl(xml); r = canonicalResult(inst); } catch (e) {
     // D145 (owner #278): files with no reporting period in them (old bank format) are excluded, not reviewed.
     if (/reporting period not found/.test(String(e))) return { jobId: job.job_id, status: "excluded", detail: "no reporting period in the file (D145)" };
     return { jobId: job.job_id, status: "review", detail: `not a supported results file: ${String(e).slice(0, 140)}` };
@@ -165,7 +167,57 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   await batchAll(deps.filings, insertRows(
     "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, rows,
     "ON CONFLICT DO NOTHING"));
-  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}`, rows: rows.length };
+  const extra = deps.bscf ? await loadBsCf(inst!, sec.security_id, TEMPLATE[r.template], r.basis, disclosedAt, f!.filing_id, deps) : { rows: 0, note: "" };
+  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}${extra.note}`, rows: rows.length + extra.rows };
+}
+
+const months = (a: string, b: string) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7)) + 1;
+const ytdKind = (start: string, end: string) => ({ 3: "Q", 6: "H", 9: "9M", 12: "FY" } as Record<number, string>)[months(start, end)] ?? null;
+/** M2: balance sheet + cash flow rows, each statement only when all of its own checks pass (else noted, not loaded). */
+export async function loadBsCf(inst: XbrlInstance, sid: number, template: string, basis: string, disclosedAt: string, filingId: number, deps: Deps): Promise<{ rows: number; note: string }> {
+  const b = balanceAndCash(inst);
+  const rows: unknown[][] = [];
+  const notes: string[] = [];
+  const kind = b.cf ? ytdKind(b.cf.start, b.cf.end) : null;
+  const fyStart = inst.facts.find((x) => /:DateOfStartOfFinancialYear$/.test(x.tag))?.value ?? null;
+  const bsKind = kind ?? (b.bs && fyStart ? ytdKind(fyStart, b.bs.date) : null);
+  if (b.bs && bsKind) {
+    if (b.bs.checks.length >= 2 && b.bs.checks.every((c) => c.ok))
+      for (const [line, value] of Object.entries(b.bs.lines)) rows.push([sid, template, "bs", line, "", b.bs.date, bsKind, basis, "original", value, null, disclosedAt, filingId, line, "reported", "bscf-v1"]);
+    else notes.push(`balance sheet not loaded: ${b.bs.checks.filter((c) => !c.ok).map((c) => c.name).join(", ") || "too few checks"}`);
+  }
+  if (b.cf && kind) {
+    if (b.cf.checks.length >= 1 && b.cf.checks.every((c) => c.ok))
+      for (const [line, value] of Object.entries(b.cf.lines)) rows.push([sid, template, "cf", line, "", b.cf.end, kind, basis, "original", value, null, disclosedAt, filingId, line, "reported", "bscf-v1"]);
+    else notes.push(`cash flow not loaded: ${b.cf.checks.filter((c) => !c.ok).map((c) => c.name).join(", ") || "no check"}`);
+  }
+  if (rows.length) await batchAll(deps.filings, insertRows(
+    "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, rows, "ON CONFLICT DO NOTHING"));
+  return { rows: rows.length, note: notes.length ? `; ${notes.join("; ")}` : "" };
+}
+
+/** One-off backfill: balance sheet + cash flow for results files loaded before the BS/CF reader (cursor by job_id). */
+export async function backfillBsCf(deps: Deps, limit = 200): Promise<{ after: number; done: boolean; rows: number } | null> {
+  const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'");
+  const cur = st ? JSON.parse(st.detail) as { after: number; done: boolean; rows: number } : { after: 0, done: false, rows: 0 };
+  if (cur.done) return null;
+  const jobs = await deps.filings.all<{ job_id: number; r2_key: string; url: string; kind: string }>(
+    `SELECT j.job_id, j.r2_key, j.url, j.kind FROM fin_load l JOIN fetch_job j ON j.job_id = l.job_id
+     WHERE l.status='loaded' AND l.job_id > ? AND j.kind IN (${RESULT_KINDS.map(() => "?").join(",")}) ORDER BY l.job_id LIMIT ?`, [cur.after, ...RESULT_KINDS, limit]);
+  for (const j of jobs) {
+    const xml = await deps.getText(j.r2_key);
+    if (!xml) continue;
+    const [f] = await deps.filings.all<{ filing_id: number; security_id: number; basis: string; disclosed_at: string }>("SELECT filing_id, security_id, basis, disclosed_at FROM filing WHERE kind=? AND source_url=?", [j.kind.replace(/^xbrl_/, ""), j.url]);
+    if (!f) continue;
+    try {
+      const inst = parseXbrl(xml);
+      const r = canonicalResult(inst);
+      cur.rows += (await loadBsCf(inst, f.security_id, TEMPLATE[r.template], f.basis, f.disclosed_at, f.filing_id, deps)).rows;
+    } catch { /* unreadable: already counted by the main loader */ }
+  }
+  const next = { after: jobs.length ? jobs[jobs.length - 1]!.job_id : cur.after, done: jobs.length < limit, rows: cur.rows };
+  await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','bscf_backfill',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(next)]);
+  return next;
 }
 
 export async function loadBatch(deps: Deps, limit = 150, parallel = 8): Promise<LoadOutcome[]> {

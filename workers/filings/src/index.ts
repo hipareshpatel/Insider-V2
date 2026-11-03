@@ -1,11 +1,11 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { loadBatch } from "./load.js";
+import { backfillBsCf, loadBatch } from "./load.js";
 import { census } from "./census.js";
 import { caLists } from "./calists.js";
 
-export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string }
+export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; BSCF_LOAD?: string }
 
 /** Owner #266: one monthly cap on billed D1 writes, shared with the market worker (ledger in the market DB). */
 const istDay = (d: Date) => new Date(d.getTime() + 330 * 60_000).toISOString().slice(0, 10);
@@ -34,7 +34,9 @@ export default {
       const meter = { rows: 0 };
       let out: Awaited<ReturnType<typeof loadBatch>> = [];
       try {
-        out = await loadBatch({ filings: d1Sql(env.DB_FILINGS, meter), market: d1Sql(env.DB_MARKET), getText: (k) => getText(env.RAW, k), now: () => new Date() }, 300, 8);
+        const ldeps = { filings: d1Sql(env.DB_FILINGS, meter), market: d1Sql(env.DB_MARKET), getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: env.BSCF_LOAD === "1" };
+        out = await loadBatch(ldeps, 300, 8);
+        if (ldeps.bscf && out.length < 300) await backfillBsCf(ldeps, 200); // M2: balance sheet + cash flow for earlier filings, when the queue is light
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
       }
@@ -71,6 +73,8 @@ export default {
       filings: await q("SELECT count(*) AS n FROM filing"),
       values: await q("SELECT basis, count(*) AS n FROM fin_value GROUP BY basis"),
       shareholding_filings: await q("SELECT count(*) AS n FROM filing WHERE kind='shareholding'"),
+      bs_cf_values: await q("SELECT statement, count(*) AS n FROM fin_value WHERE statement IN ('bs','cf') GROUP BY statement"),
+      bscf_backfill: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'"),
       review_samples: await q("SELECT l.status, substr(l.detail,1,120) AS detail, j.symbol, j.url FROM fin_load l JOIN fetch_job j ON j.job_id = l.job_id WHERE l.status IN ('review','failed') ORDER BY l.at DESC LIMIT 8"),
     }, { headers: { "cache-control": "no-store" } });
   },
