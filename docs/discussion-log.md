@@ -315,6 +315,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 257 | "I said everything about stocks; remove bonds first; ETF, REIT will be used in future if needed." | D127 clarified: store equities (all series incl. SME) + ETFs + REITs/InvITs; drop bonds/debentures/G-secs/SGBs/T-bills (raw files stay in R2). Applied in the D130 reload. Read as: keep ETFs and REITs. | ✅ |
 | 258 | Owner pasted V1 storage notes (cards ≈ 80 MB; V1 keeps no price history in D1; heavy data gzipped in R2; write-changed-rows-only; daily write budget; snapshot-served feed; pruning with backup) and a note that D130's "31%" should read as size remaining (69% saving). "Take only what you feel is useful. Don't bloat things unnecessarily." | D131: adopted gzip in R2, daily write budget, snapshot-served pages; not adopted: no-history-in-D1 (V2 features need history). 31% = remaining, confirmed. | ✅ |
 | 259 | "We have the Workers Paid plan, or something for $5." On keeping raw XBRL figures in storage rather than the database: "you take the decision which is best." | Confirmed: Workers Paid ($5/month, active since #243). D132 (as-filed XBRL in R2 gzip; D1 canonical lines + checks + filing index); §5.3, §16. | ✅ |
+| 260 | "Go ahead with the compact storage reload and other tasks." | D130 compact tables + reload from R2 cache; D125 gate extension; D127 no-debt; D131 gzip + write budget; first index snapshot; cron back to 10 min after reload. | 🔶 in progress |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -323,7 +324,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #259: all checks pass (132 decisions, 259 entries); no open ⚠.*
+*Last run 2026-11-02 after entry #260: all checks pass (132 decisions, 260 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
