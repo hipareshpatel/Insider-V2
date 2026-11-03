@@ -10,7 +10,7 @@ import { r2Text } from "./structure.js";
 const PREFIXES = ["api/announcements/", "api/bulk/announcements/"];
 const INDEX = "NIFTY TOTAL MARKET";
 
-export interface Seen { isin: string; ind: string; first: string; last: string; ref: string }
+export interface Seen { isin: string; ind: string; first: string; last: string; ref: string; symbol: string }
 
 /** All (ISIN, smIndustry) pairs in one announcement list, with first/last sort_date and the first seq id. */
 export function industryPairs(json: string): { rows: number; pairs: Seen[] } {
@@ -20,9 +20,9 @@ export function industryPairs(json: string): { rows: number; pairs: Seen[] } {
   for (const r of rows) {
     const isin = String(r.sm_isin ?? "").trim(), ind = String(r.smIndustry ?? "").trim(), at = String(r.sort_date ?? "").trim();
     if (!/^IN[A-Z0-9]{10}$/.test(isin) || !ind || ind === "-" || !/^\d{4}-\d{2}-\d{2}/.test(at)) continue;
-    const k = `${isin}|${ind}`, o = out.get(k), ref = String(r.seq_id ?? "");
-    if (!o) out.set(k, { isin, ind, first: at, last: at, ref });
-    else { if (at < o.first) { o.first = at; o.ref = ref; } if (at > o.last) o.last = at; }
+    const k = `${isin}|${ind}`, o = out.get(k), ref = String(r.seq_id ?? ""), symbol = String(r.symbol ?? "").trim();
+    if (!o) out.set(k, { isin, ind, first: at, last: at, ref, symbol });
+    else { if (at < o.first) { o.first = at; o.ref = ref; } if (at > o.last) { o.last = at; if (symbol) o.symbol = symbol; } }
   }
   return { rows: rows.length, pairs: [...out.values()] };
 }
@@ -51,11 +51,12 @@ export async function buildSectors(deps: SectorDeps, budgetMs: number): Promise<
     if (t === null) continue;
     let parsed: ReturnType<typeof industryPairs>;
     try { parsed = industryPairs(t); } catch { parsed = { rows: -1, pairs: [] }; } // not JSON: recorded, never retried silently
-    const stmts: Stmt[] = insertRows("INSERT INTO industry_seen (isin, sm_industry, first_at, last_at, first_ref)", 5,
-      parsed.pairs.map((p) => [p.isin, p.ind, p.first, p.last, p.ref]),
+    const stmts: Stmt[] = insertRows("INSERT INTO industry_seen (isin, sm_industry, first_at, last_at, first_ref, symbol)", 6,
+      parsed.pairs.map((p) => [p.isin, p.ind, p.first, p.last, p.ref, p.symbol || null]),
       ` ON CONFLICT (isin, sm_industry) DO UPDATE SET first_at = min(first_at, excluded.first_at),
-        first_ref = CASE WHEN excluded.first_at < first_at THEN excluded.first_ref ELSE first_ref END, last_at = max(last_at, excluded.last_at)
-        WHERE excluded.first_at < industry_seen.first_at OR excluded.last_at > industry_seen.last_at`);
+        first_ref = CASE WHEN excluded.first_at < first_at THEN excluded.first_ref ELSE first_ref END, last_at = max(last_at, excluded.last_at),
+        symbol = CASE WHEN excluded.last_at >= last_at OR symbol IS NULL THEN coalesce(excluded.symbol, symbol) ELSE symbol END
+        WHERE excluded.first_at < industry_seen.first_at OR excluded.last_at > industry_seen.last_at OR (industry_seen.symbol IS NULL AND excluded.symbol IS NOT NULL)`);
     for (const p of parsed.pairs) if (!known.has(p.ind)) {
       known.add(p.ind); rep.newValues.push(p.ind);
       stmts.push({ sql: "INSERT OR IGNORE INTO sector_map (sm_industry, sector, map_version, status, first_seen, first_ref) VALUES (?, NULL, NULL, 'unmapped', ?, ?)", params: [p.ind, p.first, p.ref] });
@@ -125,9 +126,18 @@ async function classify(m: Sql, today: string): Promise<number> {
     "SELECT sm_industry, sector, status, map_version FROM sector_map")).map((r) => [r.sm_industry, { sector: r.sector, status: r.status, version: r.map_version }]));
   const isin = new Map<string, number>();
   for (const r of await m.all<{ value: string; security_id: number }>("SELECT value, security_id FROM security_identifier WHERE id_type='isin'")) isin.set(r.value, r.security_id);
+  // Stale ISINs on announcements (C42): fall back to the NSE symbol valid on the last sighting.
+  const syms = new Map<string, { security_id: number; valid_from: string; valid_to: string | null }[]>();
+  for (const r of await m.all<{ value: string; security_id: number; valid_from: string; valid_to: string | null }>("SELECT value, security_id, valid_from, valid_to FROM security_identifier WHERE id_type='nse_symbol'")) {
+    const l = syms.get(r.value) ?? []; l.push(r); syms.set(r.value, l);
+  }
+  const bySymbol = (sym: string | null, at: string) => {
+    const d = at.slice(0, 10), l = sym ? syms.get(sym) : undefined;
+    return l?.find((r) => r.valid_from <= d && (!r.valid_to || r.valid_to >= d))?.security_id;
+  };
   const pairs = new Map<number, { ind: string; first: string; last: string; ref: string }[]>();
-  for (const s of await m.all<{ isin: string; sm_industry: string; first_at: string; last_at: string; first_ref: string }>("SELECT isin, sm_industry, first_at, last_at, first_ref FROM industry_seen")) {
-    const sid = isin.get(s.isin);
+  for (const s of await m.all<{ isin: string; sm_industry: string; first_at: string; last_at: string; first_ref: string; symbol: string | null }>("SELECT isin, sm_industry, first_at, last_at, first_ref, symbol FROM industry_seen")) {
+    const sid = isin.get(s.isin) ?? bySymbol(s.symbol, s.last_at);
     if (sid === undefined) continue;
     const l = pairs.get(sid) ?? []; l.push({ ind: s.sm_industry, first: s.first_at, last: s.last_at, ref: s.first_ref }); pairs.set(sid, l);
   }

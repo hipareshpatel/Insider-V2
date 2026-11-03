@@ -135,7 +135,7 @@ async function sectorView(db: D1Database) {
     index_agreement: { companies: all, same_sector: same, disagreements: agree.filter((r) => (r.map_sector ?? null) !== (r.index_sector ?? null)).sort((a, b) => Number(b.n) - Number(a.n)) },
     runs: await q("SELECT run_key, finished_at, detail FROM pipeline_run WHERE pipeline = 'market.sectors' ORDER BY run_id DESC LIMIT 5"),
     // ISINs seen on announcements that match no security (coverage gap: SME / non-equity issuers / missing identifiers)
-    unmatched_isins: (await q(`SELECT count(DISTINCT isin) AS n FROM industry_seen WHERE isin NOT IN (SELECT value FROM security_identifier WHERE id_type = 'isin')`))[0],
-    unmatched_sample: await q(`SELECT isin, sm_industry, max(last_at) AS last FROM industry_seen WHERE isin NOT IN (SELECT value FROM security_identifier WHERE id_type = 'isin') GROUP BY isin ORDER BY last DESC LIMIT 15`),
+    unmatched_isins: (await q(`SELECT count(DISTINCT isin) AS n, count(DISTINCT CASE WHEN symbol IN (SELECT value FROM security_identifier WHERE id_type = 'nse_symbol') THEN isin END) AS symbol_matched FROM industry_seen WHERE isin NOT IN (SELECT value FROM security_identifier WHERE id_type = 'isin')`))[0],
+    unmatched_sample: await q(`SELECT isin, symbol, sm_industry, max(last_at) AS last FROM industry_seen WHERE isin NOT IN (SELECT value FROM security_identifier WHERE id_type = 'isin') AND (symbol IS NULL OR symbol NOT IN (SELECT value FROM security_identifier WHERE id_type = 'nse_symbol')) GROUP BY isin ORDER BY last DESC LIMIT 15`),
   };
 }

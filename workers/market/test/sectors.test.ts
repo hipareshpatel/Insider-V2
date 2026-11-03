@@ -42,8 +42,8 @@ describe("industryPairs", () => {
     const r = industryPairs(SAMPLE);
     expect(r.rows).toBe(5);
     expect(r.pairs).toEqual([
-      { isin: "INE692G01013", ind: "Computers - Software", first: "2026-10-30 12:08:02", last: "2026-10-31 23:41:04", ref: "106836011" },
-      { isin: "INE179A01014", ind: "Personal Care", first: "2026-10-07 11:28:56", last: "2026-10-07 11:28:56", ref: "106809385" },
+      { isin: "INE692G01013", ind: "Computers - Software", first: "2026-10-30 12:08:02", last: "2026-10-31 23:41:04", ref: "106836011", symbol: "XCHANGING" },
+      { isin: "INE179A01014", ind: "Personal Care", first: "2026-10-07 11:28:56", last: "2026-10-07 11:28:56", ref: "106809385", symbol: "PGHH" },
     ]);
   });
 });
@@ -88,6 +88,17 @@ describe("buildSectors", () => {
       { security_id: 1, as_of: "2026-10-30", sector: "Information Technology", industry_detail: "Computers - Software", sector_source: "announcement_map" },
       { security_id: 1, as_of: "2026-10-31", sector: "Information Technology", industry_detail: null, sector_source: "index_csv" },
     ]);
+  });
+});
+
+describe("stale ISIN on announcements (C42)", () => {
+  it("falls back to the NSE symbol valid on the last sighting", async () => {
+    const m = sqlite(); await seed(m);
+    await m.run("INSERT INTO security_identifier (security_id, id_type, value, valid_from, source) VALUES (2, 'nse_symbol', 'PGHH', '2024-01-01', 'test')");
+    const stale = SAMPLE.replaceAll('"INE179A01014"', '"INE179A01006"'); // an older ISIN of the same company
+    const r = await buildSectors({ market: m, raw: bucket({ "api/announcements/2026-10/2026-11-02.json": stale }), today: "2026-11-03" }, 60_000);
+    expect(r.inserted).toBe(2);
+    expect((await rows(m)).find((x) => x.security_id === 2)).toMatchObject({ sector: "Fast Moving Consumer Goods", industry_detail: "Personal Care" });
   });
 });
 
