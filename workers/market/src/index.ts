@@ -7,6 +7,8 @@ import { evidence } from "./evidence.js";
 import { chargeBudget, runPending } from "./runner.js";
 import { loadStructure } from "./structure.js";
 import { buildSectors } from "./sectors.js";
+import { digestDay } from "./digest.js";
+import { runDay } from "./daily.js";
 import { istNow } from "./dates.js";
 
 export interface Env {
@@ -79,6 +81,25 @@ export default {
         LEFT JOIN security_identifier i ON i.security_id = c.security_id AND i.id_type = 'nse_symbol' AND i.valid_to IS NULL
         WHERE c.ca_id > ?1 ORDER BY c.ca_id LIMIT 2000`).bind(after).all()).results;
       return Response.json({ rows, next: rows.length === 2000 ? (rows[rows.length - 1] as { ca_id: number }).ca_id : null }, { headers: { "cache-control": "no-store" } });
+    }
+    // Phase 1 tests 4–5 (§9.2): per-table checksums of one date; staging can re-run a date to prove it changes nothing.
+    if (url.pathname === "/digest") {
+      const date = url.searchParams.get("date") ?? "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return Response.json({ error: "date=YYYY-MM-DD" }, { status: 400 });
+      return Response.json(await digestDay(d1Sql(env.DB_MARKET), date), { headers: { "cache-control": "no-store" } });
+    }
+    if (url.pathname === "/rerun" && req.method === "POST") {
+      if (env.ENVIRONMENT !== "staging") return Response.json({ error: "staging only" }, { status: 403 });
+      const date = url.searchParams.get("date") ?? "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return Response.json({ error: "date=YYYY-MM-DD" }, { status: 400 });
+      const meter = { rows: 0 };
+      const deps = { market: d1Sql(env.DB_MARKET, meter), app: d1Sql(env.DB_APP, meter), raw: r2Raw(env.RAW), fetch: r2FirstFetcher(env.RAW, archiveFetcher(), env.CACHE_AUTHORITATIVE_UNTIL), now: () => new Date(), cachedFromR2: true };
+      const before = await digestDay(d1Sql(env.DB_MARKET), date);
+      const out = await withLock(env.DB_MARKET, 10 * 60_000, () => runDay(date, deps));
+      if (out === null) return Response.json({ error: "job running, try later" }, { status: 409 });
+      const after = await digestDay(d1Sql(env.DB_MARKET), date);
+      const changed = Object.keys(after.tables).filter((t) => after.tables[t]!.sha256 !== before.tables[t]!.sha256);
+      return Response.json({ date, status: out.status, rows_written: meter.rows, changed_tables: changed, before, after }, { headers: { "cache-control": "no-store" } });
     }
     if (url.pathname === "/acceptance") {
       return Response.json(await acceptance(d1Sql(env.DB_MARKET), d1Sql(env.DB_APP)), { headers: { "cache-control": "no-store" } });
