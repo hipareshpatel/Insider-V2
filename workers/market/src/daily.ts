@@ -31,6 +31,12 @@ export interface DayReport {
 }
 
 const iso = (d: Date) => d.toISOString();
+/** Row-count gate: within ±5% of the 20-session median or of the previous accepted session (FMEA A4, C14). */
+export function rowCountOk(n: number, median: number, prev: number): boolean {
+  const near = (ref: number) => ref > 0 && Math.abs(n - ref) / ref <= 0.05;
+  return near(median) || near(prev);
+}
+
 type Got = { url: string; res: FetchResult | null; error?: string };
 
 const REFUSED = new Set([403, 429, 503]);
@@ -165,14 +171,18 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   if (counts.length >= 20) {
     const sorted = counts.map((c) => c.n).sort((a, b) => a - b);
     const median = (sorted[9]! + sorted[10]!) / 2;
-    if (Math.abs(good.length - median) / median > 0.05) {
+    // The previous session passed every gate, so a lasting step it accepted (2026-08-17: +161 EQ symbols) is the new
+    // reference; otherwise every following day is rejected until the median catches up (FMEA C14). A truncated or
+    // partial file still fails: it is far from both references.
+    const prev = counts[0]!.n;
+    if (!rowCountOk(good.length, median, prev)) {
       const [pd] = await deps.market.all<{ d: string | null }>("SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session=1 AND trade_date < ?", [date]);
       const prevSyms = new Set(pd?.d ? (await deps.market.all<{ value: string }>(
         `SELECT DISTINCT i.value FROM price_daily p JOIN security_identifier i ON i.security_id = p.security_id AND i.id_type = 'nse_symbol'
          WHERE p.d = ? AND p.series IN ('EQ','BE','BZ')`, [dnum(pd.d)])).map((r) => r.value) : []);
       const carried = good.filter((r) => prevSyms.has(r.symbol)).length;
       const fresh = good.length - carried;
-      if (Math.abs(carried - median) / median > 0.05) reasons.push(`row count ${good.length} (${carried} carried over) vs 20-session median ${median} (> ±5%)`);
+      if (!rowCountOk(carried, median, prev)) reasons.push(`row count ${good.length} (${carried} carried over) vs 20-session median ${median} and previous session ${prev} (> ±5%)`);
       else if (fresh > 0) reviews.push({ kind: "corp_action", subjectDb: "market", subjectRef: `newsymbols|${date}`, summary: `${fresh} symbols began trading on ${date} (row count ${good.length} vs median ${median}); information only` });
     }
   }

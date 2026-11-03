@@ -24,3 +24,16 @@ describe("R2-first fetcher write-through", () => {
     expect(store.has("cache/content/missing.csv")).toBe(false);
   });
 });
+
+import { rowCountOk } from "../src/daily.js";
+describe("row-count gate (FMEA C14)", () => {
+  it("accepts the day after a lasting step change (2026-08-18: 2548 vs median 2392.5, previous 2550)", () => {
+    expect(rowCountOk(2548, 2392.5, 2550)).toBe(true);
+  });
+  it("still rejects a truncated file (far from both references)", () => {
+    expect(rowCountOk(1800, 2392.5, 2550)).toBe(false);
+  });
+  it("rejects a jump far above both", () => {
+    expect(rowCountOk(2900, 2392.5, 2450)).toBe(false);
+  });
+});
