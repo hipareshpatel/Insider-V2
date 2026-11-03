@@ -319,6 +319,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 261 | Owner pasted a fuller V1 role prompt with lessons learned (success measures, constraints, data rules on basis/units/periods/restatements/profit lines/PDF traps/events/classification/timing, AI models, storage, change process, owner communication), noting V1 numbers are V1's, and V1 was a $0 build. Offers to ask V1 for more details. | D133 (lessons adopted / not adopted with reasons); §7.3 pointer. Owner answered in #262. | ✅ |
 | 262 | "1. Screener — later. 2. Keep EPS. 3. Keep the V2 bar, else why would we do V2." | D133 updated: Screener Later; EPS kept (XBRL, adjusted); M7 gate unchanged, measured blind. | ✅ |
 | 263 | "What's our plan till 9 AM IST? Session ~30% used; two hours left before the reset. Start working as planned; do an FMEA first so we don't hit problems like the last 24 hours. Update documents and the to-do list regularly (hourly is a must)." | Plan in chat; `docs/FMEA.md` written before new code; hourly doc updates (08:00, 09:00) booked. | ✅ |
+| 264 | "Keep the end goal in mind so we don't keep coming back for small corrections and waste time and energy. I chose high thinking expecting more deliberation before decisions, using the latest techniques, so the whole V2 workflow runs smoothly." | Claude acknowledged the pattern and root causes; D134 (whole-population offline run before deploy; root-cause fixes; one deploy pipeline; milestones judged by gates); §14. Applied first to corporate-action purposes and deploy workflows. | 🔶 applying |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -327,7 +328,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-02 after entry #263 (08:00 IST hourly update): all checks pass (133 decisions, 263 entries); no open ⚠.*
+*Last run 2026-11-02 after entry #264: all checks pass (134 decisions, 264 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
