@@ -1,6 +1,6 @@
 // D154: every reported line item of the three statements (industrial / Ind AS Schedule III layout, results XBRL), not a
 // hand-picked subset. Line lists and their signs come from the census of all 74,571 results files
-// (docs/statement-line-items.md) and the filings' own arithmetic (checked on INFY Sep 2026 consolidated). Each statement's
+// (docs/DISCLO.md Part 5 (statement line items)) and the filings' own arithmetic (checked on INFY Sep 2026 consolidated). Each statement's
 // detail is checked against its own subtotals before it is used; values in rupees, exact decimals.
 import { type Dec, add, cmp, dec, sub, toText } from "./decimal.js";
 import type { XbrlInstance } from "./xbrl.js";
