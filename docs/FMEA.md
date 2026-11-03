@@ -57,3 +57,5 @@ Each mitigation is in code with a test unless marked *process*.
 | C12 | Write counter undercounted the bill: it summed table rows changed, but D1 bills index writes too | Count D1 `meta.rows_written` across every write in market + filings; baseline from Cloudflare analytics (D136) |
 | C13 | Same file content stored under several URLs (3,229 contents × 13,013 URLs) | Ledger shows duplicates (`/status`); cause and fix by class — see #265/#266 follow-up |
 | C14 | Row-count gate cascade: a lasting step (2026-08-17: +161 EQ symbols) passed on day 1 (new-symbol extension), then every later day failed against the old 20-session median (reload stuck at 2026-08-17) | A day also passes within ±5% of the previous accepted session; simulated on all 87 sessions Jul–Nov 2026: old rule 10 rejections, new rule 0 effective |
+| C15 | Old-GAAP test by schema name was too broad (2,763 modern files labelled old GAAP; harmless only because their main tags were present) | Census of all 56,382 results files; test narrowed to the entry points seen on old-GAAP files |
+| C16 | Decimals in exponent form ("1.83025364E+15") rejected | Exact exponent parsing (BigInt); 3 files retried |

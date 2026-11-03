@@ -4,6 +4,8 @@ name: infra-check
 # Logs of a public repo are public: every step pipes through `mask` (hides email addresses and account names).
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "17 14 * * *"   # daily 19:47 IST: cost guard (D137); a failed run emails the owner
 
 permissions:
   contents: read
@@ -60,4 +62,37 @@ jobs:
               for r in rows: by[r["dimensions"]["scriptName"]] = by.get(r["dimensions"]["scriptName"], 0) + r["sum"]["requests"]
               print("WORKER_REQUESTS", by if by else d2.get("errors"))
           except Exception as e: print("workers analytics:", str(e)[:120])
+          PY
+      - name: Cost guard (D137 - fail above $4 estimated usage charges this period)
+        run: |
+          python3 - <<'PY' | mask
+          import datetime as dt, json, os, sys, urllib.request
+          today = dt.datetime.utcnow().date()
+          start = today.replace(day=2) if today.day >= 2 else (today.replace(day=1) - dt.timedelta(days=1)).replace(day=2)  # billing period starts on the 2nd (#267)
+          def gql(query):
+              req = urllib.request.Request("https://api.cloudflare.com/client/v4/graphql", data=json.dumps({"query": query, "variables": {"a": os.environ["CLOUDFLARE_ACCOUNT_ID"], "f": str(start)}}).encode(),
+                                           headers={"Authorization": "Bearer " + os.environ["CLOUDFLARE_API_TOKEN"], "Content-Type": "application/json", "User-Agent": "disclo-infra-check/1"})
+              d = json.load(urllib.request.urlopen(req, timeout=60))
+              if d.get("errors"): print("graphql:", [e.get("message") for e in d["errors"]]); return None
+              return d["data"]["viewer"]["accounts"][0]
+          d1 = gql("query($a:String!,$f:Date!){viewer{accounts(filter:{accountTag:$a}){d1AnalyticsAdaptiveGroups(limit:1000,filter:{date_geq:$f}){sum{rowsWritten rowsRead}}}}}")
+          r2 = gql("query($a:String!,$f:Date!){viewer{accounts(filter:{accountTag:$a}){r2OperationsAdaptiveGroups(limit:1000,filter:{date_geq:$f}){sum{requests}dimensions{actionType}}}}}")
+          st = gql("query($a:String!,$f:Date!){viewer{accounts(filter:{accountTag:$a}){r2StorageAdaptiveGroups(limit:100,filter:{date_geq:$f}){max{payloadSize}dimensions{bucketName}}}}}")
+          w = sum(x["sum"]["rowsWritten"] for x in d1["d1AnalyticsAdaptiveGroups"]) if d1 else 0
+          rd = sum(x["sum"]["rowsRead"] for x in d1["d1AnalyticsAdaptiveGroups"]) if d1 else 0
+          B = {"GetObject", "HeadObject", "UsageSummary", "GetBucketEncryption", "GetBucketLocation", "GetBucketCors", "GetBucketLifecycleConfiguration"}
+          a = b = 0
+          for x in (r2 or {}).get("r2OperationsAdaptiveGroups", []):
+              t = x["dimensions"]["actionType"]
+              if t in B: b += x["sum"]["requests"]
+              elif t not in ("DeleteObject", "AbortMultipartUpload"): a += x["sum"]["requests"]
+          sizes = {}
+          for x in (st or {}).get("r2StorageAdaptiveGroups", []): sizes[x["dimensions"]["bucketName"]] = max(sizes.get(x["dimensions"]["bucketName"], 0), x["max"]["payloadSize"])
+          gb = sum(sizes.values()) / 1e9
+          cost = {"d1_writes": max(0, w - 50e6) / 1e6 * 1.0, "d1_reads": max(0, rd - 25e9) / 1e6 * 0.001,
+                  "r2_class_a": max(0, a - 1e6) / 1e6 * 4.5, "r2_class_b": max(0, b - 10e6) / 1e6 * 0.36, "r2_storage": max(0, gb - 10) * 0.015}
+          total = sum(cost.values())
+          print(f"period from {start}: d1 written {w:,} read {rd:,}; r2 class A {a:,} class B {b:,}; r2 stored {gb:.2f} GB")
+          print("estimated usage charges ($):", {k: round(v, 2) for k, v in cost.items()}, "total", round(total, 2), "(Workers CPU from the dashboard: $0.02 per extra million ms)")
+          if total > 4: print("::error::estimated usage charges above $4 this period (owner ceiling $5, D137)"); sys.exit(1)
           PY

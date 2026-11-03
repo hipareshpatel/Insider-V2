@@ -9,11 +9,14 @@ export interface Dec {
 export function dec(text: string | number | bigint): Dec {
   if (typeof text === "bigint") return { units: text, scale: 0 };
   const s = String(text).trim().replace(/,/g, "");
-  const m = /^([+-])?(\d*)(?:\.(\d*))?$/.exec(s);
+  // Exponent form is exact too: some filings write "1.83025364E+15" (census 2026-11-03, D134).
+  const m = /^([+-])?(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(s);
   if (!m || (m[2] === "" && (m[3] ?? "") === "")) throw new Error(`dec: not a decimal: "${text}"`);
   const frac = m[3] ?? "";
-  const units = BigInt((m[1] === "-" ? "-" : "") + ((m[2] || "0") + frac));
-  return normalise({ units, scale: frac.length });
+  let units = BigInt((m[1] === "-" ? "-" : "") + ((m[2] || "0") + frac));
+  let scale = frac.length - Number(m[4] ?? 0);
+  if (scale < 0) { units *= 10n ** BigInt(-scale); scale = 0; }
+  return normalise({ units, scale });
 }
 
 function normalise(d: Dec): Dec {

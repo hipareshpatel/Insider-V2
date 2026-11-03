@@ -117,3 +117,13 @@ describe("old-GAAP aliases never touch Ind AS / Integrated Filing results (owner
     expect(canonicalResult(inst).missing).not.toContain("pat");
   });
 });
+
+describe("decimals in exponent form (census: 3 Integrated Filings)", async () => {
+  const { dec, toText } = await import("../src/index.js");
+  it("reads 1.83025364E+15 exactly", () => {
+    expect(toText(dec("1.83025364E+15"))).toBe("1830253640000000");
+    expect(toText(dec("1.37563219E+16"))).toBe("13756321900000000");
+    expect(toText(dec("-2.5e-3"))).toBe("-0.0025");
+    expect(toText(dec("12.50"))).toBe("12.5");
+  });
+});

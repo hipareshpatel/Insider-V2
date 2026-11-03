@@ -111,8 +111,9 @@ export const LIFE_TAGS: Record<string, string> = {
  *  Seen: "other_than_banks_entry_point_2019-09-30.xsd" (old GAAP) vs "Ind-AS_entry_point_2020-03-31.xsd". */
 export function isOldGaap(inst: XbrlInstance): boolean {
   if (prefixOf(inst) !== "in-bse-fin:") return false;
-  const ref = (inst.schemaRef ?? "").toLowerCase();
-  return ref !== "" && !/ind[-_ ]?as/.test(ref);
+  // Only the entry points seen on old-GAAP filings (census of 56,382 files, 2026-11-03): "other_than_banks" (29 SME
+  // files) and "banking" (banks still report under Indian GAAP; they use the bank template, aliases never apply).
+  return /other_than_banks|banking_entry_point/i.test(inst.schemaRef ?? "");
 }
 
 /** Alternative tags (old Indian GAAP "NONINDAS" filings, SME companies), tried in order after the main tag. */
