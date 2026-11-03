@@ -207,7 +207,9 @@ export default {
       pdf_files: (await q("SELECT count(*) AS n FROM fetch_job WHERE lower(url) LIKE '%.pdf'"))[0],
       // V1 lesson #280 audit: a large answer identical across several URLs is an error page, not data.
       suspect_identical: await q("SELECT sha256, count(*) AS n, max(bytes) AS bytes, min(kind) AS kind FROM fetch_job WHERE status='done' AND sha256 IS NOT NULL AND bytes > 5000 GROUP BY sha256 HAVING count(*) > 2 ORDER BY n DESC LIMIT 5"),
-      daily_refresh: await q("SELECT day, slot, at, detail FROM daily_refresh ORDER BY day DESC, slot DESC LIMIT 6"),
+      // daily slots and one-off jobs listed apart ("once" sorts after every date, so one list hid the daily slots)
+      daily_refresh: await q("SELECT day, slot, at, detail FROM daily_refresh WHERE day <> 'once' ORDER BY day DESC, slot DESC LIMIT 6"),
+      once_jobs: await q("SELECT slot, at, substr(detail, 1, 200) AS detail FROM daily_refresh WHERE day = 'once' ORDER BY at DESC"),
       sweep_misses: (await q("SELECT count(*) AS n FROM fetch_job a JOIN fetch_job p ON p.job_id = a.parent_id WHERE p.r2_key LIKE '%-sweep.json'"))[0],
       last_runs: await q("SELECT at, detail FROM prefetch_log ORDER BY id DESC LIMIT 5"),
     }, { headers: { "cache-control": "no-store" } });
