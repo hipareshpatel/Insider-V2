@@ -5,7 +5,7 @@ import { backfillBsCf, loadBatch, versionBackfill } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents } from "./events.js";
 import { caLists } from "./calists.js";
-import { BS_LINES, CF_LINES, parseXbrl, statementDetail } from "@disclo/core";
+import { BS_LINES, CF_LINES, parsePit, parseXbrl, statementDetail } from "@disclo/core";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string }
 
@@ -81,6 +81,22 @@ export default {
         sast: await one("SELECT count(*) AS n FROM sast_disclosure WHERE symbol=?1 AND cast(replace(substr(disclosed_at,1,10),'-','') AS INTEGER) BETWEEN ?2 AND ?3"),
         board_meetings: await one("SELECT count(*) AS n FROM board_meeting WHERE symbol=?1 AND coalesce(meeting_d, 0) BETWEEN ?2 AND ?3"),
       }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/pit-files") {
+      // Read-only diagnosis: every stored insider-trade (PIT) list for one company — request, status, rows, date range.
+      const sym = new URL(req.url).searchParams.get("symbol") ?? "";
+      const jobs = (await env.DB_FILINGS.prepare("SELECT job_id, url, r2_key, status, http_status, fetched_at, bytes FROM fetch_job WHERE kind='pit' AND symbol=?1 ORDER BY job_id").bind(sym).all<{ job_id: number; url: string; r2_key: string; status: string; http_status: number | null; fetched_at: string | null; bytes: number | null }>()).results;
+      const out = [];
+      for (const j of jobs.slice(0, 20)) {
+        const text = j.status === "done" ? await getText(env.RAW, j.r2_key) : null;
+        let rows = null as number | null, min = null as string | null, max = null as string | null, err = null as string | null;
+        if (text) try {
+          const r = parsePit(text); rows = r.length;
+          const ds = r.map((t) => t.disclosedAt).filter((x): x is string => !!x).sort(); min = ds[0] ?? null; max = ds[ds.length - 1] ?? null;
+        } catch (e) { err = String(e).slice(0, 80); }
+        out.push({ job: j.job_id, url: j.url.replace(/^https:\/\/[^/]+\/api\//, ""), status: j.status, http: j.http_status, fetched_at: j.fetched_at, bytes: j.bytes, rows, disclosed_min: min, disclosed_max: max, err });
+      }
+      return Response.json(out, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/fresh") {
       // Plan item 2 check (read-only): filings and events disclosed in the last 4 days (IST dates), as loaded now.
