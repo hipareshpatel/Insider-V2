@@ -367,6 +367,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 309 | Owner shared `disclo-design-recovered.md` (from the other chat: the planning chat's full history, owner quotes verbatim, decided / accepted / rejected / open per topic; also committed as `docs/disclo-design-recovered.md`). | Verified here: repo copy identical to the upload; log intact after the other chat's merge-conflict fix (308 entries, each number once, no conflict markers). **Conclusion: youth / Gen Z, MF houses, PMS, analysts, colours, typography, logo, reference sites for the look, "premium", sharing channels, lakh format and subscriber goals were never discussed in any recorded chat** — the design brief needs the owner's input directly (design phase comes after data, D152). Two recovered items v0 broke: market cap "take round numbers" (₹ crore without decimals; v0 showed decimals) and "the page must say it isn't live" (EOD label). | ✅ |
 | 310 | "You can discuss with other chat whenever you need any other inputs also." | Working rule added (HANDOVER). Other chat identified (session "1.0 V2 planning and mechanism"); coordination message sent: it owns `website.md` + `disclo-design-recovered.md`, the build chat owns code, migrations, deploys, PLAN data/build sections, HANDOVER, FMEA, field catalogue; the discussion log is shared and append-only (pull right before writing, next free number, push at once, rebase and renumber only one's own row on a clash). | ✅ |
 | 311 | "Good, go ahead with next item." | Next per D152 order: verify the FY loader on live data; then the FY22 old-format class (2,812 March-quarter files without a year-to-date context); then 5-year coverage per company vs NSE lists (D90/D111). | 🔶 working |
+| 312 | "Schedule every 15 minutes task and check for next 150 minutes." | 10 one-off check-ins booked (recurring schedules can't run more often than hourly): 20:00–22:15 IST every 15 min; each checks the filings rate, full-year loading + backfill, events cursor, the FY22 census and the write budget, then continues the D152 data order; the 10th summarises the 150 minutes and the overnight plan. Work since #311: FY loader verified live (307 filings with full year), backfill unstuck and storage read errors made temporary (C48), FY22 class found (contexts referenced but undefined, C4 for the year) — fix behind a switch, census running. | 🔶 running |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -375,7 +376,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-03 after entry #311: all checks pass (153 decisions, 311 entries); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
+*Last run 2026-11-03 after entry #312: all checks pass (153 decisions, 312 entries); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
