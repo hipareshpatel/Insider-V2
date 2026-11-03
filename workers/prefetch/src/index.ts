@@ -3,8 +3,9 @@ import { EQUITY_SERIES, type Sql, batchAll, insertRows, parseEquityList, sha256H
 import { d1Sql } from "./d1.js";
 import { attachmentKey, attachments } from "./discover.js";
 import { bulkJobs, companyJobs } from "./jobs.js";
+import { dailyRefresh, dueSlot } from "./daily.js";
 
-export interface Env { DB_FILINGS: D1Database; RAW: R2Bucket; ENVIRONMENT: string; PARALLEL?: string; PER_RUN?: string; INGEST_TOKEN?: string }
+export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; PARALLEL?: string; PER_RUN?: string; INGEST_TOKEN?: string }
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
@@ -124,7 +125,27 @@ export default {
   async scheduled(_e: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil((async () => {
       let detail: unknown;
-      try { detail = (await withLock(env.DB_FILINGS, () => runBatch(env))) ?? "locked"; } catch (e) { detail = { error: String(e instanceof Error ? e.message : e) }; }
+      try {
+        detail = (await withLock(env.DB_FILINGS, async () => {
+          const b = await runBatch(env);
+          // Daily freshness (plan item 2): once per IST slot; NSE API answers Cloudflare.
+          const db = d1Sql(env.DB_FILINGS), now = new Date();
+          const slot = await dueSlot(db, now);
+          if (!slot) return b;
+          const ck = await cookies();
+          const headers = { "User-Agent": UA, Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", Referer: "https://www.nseindia.com/", Cookie: ck };
+          const get = async (url: string) => {
+            for (let i = 0; i < 3; i++) {
+              const r = await fetch(url, { headers });
+              const bytes = new Uint8Array(await r.arrayBuffer());
+              if (r.status === 200 || i === 2) return { status: r.status, bytes };
+              await new Promise((x) => setTimeout(x, 3000 * (i + 1)));
+            }
+            return { status: 0, bytes: new Uint8Array() };
+          };
+          return { ...b, daily: await dailyRefresh({ db, market: d1Sql(env.DB_MARKET), raw: env.RAW, get, gzip, now }, slot) };
+        })) ?? "locked";
+      } catch (e) { detail = { error: String(e instanceof Error ? e.message : e) }; }
       if (detail !== "locked") await env.DB_FILINGS.prepare("INSERT INTO prefetch_log (at, detail) VALUES (?1, ?2)").bind(new Date().toISOString(), JSON.stringify(detail)).run();
     })());
   },
@@ -156,6 +177,8 @@ export default {
       duplicate_content: (await q("SELECT count(*) AS hashes, IFNULL(sum(n),0) AS rows, IFNULL(sum(b),0) AS bytes FROM (SELECT count(*) AS n, sum(bytes) AS b FROM fetch_job WHERE sha256 IS NOT NULL GROUP BY sha256 HAVING count(*) > 1)"))[0],
       duplicate_samples: await q("SELECT sha256, count(*) AS n, group_concat(kind, ' ') AS kinds, min(url) AS url_a, max(url) AS url_b, max(bytes) AS bytes FROM fetch_job WHERE sha256 IN (SELECT sha256 FROM fetch_job WHERE sha256 IS NOT NULL GROUP BY sha256 HAVING count(*) > 1 ORDER BY count(*) DESC LIMIT 6) GROUP BY sha256 ORDER BY n DESC"),
       recent_errors: await q("SELECT kind, symbol, http_status, error FROM fetch_job WHERE status='failed' ORDER BY fetched_at DESC LIMIT 5"),
+      daily_refresh: await q("SELECT day, slot, at, detail FROM daily_refresh ORDER BY day DESC, slot DESC LIMIT 4"),
+      sweep_misses: (await q("SELECT count(*) AS n FROM fetch_job a JOIN fetch_job p ON p.job_id = a.parent_id WHERE p.r2_key LIKE '%-sweep.json'"))[0],
       last_runs: await q("SELECT at, detail FROM prefetch_log ORDER BY id DESC LIMIT 5"),
     }, { headers: { "cache-control": "no-store" } });
   },

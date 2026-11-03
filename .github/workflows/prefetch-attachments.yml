@@ -2,6 +2,9 @@ name: prefetch-attachments
 
 # D128: archive-hosted XBRL attachments (queued by disclo-prefetch) -> R2 via the Worker's /ingest.
 on:
+  schedule:
+    - cron: "7 17 * * *"   # 22:37 IST, after the evening daily refresh (plan item 2)
+    - cron: "7 3 * * *"    # 08:37 IST, after the morning refresh
   workflow_dispatch:
     inputs:
       minutes: { description: "run time in minutes", default: "330" }
@@ -40,4 +43,4 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "Authorization: Bearer $T" "https://disclo-prefetch.financialengineer-in.workers.dev/ingest?job=0" --data x)
           echo "ingest check: $code"; [ "$code" = "404" ]
       - name: Download attachments
-        run: python3 tools/prefetch_attachments.py https://disclo-prefetch.financialengineer-in.workers.dev "${{ github.event.inputs.minutes || '330' }}"
+        run: python3 tools/prefetch_attachments.py https://disclo-prefetch.financialengineer-in.workers.dev "${{ github.event.inputs.minutes || '60' }}"

@@ -7,6 +7,6 @@
   "limits": { "cpu_ms": 60000 },
   "triggers": { "crons": ["* * * * *"] },
   "vars": { "ENVIRONMENT": "production", "PARALLEL": "16", "PER_RUN": "640" },
-  "d1_databases": [{ "binding": "DB_FILINGS", "database_name": "disclo-filings", "database_id": "${filings}" }],
+  "d1_databases": [{ "binding": "DB_FILINGS", "database_name": "disclo-filings", "database_id": "${filings}" }, { "binding": "DB_MARKET", "database_name": "disclo-market", "database_id": "${market}" }],
   "r2_buckets": [{ "binding": "RAW", "bucket_name": "disclo-raw" }]
 }
