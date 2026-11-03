@@ -99,7 +99,7 @@ describe("series audit (FMEA B7/C6)", () => {
     const { filings } = setup({});
     filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (1,7,'r','t','a');
       INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version) VALUES
-      (7,'industrial','pl','revenue','','2024-12-31','Q','standalone','original','1000000000','t',1,'reported','t'),
+      (7,'industrial','pl','revenue','','2024-12-31','Q','standalone','original','1200000000','t',1,'reported','t'),
       (7,'industrial','pl','revenue','','2024-06-30','Q','standalone','original','1100000000','t',1,'reported','t'),
       (7,'industrial','pl','revenue','','2024-09-30','Q','standalone','original','110000000','t',1,'reported','t')`);
     const j = await auditJumps(filings);
