@@ -44,11 +44,15 @@ async function cached(c: { req: { url: string }; executionCtx: { waitUntil(p: Pr
   const cache = (globalThis as unknown as { caches?: { default: Cache } }).caches?.default;
   const key = new Request(c.req.url);
   const hit = cache ? await cache.match(key) : undefined;
-  if (hit) return new Response(hit.body, hit); // cached responses have immutable headers
+  if (hit) { const r = new Response(hit.body, hit); r.headers.set("x-cache", "hit"); return r; } // cached headers are immutable
+  const t0 = Date.now();
   const body = await make();
+  const ms = Date.now() - t0;
   if (body === null) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: { "content-type": "application/json" } });
   const res = new Response(JSON.stringify(body), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${ttl}` } });
   if (cache) c.executionCtx.waitUntil(cache.put(key, res.clone()));
+  res.headers.set("server-timing", `db;dur=${ms}`); // server time for the uncached answer (performance targets, M3)
+  res.headers.set("x-cache", "miss");
   return res;
 }
 
