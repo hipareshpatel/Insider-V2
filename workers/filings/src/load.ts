@@ -148,6 +148,8 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
       return { jobId: job.job_id, status: "review", detail: `scale guard: ${core} ${r.lines[core]} vs median of ${mags.length} nearest periods ${prev.value} (×${ratio.toFixed(2)})` };
     }
   }
+  // passed: drop an earlier hold of this period so the anchor does not count it twice (C45)
+  await deps.filings.run("DELETE FROM fin_held WHERE security_id=? AND line=? AND basis=? AND period_kind=? AND period_end=?", [sec.security_id, core, r.basis, r.periodKind, r.periodEnd]);
 
   if (job.parent_key && !listCache.has(job.parent_key)) listCache.set(job.parent_key, await deps.getText(job.parent_key));
   const disclosedAt = (job.parent_key && broadcastFor(listCache.get(job.parent_key) ?? "", job.url)) ?? null;
@@ -263,12 +265,16 @@ export async function backfillBsCf(deps: Deps, limit = 200): Promise<{ after: nu
 export async function loadBatch(deps: Deps, limit = 150, parallel = 8): Promise<LoadOutcome[]> {
   // C43: a 'skipped' job (symbol not in market identity yet) is retried at most every 6 hours. Retrying it on every
   // run filled the whole batch with the same ~300 skipped jobs, so new files and the BS/CF backfill stopped.
+  // C45: scale-guard holds are re-checked on the same 6-hour cycle. Backlog files load in download order and in
+  // parallel, so a hold was judged before its neighbouring periods were on record (ABCAPITAL: 5 post-merger quarters
+  // all held against pre-merger values). Re-checked with the full neighbourhood, an isolated outlier (a unit error)
+  // stays held; a lasting change loads and is still flagged by the series audit (/audit).
   const retryBefore = new Date(deps.now().getTime() - 6 * 3600_000).toISOString();
   const kinds = [...RESULT_KINDS, ...SHP_KINDS];
   const marks = kinds.map(() => "?").join(",");
   const jobs = await deps.filings.all<{ job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }>(
     `SELECT j.job_id, j.kind, j.symbol, j.url, j.r2_key, p.r2_key AS parent_key FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
-     WHERE j.status='done' AND j.kind IN (${marks}) AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND (l.status <> 'skipped' OR l.at > ?))
+     WHERE j.status='done' AND j.kind IN (${marks}) AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND ((l.status <> 'skipped' AND NOT (l.status = 'review' AND substr(l.detail, 1, 12) = 'scale guard:')) OR l.at > ?))
      ORDER BY j.job_id LIMIT ?`, [...kinds, retryBefore, limit]);
   const cache = new Map<string, string | null>();
   const out: LoadOutcome[] = [];

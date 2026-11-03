@@ -106,6 +106,32 @@ describe("scale guard anchor (FMEA C6)", () => {
   });
 });
 
+describe("scale-guard holds are re-checked (C45)", () => {
+  it("held against too few neighbours; after 6 hours, with its neighbouring periods on record, it loads and the hold is dropped", async () => {
+    const { filings, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (99,7,'results_quarterly','2024-07-17T00:00:00Z','old');
+      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version)
+      VALUES (7,'industrial','pl','revenue','','2024-06-30','Q','standalone','original','3409000000','2024-07-17T00:00:00Z',99,'reported','t')`);
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "review", detail: expect.stringContaining("scale guard") });
+    expect(await loadBatch(deps)).toEqual([]); // not re-read on the next run
+    // later periods at the filing's level arrive (a lasting change, e.g. a merger)
+    filings.raw.exec(`INSERT INTO fin_held (security_id,line,basis,period_kind,period_end,value,job_id) VALUES (7,'revenue','standalone','Q','2025-03-31','350000000000',8), (7,'revenue','standalone','Q','2025-06-30','355000000000',9)`);
+    const later = { ...deps, now: () => new Date("2026-11-03T08:01:00Z") };
+    expect((await loadBatch(later))[0]).toMatchObject({ status: "loaded" });
+    expect((await filings.all<{ n: number }>("SELECT count(*) AS n FROM fin_held WHERE period_end='2024-12-31'"))[0]!.n).toBe(0);
+  });
+  it("an isolated outlier stays held when re-checked", async () => {
+    const { deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    const f = deps.filings as unknown as { raw: { exec(s: string): void } };
+    f.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (99,7,'results_quarterly','2024-07-17T00:00:00Z','old');
+      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version)
+      VALUES (7,'industrial','pl','revenue','','2024-06-30','Q','standalone','original','3409000000','2024-07-17T00:00:00Z',99,'reported','t'),
+             (7,'industrial','pl','revenue','','2025-03-31','Q','standalone','original','3500000000','2024-07-17T00:00:00Z',99,'reported','t')`);
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "review" });
+    expect((await loadBatch({ ...deps, now: () => new Date("2026-11-03T08:01:00Z") }))[0]).toMatchObject({ status: "review", detail: expect.stringContaining("scale guard") });
+  });
+});
+
 describe("series audit (FMEA B7/C6)", () => {
   it("flags a ×10 jump between neighbouring periods regardless of load order", async () => {
     const { auditJumps } = await import("../src/audit.js");
