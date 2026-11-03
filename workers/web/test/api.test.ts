@@ -62,6 +62,16 @@ describe("site v0 API", () => {
     expect(r.classification).toMatchObject({ sector: "Information Technology", label: "NSE index list" });
     expect(r.financials.pl[0]).toMatchObject({ period_end: "2026-09-30", basis: "consolidated", lines: { revenue: "400000000000" }, restated: { revenue: "404000000000" }, source: "https://nsearchives.nseindia.com/x.xml" });
   });
+  it("EPS is adjusted only for splits/bonuses after its filing date", async () => {
+    const e = env();
+    e.f.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version) VALUES
+      (7,'industrial','pl','eps_basic','','2026-09-30','Q','consolidated','original','20.00','2026-10-16T12:00:00Z',1,'reported','t'),
+      (7,'industrial','pl','eps_basic','','2026-12-31','Q','consolidated','original','11.00','2027-01-16T12:00:00Z',1,'reported','t')`);
+    const r = await (await app.request("/api/v1/stocks/INFY", {}, e, ctx)).json() as any;
+    const eps = (pe: string) => r.financials.pl.find((p: any) => p.period_end === pe).lines.eps_basic;
+    expect(eps("2026-09-30")).toBe("10"); // filed before the 2026-10-30 split (×0.5)
+    expect(eps("2026-12-31")).toBe("11.00"); // filed after it: already on the new share count
+  });
   it("chart starts after a series break (D146)", async () => {
     const r = await (await get("/api/v1/stocks/SPENTEX")).json() as any;
     expect(r.prices.series_breaks).toEqual(["2024-01-12"]);

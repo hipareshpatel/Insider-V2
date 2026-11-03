@@ -124,7 +124,7 @@ async function symbolMap(m: Sql, now = Date.now()) {
 }
 export function resetSymbolCache() { symCache = null; }
 
-const BS_LINES = ["total_assets", "total_equity", "shareholders_funds", "borrowings_noncurrent", "borrowings_current", "cash"], CF_LINES = ["cfo", "cfi", "cff"];
+const BS_LINES = ["total_assets", "total_equity", "shareholders_funds", "borrowings_noncurrent", "borrowings_current", "cash", "deposits", "advances", "investments", "borrowings", "capital", "reserves"], CF_LINES = ["cfo", "cfi", "cff"];
 
 export async function stock(db: Dbs, symbol: string, timing: string[] = []) {
   const m = db.market, f = db.filings;
@@ -183,7 +183,11 @@ export async function stock(db: Dbs, symbol: string, timing: string[] = []) {
   const dl = last ? dlR.find((x) => x.series === last.series) : undefined;
   const shpDay = shp.length ? { as_of: shp[0]!.as_of } : undefined;
   const periods = new Map<string, { period_end: string; period_kind: string; basis: string; template: string; lines: Record<string, string | null>; restated: Record<string, string | null>; disclosed_at: string; source: string | null }>();
-  for (const r of fin) {
+  // EPS on a like-for-like share count: × factors of splits/bonuses after the filing's date (a filing already
+  // reflects earlier ones; Ind AS 33). Plan #262: EPS from XBRL only, split/bonus-adjusted via adj_factor.
+  const epsAdj = (v: string | null, disclosed: string) => { if (v === null) return v; const k = applied.reduce((p, x) => (x.ex_date > disclosed.slice(0, 10) ? p * Number(x.factor) : p), 1); return k === 1 ? v : String(Math.round(Number(v) * k * 100) / 100); };
+  for (const r0 of fin) {
+    const r = r0.line === "eps_basic" ? { ...r0, value: epsAdj(r0.value, r0.disclosed_at) } : r0;
     const k = `${r.statement}|${r.period_end}|${r.period_kind}|${r.basis}`;
     const p = periods.get(k) ?? { period_end: r.period_end, period_kind: r.period_kind, basis: r.basis, template: r.template, lines: {}, restated: {}, disclosed_at: r.disclosed_at, source: r.source_url };
     if (r.version === "original") { if (!(r.line in p.lines)) p.lines[r.line] = r.value; }
@@ -201,7 +205,7 @@ export async function stock(db: Dbs, symbol: string, timing: string[] = []) {
     shares: sh ? { date: iso(sh.d), issue_size: sh.issue_size, mcap_cr: sh.mcap_paise === null ? null : sh.mcap_paise / 1e9, mcap_source: sh.mcap_source, face_value: sh.face_value_paise === null ? null : sh.face_value_paise / 100 } : null,
     prices: { adjusted_by: applied.map((x) => ({ ex_date: x.ex_date, factor: x.factor, method: x.method })), pending_review: factors.filter((x) => x.status === "review").length, series_breaks: breaks, starts_after_break: lastBreak, rows: prices },
     corporate_actions: actions,
-    financials: { pl: group("pl"), bs: group("bs"), cf: group("cf"), unit: "₹ (rupees, as filed)", note: "Original = earliest disclosure; restated values shown separately (D48)." },
+    financials: { pl: group("pl"), bs: group("bs"), cf: group("cf"), unit: "₹ (rupees, as filed)", note: "Original = earliest disclosure; restated values shown separately (D48). EPS adjusted for later splits/bonuses." },
     shareholding: shpDay ? { as_of: shpDay.as_of, categories: shp.map(({ as_of: _a, ...c }) => c) } : null,
     insider_trades: insider, board_meetings: meetings, credit_ratings: ratings,
   };

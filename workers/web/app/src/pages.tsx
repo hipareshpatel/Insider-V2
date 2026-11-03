@@ -105,8 +105,8 @@ export function Dashboard() {
 
 const LINE_LABEL: Record<string, string> = {
   revenue: "Revenue from operations", total_income: "Total income", interest_earned: "Interest earned", gross_premium: "Gross premium",
-  net_premium: "Net premium", operating_profit: "Operating profit", net_interest_income: "Net interest income", pbt: "Profit before tax", pat: "Profit after tax", eps_basic: "EPS (₹)",
-  total_assets: "Total assets", total_equity: "Total equity", shareholders_funds: "Shareholders' funds", borrowings_noncurrent: "Long-term borrowings", borrowings_current: "Short-term borrowings", cash: "Cash",
+  net_premium: "Net premium", operating_profit: "Operating profit", net_interest_income: "Net interest income", pbt: "Profit before tax", pat: "Profit after tax", eps_basic: "EPS (₹, adjusted for later splits/bonuses)",
+  total_assets: "Total assets", capital: "Capital", reserves: "Reserves and surplus", deposits: "Deposits", borrowings: "Borrowings", advances: "Advances", investments: "Investments", total_equity: "Total equity", shareholders_funds: "Shareholders' funds", borrowings_noncurrent: "Long-term borrowings", borrowings_current: "Short-term borrowings", cash: "Cash",
   cfo: "Operating cash flow", cfi: "Investing cash flow", cff: "Financing cash flow",
 };
 function Statement({ id, title, periods, lines, kind, restated = true }: { id: string; title: string; periods: any[]; lines: string[]; kind?: string; restated?: boolean }) {
@@ -176,7 +176,7 @@ export function Stock({ symbol }: { symbol: string }) {
         <>
           <Statement restated={restated} id="t-q" title={`Quarterly results (${b})`} periods={of(d.financials.pl)} kind="Q" lines={["revenue", "total_income", "interest_earned", "gross_premium", "net_premium", "operating_profit", "pbt", "pat", "eps_basic"]} />
           <h2>Balance sheet</h2>
-          <Statement restated={restated} id="t-bs" title={`Balance sheet (${b})`} periods={of(d.financials.bs)} lines={["total_assets", "total_equity", "shareholders_funds", "borrowings_noncurrent", "borrowings_current", "cash"]} />
+          <Statement restated={restated} id="t-bs" title={`Balance sheet (${b})`} periods={of(d.financials.bs)} lines={["total_assets", "total_equity", "shareholders_funds", "capital", "reserves", "deposits", "borrowings", "advances", "investments", "borrowings_noncurrent", "borrowings_current", "cash"]} />
           <h2>Cash flow</h2>
           <Statement restated={restated} id="t-cf" title={`Cash flow, year to date (${b})`} periods={of(d.financials.cf)} lines={["cfo", "cfi", "cff"]} />
         </>
