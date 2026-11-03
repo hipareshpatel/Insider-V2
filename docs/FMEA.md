@@ -52,3 +52,4 @@ Each mitigation is in code with a test unless marked *process*.
 | C7 | Filing's own expense breakdown doesn't add to its total (360ONE, ABSLAMC: an untagged expense line) | Held (correct); later refinement: load the lines whose checks pass, mark the breakdown "not in filing" |
 | C8 | Splits held when the previous day's share count is missing → factor not applied → wrong adjusted prices | Bc ratio applied automatically when the price move agrees within 5%; otherwise review |
 | C9 | Queued deploy cancelled by GitHub (one pending run per concurrency group) → new code not live | After every push, check each workflow's conclusion; re-dispatch anything cancelled (*process*) |
+| C10 | A commit pushed although tests failed (shell chain ignored the test result) | Commit only when `npm run check` itself exits 0; CI blocks deploys on failure (it did) |
