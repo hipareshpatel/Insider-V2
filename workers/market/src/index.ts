@@ -62,8 +62,10 @@ export default {
     }
     if (url.pathname === "/reviews") {
       const kind = url.searchParams.get("kind");
-      const rows = (await env.DB_APP.prepare(`SELECT kind, subject_ref, summary, created_at FROM review_item WHERE status='open' ${kind ? "AND kind = ?1" : ""} ORDER BY review_id DESC LIMIT 200`)
-        .bind(...(kind ? [kind] : [])).all()).results;
+      // Full export for item-by-item decisions (D141): id, evidence and proposal; paged by review_id.
+      const after = Number(url.searchParams.get("after") ?? 0);
+      const rows = (await env.DB_APP.prepare(`SELECT review_id, kind, subject_ref, summary, evidence, proposed, created_at FROM review_item WHERE status='open' AND review_id > ?1 ${kind ? "AND kind = ?2" : ""} ORDER BY review_id LIMIT 500`)
+        .bind(after, ...(kind ? [kind] : [])).all()).results;
       return Response.json(rows, { headers: { "cache-control": "no-store" } });
     }
     if (url.pathname !== "/status") return new Response("not found", { status: 404 });
