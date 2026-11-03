@@ -18,8 +18,10 @@ export const CF_ADJUSTMENTS: Signed = {
     "AdjustmentsForIncreaseDecreaseInOtherNoncurrentLiabilities", "AdjustmentsForDepreciationAndAmortisationExpense", "AdjustmentsForImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss",
     "AdjustmentsForProvisionsCurrent", "AdjustmentsForProvisionsNoncurrent", "AdjustmentsForOtherFinancialLiabilitiesCurrent", "AdjustmentsForOtherFinancialLiabilitiesNoncurrent",
     "AdjustmentsForUnrealisedForeignExchangeLossesGains", "AdjustmentsForSharebasedPayments", "OtherAdjustmentsForWhichCashEffectsAreInvestingOrFinancingCashFlow",
-    "OtherAdjustmentsToReconcileProfitLoss", "OtherAdjustmentsForNoncashItems"),
-  ...minus("AdjustmentsForDividendIncome", "AdjustmentsForInterestIncome", "AdjustmentsForFairValueGainsLosses", "AdjustmentsForUndistributedProfitsOfAssociates",
+    "OtherAdjustmentsToReconcileProfitLoss", "OtherAdjustmentsForNoncashItems",
+    // reported already signed (a gain is negative): HUL Sep 2026 −810 m, MARUTI −18,686 m reproduce the filed totals only when added
+    "AdjustmentsForFairValueGainsLosses"),
+  ...minus("AdjustmentsForDividendIncome", "AdjustmentsForInterestIncome", "AdjustmentsForUndistributedProfitsOfAssociates",
     "ShareOfProfitAndLossFromPartnershipFirmOrAssociationOfPersonsOrLimitedLiabilityPartnerships"),
 };
 /** Cash generated from operations → net cash from operating activities. */

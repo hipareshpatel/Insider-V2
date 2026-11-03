@@ -332,7 +332,7 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8): Promise<
   const marks = kinds.map(() => "?").join(",");
   const jobs = await deps.filings.all<{ job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }>(
     `SELECT j.job_id, j.kind, j.symbol, j.url, j.r2_key, p.r2_key AS parent_key FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
-     WHERE j.status='done' AND j.kind IN (${marks})${focusSql(deps).sql} AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND ((l.status <> 'skipped' AND NOT (l.status = 'review' AND substr(l.detail, 1, 12) = 'scale guard:') AND NOT (l.status = 'failed' AND substr(l.detail, 1, 11) = 'Error: get:')) OR l.at > ?))
+     WHERE j.status='done' AND j.kind IN (${marks})${focusSql(deps).sql} AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND ((l.status <> 'skipped' AND NOT (l.status = 'review' AND substr(l.detail, 1, 12) = 'scale guard:') AND NOT (l.status = 'failed' AND (substr(l.detail, 1, 11) = 'Error: get:' OR substr(l.detail, 1, 29) = 'Error: Network connection lo'))) OR l.at > ?))
      ORDER BY j.job_id LIMIT ?`, [...kinds, ...focusSql(deps).params, retryBefore, limit]);
   const cache = new Map<string, string | null>();
   const out: LoadOutcome[] = [];

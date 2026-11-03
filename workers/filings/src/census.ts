@@ -4,7 +4,7 @@
 import { type Sql, balanceAndCash, canonicalResult, isOldGaap, parseXbrl, statementDetail } from "@disclo/core";
 import { RESULT_KINDS } from "./load.js";
 
-export interface CensusRow { job: number; schema: string; prefix: string; template?: string; oldGaap?: boolean; aliasLines?: string[]; aliasUsedAuto?: string[]; error?: string; periodCtxs?: { id: string; revenue: string | null }[]; chosen?: string; ctxSample?: string[]; bs?: { t: string; ok: boolean; fail: string[]; n: number; key?: string } | null; cf?: { ok: boolean; fail: string[]; n: number } | null; fy?: { ok: boolean; n: number; fail: string[]; ratio: number | null; err?: string } | null; detail?: { bs: { lines: number; n: number; fail: string[] } | null; cf: { lines: number; n: number; fail: string[] } | null } }
+export interface CensusRow { job: number; schema: string; prefix: string; template?: string; oldGaap?: boolean; aliasLines?: string[]; aliasUsedAuto?: string[]; error?: string; periodCtxs?: { id: string; revenue: string | null }[]; chosen?: string; ctxSample?: string[]; bs?: { t: string; ok: boolean; fail: string[]; n: number; key?: string } | null; cf?: { ok: boolean; fail: string[]; n: number } | null; fy?: { ok: boolean; n: number; fail: string[]; ratio: number | null; err?: string } | null; detail?: { bs: { lines: number; n: number; fail: string[]; why?: string[] } | null; cf: { lines: number; n: number; fail: string[]; why?: string[] } | null; key?: string } }
 
 const shortSchema = (ref: string | null) => (ref ?? "").replace(/^.*\//, "").replace(/[_-]?\d{4}-\d{2}-\d{2}/, "").replace(/\.xsd$/, "") || "(none)";
 
@@ -37,8 +37,9 @@ export async function census(db: Sql, getText: (k: string) => Promise<string | n
     // D154: every reported line item with subtotal checks (balance sheet at OneI, cash flow year to date at FourD).
     try {
       const d = statementDetail(inst, inst.contexts.has("OneI") ? "OneI" : null, inst.contexts.has("FourD") ? "FourD" : null);
-      const sum = (x: typeof d.bs) => (x ? { lines: Object.keys(x.lines).length, n: x.checks.length, fail: x.checks.filter((c) => !c.ok).map((c) => c.name) } : null);
+      const sum = (x: typeof d.bs) => (x ? { lines: Object.keys(x.lines).length, n: x.checks.length, fail: x.checks.filter((c) => !c.ok).map((c) => c.name), why: x.checks.filter((c) => !c.ok).map((c) => c.detail) } : null);
       row.detail = { bs: sum(d.bs), cf: sum(d.cf) };
+      if (row.detail.bs?.fail.length || row.detail.cf?.fail.length) row.detail.key = j.r2_key; // which file, for inspection
     } catch { /* counted as no detail */ }
     // D90: full-year figures from March-quarter (fiscal-year-end) files — readable, identities pass, and FY ÷ quarter revenue.
     try {
