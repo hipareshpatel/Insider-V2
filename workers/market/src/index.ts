@@ -45,6 +45,14 @@ export default {
   // Read-only status (no data beyond counts and run states). Useful from a phone: /status
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+    if (url.pathname === "/corp-actions") {
+      // Read-only export for the whole-population comparison with NSE's per-company lists (owner #271 follow-up).
+      const after = Number(url.searchParams.get("after") ?? 0);
+      const rows = (await env.DB_MARKET.prepare(`SELECT c.ca_id, i.value AS symbol, c.ex_date, c.type, c.raw_purpose FROM corp_action c
+        LEFT JOIN security_identifier i ON i.security_id = c.security_id AND i.id_type = 'nse_symbol' AND i.valid_to IS NULL
+        WHERE c.ca_id > ?1 ORDER BY c.ca_id LIMIT 2000`).bind(after).all()).results;
+      return Response.json({ rows, next: rows.length === 2000 ? (rows[rows.length - 1] as { ca_id: number }).ca_id : null }, { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname === "/acceptance") {
       return Response.json(await acceptance(d1Sql(env.DB_MARKET), d1Sql(env.DB_APP)), { headers: { "cache-control": "no-store" } });
     }

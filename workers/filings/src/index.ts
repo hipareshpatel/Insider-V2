@@ -3,6 +3,7 @@ import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { loadBatch } from "./load.js";
 import { census } from "./census.js";
+import { caLists } from "./calists.js";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string }
 
@@ -45,6 +46,10 @@ export default {
   },
   async fetch(req: Request, env: Env) {
     const path = new URL(req.url).pathname;
+    if (path === "/ca-lists") {
+      const u = new URL(req.url);
+      return Response.json(await caLists(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), Number(u.searchParams.get("after") ?? 0), Math.min(200, Number(u.searchParams.get("limit") ?? 200))), { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/census") {
       const u = new URL(req.url);
       const after = Number(u.searchParams.get("after") ?? 0), limit = Math.min(50, Math.max(1, Number(u.searchParams.get("limit") ?? 40)));
