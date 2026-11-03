@@ -3,7 +3,7 @@
 import { type Sql, adjustPrice, dec, diso, div, fromPaise, sub, toText } from "@disclo/core";
 
 export async function jumps(db: Sql, after: number, limit: number) {
-  const secs = await db.all<{ security_id: number; kind: string }>("SELECT security_id, kind FROM security WHERE security_id > ? ORDER BY security_id LIMIT ?", [after, limit]);
+  const secs = await db.all<{ security_id: number; kind: string }>("SELECT security_id, kind FROM security WHERE kind IN ('equity','etf') AND security_id > ? ORDER BY security_id LIMIT ?", [after, limit]);
   const kindOfSid = new Map(secs.map((s) => [s.security_id, s.kind]));
   if (!secs.length) return { rows: [], next: null };
   const ids = secs.map((s) => s.security_id), lo = ids[0]!, hi = ids[ids.length - 1]!;
@@ -23,6 +23,7 @@ export async function jumps(db: Sql, after: number, limit: number) {
   for (const r of prices) {
     const key = `${r.security_id}|${r.d}`;
     if (key === lastKey) continue; // one row per day (EQ first)
+    if (!kindOfSid.has(r.security_id)) continue; // the id range also covers securities not selected (C22 fix)
     lastKey = key;
     const date = diso(r.d);
     const fr = factors.filter((f) => f.security_id === r.security_id && (f.status === "auto" || f.status === "confirmed")).map((f) => ({ exDate: f.ex_date, factor: f.factor }));

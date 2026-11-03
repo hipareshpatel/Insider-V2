@@ -132,7 +132,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   const wrongDate = bhavAll.filter((r) => r.tradeDate !== date).length;
   if (wrongDate) return { date, status: "rejected", reasons: [`${wrongDate} bhavcopy rows dated other than ${date}`] };
   // Store everything (D127); the universe (D4, D126: EQ/BE/BZ, no INF fund units) is what the gates judge and what is analysed.
-  const inUniverse = (r: BhavRow) => EQUITY_SERIES.has(r.series) && !r.isin.startsWith("INF");
+  const inUniverse = (r: BhavRow) => EQUITY_SERIES.has(r.series) && !r.isin.startsWith("INF") && !isRightsEntitlement(r.isin);
   const equity = bhavAll.filter(inUniverse);
   const reviews: ReviewItem[] = [];
   const reasons: string[] = [];
@@ -363,6 +363,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
 
   // Review checks: unexplained share-count change > 2%, unexplained move > ±35% (§9.1).
   const factored = new Set(todays.keys());
+  const factorStmts2: Stmt[] = [];
   const universeSids = new Set(rows.map((r) => secOf.get(r.symbol)!));
   for (const [sid, n] of todayShares) {
     if (!universeSids.has(sid)) continue;
@@ -384,6 +385,18 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
     const move = toText(div(sub(dec(r.close), dec(pc)), dec(pc), 4));
     if (Math.abs(Number(move)) > 0.35) reviews.push({ kind: "corp_action", subjectDb: "market", subjectRef: `move|${sid}|${date}`, summary: `${r.symbol} moved ${(Number(move) * 100).toFixed(1)}% with no corporate action`, evidence: { prevClose: pc, close: r.close } });
   }
+  // ETFs: no share-count file, so a unit split shows only as a price move. Propose; the owner confirms (never auto).
+  for (const r of rowsAll.filter((x) => x.series === "EQ" && kindOf(x) === "etf")) {
+    const sid = secOf.get(r.symbol);
+    const pc = sid ? prevClose.get(sid) : undefined;
+    if (!sid || factored.has(sid) || !pc || dec(pc).units === 0n) continue;
+    const move = Number(toText(div(sub(dec(r.close), dec(pc)), dec(pc), 4)));
+    if (Math.abs(move) <= 0.35) continue;
+    const f = cleanRatio(move);
+    if (f) factorStmts2.push({ sql: "INSERT INTO adj_factor (security_id,ex_date,factor,method,status) VALUES (?,?,?,'price_ratio','review') ON CONFLICT (security_id,ex_date) DO NOTHING", params: [sid, date, f] });
+    reviews.push({ kind: "corp_action", subjectDb: "market", subjectRef: `etfmove|${sid}|${date}`, summary: `ETF ${r.symbol} moved ${(move * 100).toFixed(1)}%: unit split?${f ? ` proposed factor ${f}` : ""}`, evidence: { prevClose: pc, close: r.close }, proposed: f ? { factor: f, method: "price_ratio", status: "review" } : undefined });
+  }
+  written += await batchAll(deps.market, factorStmts2);
   await writeReviews(deps, reviews);
 
   return {
@@ -421,10 +434,23 @@ async function writeReviews(deps: Deps, items: ReviewItem[]) {
  *  Classified by series (company debentures carry the company's INE ISIN, so ISIN alone can't tell debt from equity).
  *  null = not stored (bonds, debentures, G-secs, SGBs, T-bills, state loans, preference shares). */
 export const EQUITY_STORE_SERIES = new Set(["EQ", "BE", "BZ", "BL", "SM", "ST", "SZ"]);
-export function kindOf(r: { series: string; isin: string }): "equity" | "etf" | "reit" | "invit" | null {
+/** Rights entitlement: company ISIN with security-type code 20 (e.g. INE546Y20030, symbol XYZ-RE). Exact on 107
+ *  sessions of 2026 (22 instruments, 0 mismatches with "-RE" symbols). Not shares: stored as 'other', outside the universe. */
+export function isRightsEntitlement(isin: string): boolean {
+  return isin.length === 12 && isin.startsWith("INE") && isin.slice(7, 9) === "20";
+}
+/** ETF unit split proposal from a price ratio (never applied without the owner: no ETF share count to confirm it). */
+export function cleanRatio(move: number): string | null {
+  const f = 1 + move;
+  for (const [k, t] of [[0.5, "0.5"], [0.2, "0.2"], [0.1, "0.1"], [0.25, "0.25"], [1 / 3, "0.33333333"], [2, "2"], [5, "5"], [10, "10"]] as const)
+    if (Math.abs(f - k) / k < 0.03) return t;
+  return null;
+}
+export function kindOf(r: { series: string; isin: string }): "equity" | "etf" | "reit" | "invit" | "other" | null {
   if (r.series === "RR") return "reit";
   if (r.series === "IV") return "invit";
   if (r.isin.startsWith("INF") && (EQUITY_STORE_SERIES.has(r.series) || r.series === "MF")) return "etf";
+  if (isRightsEntitlement(r.isin) && (EQUITY_STORE_SERIES.has(r.series) || /^[EX][1-9]$/.test(r.series))) return "other";
   if (EQUITY_STORE_SERIES.has(r.series) || /^[EX][1-9]$/.test(r.series)) return "equity"; // E1/X1…: partly paid shares
   return null;
 }

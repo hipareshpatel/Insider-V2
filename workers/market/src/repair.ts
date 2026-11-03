@@ -2,9 +2,10 @@
 // (1) actions in NSE's per-company lists that the Bc files omitted (corp_action_extra, market/0016) and (2) loaded
 // actions that the current parser reads as price-affecting but that have no factor (rows loaded before a parser fix).
 // Uses stored share counts and prices only (primary-key lookups); never re-runs old dates (FMEA A1).
-import { type Sql, affectsPrice, decideFactor, dnum, fromPaise, parsePurpose, reviewUpsert } from "@disclo/core";
+import { type Sql, affectsPrice, batchAll, decideFactor, diso, dnum, fromPaise, parsePurpose, reviewUpsert } from "@disclo/core";
+import { cleanRatio } from "./daily.js";
 
-export const REPAIR_VERSION = "2026-11-03b"; // bump after a parser change to re-run once
+export const REPAIR_VERSION = "2026-11-03c"; // c: + rights entitlements, ETF unit-split proposals // bump after a parser change to re-run once
 
 const ORDER = ["split", "consolidation", "bonus", "rights", "demerger", "capital_reduction", "dividend"];
 const typeOf = (cs: readonly { type: string }[]) => ORDER.find((t) => cs.some((c) => c.type === t)) ?? "other";
@@ -78,7 +79,24 @@ export async function repairFactors(market: Sql, app: Sql, now: Date): Promise<{
       reviews.push({ sql: "UPDATE review_item SET status='superseded', decided_at=? WHERE status='open' AND kind='corp_action' AND subject_ref IN (?, ?)", params: [nowIso, `shares|${g.sid}|${g.ex}`, `move|${g.sid}|${g.ex}`] });
     }
   }
-  if (reviews.length) await app.batch(reviews);
+  // 3. Rights entitlements (kind 'other', market/0017) are not shares: their move/share items are not corporate actions.
+  for (const r of await market.all<{ security_id: number }>("SELECT security_id FROM security WHERE kind='other'"))
+    for (const p of [`move|${r.security_id}|%`, `shares|${r.security_id}|%`])
+      reviews.push({ sql: "UPDATE review_item SET status='superseded', decided_at=? WHERE status='open' AND kind='corp_action' AND subject_ref LIKE ?", params: [nowIso, p] });
+  // 4. ETF history: day moves beyond ±35% with no factor → proposed unit-split factor for the owner (never auto).
+  const etfs = await market.all<{ security_id: number }>("SELECT security_id FROM security WHERE kind='etf'");
+  for (const e of etfs) {
+    const px = await market.all<{ d: number; close: number }>("SELECT d, close FROM price_daily WHERE security_id=? AND series='EQ' ORDER BY d", [e.security_id]);
+    for (let i = 1; i < px.length; i++) {
+      const move = px[i]!.close / px[i - 1]!.close - 1;
+      if (Math.abs(move) <= 0.35) continue;
+      const ex = diso(px[i]!.d), f = cleanRatio(move);
+      if ((await market.all("SELECT 1 FROM adj_factor WHERE security_id=? AND ex_date=?", [e.security_id, ex])).length) continue;
+      if (f) await market.run("INSERT INTO adj_factor (security_id,ex_date,factor,method,status) VALUES (?,?,?,'price_ratio','review') ON CONFLICT (security_id,ex_date) DO NOTHING", [e.security_id, ex, f]);
+      reviews.push(reviewUpsert({ kind: "corp_action", subjectDb: "market", subjectRef: `etfmove|${e.security_id}|${ex}`, summary: `ETF moved ${(move * 100).toFixed(1)}% on ${ex}: unit split?${f ? ` proposed factor ${f}` : ""}`, proposed: f ? { factor: f, method: "price_ratio", status: "review" } : undefined }, nowIso));
+    }
+  }
+  if (reviews.length) await batchAll(app, reviews, 80);
   await market.run("INSERT INTO pipeline_run (pipeline, run_key, started_at, finished_at, status, detail) VALUES ('market.repair_factors', ?, ?, ?, 'ok', ?)",
     [REPAIR_VERSION, nowIso, new Date().toISOString(), JSON.stringify({ moved, candidates: groups.size, decided })]);
   return { moved, decided, reviews: reviews.length };

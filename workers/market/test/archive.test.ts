@@ -50,3 +50,19 @@ describe("per-company corporate actions missing from Bc (market/0016)", () => {
     expect(purposes.filter((p) => affectsPrice(parsePurpose(p))).length).toBe(19);
   });
 });
+
+import { cleanRatio, isRightsEntitlement, kindOf } from "../src/daily.js";
+describe("rights entitlements and ETF unit-split proposals", () => {
+  it("type-20 company ISINs are rights entitlements, stored as 'other'; G-secs are not", () => {
+    expect(isRightsEntitlement("INE546Y20030")).toBe(true);
+    expect(kindOf({ series: "BE", isin: "INE546Y20030" })).toBe("other");
+    expect(isRightsEntitlement("INE721A01013")).toBe(false); // SHRIRAMFIN equity
+    expect(isRightsEntitlement("IN0020220011")).toBe(false); // G-sec with "20" in that position
+    expect(kindOf({ series: "EQ", isin: "INE721A01013" })).toBe("equity");
+  });
+  it("proposes only clean ratios", () => {
+    expect(cleanRatio(-0.899)).toBe("0.1");
+    expect(cleanRatio(-0.503)).toBe("0.5");
+    expect(cleanRatio(-0.62)).toBeNull();
+  });
+});

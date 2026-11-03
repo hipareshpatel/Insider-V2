@@ -65,3 +65,6 @@ Each mitigation is in code with a test unless marked *process*.
 | C20 | Claude assumed the per-company lists use Bc's wording; a test over all 72 texts showed 12 unreadable | Parser learned the long forms; regression over all 5,759 loaded Bc purposes: 0 changes |
 | C21 | Rows loaded before a parser fix keep the old (wrong) type and no factor (19 stored types differ from the current parser, some rights/consolidations) | Same versioned repair re-reads every loaded action without a factor with the current parser |
 | C22 | Adjusted-series audit only covered the 50 Nifty stocks (Phase 1 test 2) | `/jumps` over every security; class counts before and after each factor change (D134) |
+| C23 | Rights entitlements (ISIN type 20) stored and treated as equity → 145 false jumps, wrong universe | Kind `other`, outside the universe (D139); rule verified on 107 sessions |
+| C24 | ETF price moves never reviewed (review checks covered the equity universe only) → 9 unit splits with no record | ETF move > ±35% → review with proposed factor (D139) |
+| C25 | Claude's audit read prices by id range, so it included securities it meant to exclude (caused a wrong "ETFs stored as equity" claim) | Rows outside the selected set are skipped |
