@@ -122,9 +122,10 @@ describe("universe filter (D4) + store everything (D127)", () => {
     expect(r.status).toBe("loaded");
     expect(await market.all("SELECT s.kind FROM security s JOIN security_identifier i ON i.security_id=s.security_id WHERE i.value='NIFTYBEES'")).toEqual([{ kind: "etf" }]);
     expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM price_daily p JOIN security_identifier i ON i.security_id=p.security_id AND i.value='NIFTYBEES'"))[0]!.n).toBe(1);
-    // universe count excludes it; the BL-series BAJFINANCE row and the gold bond are stored too
+    // universe count excludes it; the BL-series BAJFINANCE row is stored too; the gold bond (GB) is not (#257)
     expect(r.counts!.stored_all!).toBeGreaterThan(r.counts!.prices!);
     expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM price_daily WHERE series='BL'"))[0]!.n).toBe(1);
+    expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM price_daily WHERE series='GB'"))[0]!.n).toBe(0);
     expect((await market.all<{ n: number }>("SELECT count(*) AS n FROM security_identifier WHERE value='INFY'"))[0]!.n).toBe(1);
   });
 });
@@ -221,5 +222,18 @@ describe("corporate-action types", () => {
     const p = parsePurpose("AGM/SOMETHING NEW");
     expect(p.components).toEqual([{ type: "meeting" }]);
     expect(p.unparsed).toEqual(["SOMETHING NEW"]);
+  });
+});
+
+describe("instrument kinds (#257)", () => {
+  it("stocks, ETFs, REITs/InvITs kept; debt dropped even with a company INE ISIN", async () => {
+    const { kindOf } = await import("../src/daily.js");
+    expect(kindOf({ series: "EQ", isin: "INE009A01021" })).toBe("equity");
+    expect(kindOf({ series: "SM", isin: "INE0ABC01012" })).toBe("equity");
+    expect(kindOf({ series: "E1", isin: "IN9123A01012" })).toBe("equity");
+    expect(kindOf({ series: "EQ", isin: "INF204KB14I2" })).toBe("etf");
+    expect(kindOf({ series: "RR", isin: "INE0CCU25019" })).toBe("reit");
+    expect(kindOf({ series: "IV", isin: "INE0DD123456" })).toBe("invit");
+    for (const s of ["N0", "NE", "Y3", "GS", "GB", "TB", "SG", "P1", "ZR"]) expect(kindOf({ series: s, isin: "INE123A07011" })).toBeNull();
   });
 });

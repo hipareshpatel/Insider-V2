@@ -134,7 +134,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   if (bad.length > Math.max(0, Math.floor(equity.length * 0.001))) reasons.push(`${bad.length} rows fail low<=open,close<=high or >0`);
   for (const r of bad) reviews.push({ kind: "bc_unparsed", subjectDb: "market", subjectRef: `price|${r.symbol}|${r.series}|${date}`, summary: `Bad OHLC row ${r.symbol} ${r.series} ${date}`, evidence: r });
   const good = equity.filter(saneRow);
-  const goodAll = bhavAll.filter(saneRow); // every instrument, stored (D127)
+  const goodAll = bhavAll.filter((r) => kindOf(r) !== null && saneRow(r)); // stocks, ETFs, REITs/InvITs (D127, #257); no debt
 
   // Gate: MCAP join (from 2024-02-01) and market-cap consistency.
   const mcapBy = new Map<string, McapRow>();
@@ -203,7 +203,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
     for (const c of fresh) {
       const sid = next++;
       const ob = observed.find((o) => o.symbol === c.symbol)!;
-      secRows.push([sid, ob.name, ob.kind]);
+      secRows.push([sid, ob.name, ob.kind ?? "other"]);
       idRowsNew.push([sid, "nse_symbol", c.symbol, date, `udiff:${date}`], [sid, "isin", c.isin, date, `udiff:${date}`]);
       ids.push({ securityId: sid, idType: "nse_symbol", value: c.symbol, validFrom: date, validTo: null }, { securityId: sid, idType: "isin", value: c.isin, validFrom: date, validTo: null });
     }
@@ -275,7 +275,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   const bc = dedupeBc(pr.bc, new Set(pr.bc.map((r) => r.series))); // every series (D127); one row per symbol/ex-date/purpose
   const caStmts: Stmt[] = [];
   const todays = new Map<number, { purposes: string[]; comps: ReturnType<typeof parsePurpose>["components"]; unknown: boolean }>();
-  const shareLike = new Set(rowsAll.filter((r) => ["equity", "etf", "reit", "invit"].includes(kindOf(r))).map((r) => r.symbol));
+  const shareLike = new Set(rowsAll.map((r) => r.symbol)); // rowsAll holds stock-like instruments only (#257)
   for (const r of bc) {
     const sid = secOf.get(r.symbol);
     if (!sid) continue;
@@ -386,11 +386,14 @@ async function writeReviews(deps: Deps, items: ReviewItem[]) {
   await batchAll(deps.app, items.map((i) => reviewUpsert(i, now)));
 }
 
-/** Instrument type for storage (D127). Universe = 'equity' in EQ/BE/BZ. */
-function kindOf(r: BhavRow): "equity" | "etf" | "reit" | "invit" | "other" {
-  if (r.isin.startsWith("INF")) return "etf";
+/** Instrument type for storage (D127 as clarified in #257: everything about stocks, plus ETFs and REITs/InvITs).
+ *  Classified by series (company debentures carry the company's INE ISIN, so ISIN alone can't tell debt from equity).
+ *  null = not stored (bonds, debentures, G-secs, SGBs, T-bills, state loans, preference shares). */
+export const EQUITY_STORE_SERIES = new Set(["EQ", "BE", "BZ", "BL", "SM", "ST", "SZ"]);
+export function kindOf(r: { series: string; isin: string }): "equity" | "etf" | "reit" | "invit" | null {
   if (r.series === "RR") return "reit";
   if (r.series === "IV") return "invit";
-  if (r.isin.startsWith("INE") || r.isin.startsWith("IN9")) return "equity";
-  return "other"; // government securities, bonds, etc.
+  if (r.isin.startsWith("INF") && (EQUITY_STORE_SERIES.has(r.series) || r.series === "MF")) return "etf";
+  if (EQUITY_STORE_SERIES.has(r.series) || /^[EX][1-9]$/.test(r.series)) return "equity"; // E1/X1…: partly paid shares
+  return null;
 }
