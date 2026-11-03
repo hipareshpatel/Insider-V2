@@ -1,6 +1,6 @@
 # Insider V2 — Plan (consolidated)
 
-**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D145** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `FMEA.md` (failure modes, #263), `probe-usage.md`, `setup-guide.md` (owner's step-by-step setup: Cloudflare, GoDaddy nameservers, email routing, probe). **Next chat starts with `docs/HANDOVER.md`.**
+**Status:** Draft for owner review. Consolidated on 2026-11-02; design sections reflect decisions **D1–D146** (Appendix A). All documents live in `docs/`: this plan, `discussion-log.md`, `field-catalogue.md`, `FMEA.md` (failure modes, #263), `probe-usage.md`, `setup-guide.md` (owner's step-by-step setup: Cloudflare, GoDaddy nameservers, email routing, probe). **Next chat starts with `docs/HANDOVER.md`.**
 Build started 2026-11-03 (D122). `probe/` is a throwaway Worker for testing NSE reachability from Cloudflare.
 
 **Working agreement:** this is a discussion phase. No production code is written until the owner says so. Claude asks for the owner's input wherever a decision is theirs, records every decision here, and flags anything it can't verify.
@@ -227,7 +227,7 @@ latest_snapshot  precomputed for the site
 - **Adjusted price** = raw × product of later `adj_factor` values. It's computed, never stored. Volume adjusts inversely.
 - **Market cap** is never adjusted (D5).
 - **Corporate-action rules (D6):**
-  - **Second source (D138):** NSE's per-company corporate-action lists fill actions the Bc files omit (whole-population check: 19 price-affecting of 6,084 since 2024, e.g. SHRIRAMFIN 1:5 split); same parser and factor rules; past gaps repaired from stored share counts, never by re-running old dates. Rights entitlements are kind `other`; ETF unit splits go to owner review (D139). Review items are decided by Claude with independent evidence, applied as migrations (D141).
+  - **Second source (D138):** NSE's per-company corporate-action lists fill actions the Bc files omit (whole-population check: 19 price-affecting of 6,084 since 2024, e.g. SHRIRAMFIN 1:5 split); same parser and factor rules; past gaps repaired from stored share counts, never by re-running old dates. Rights entitlements are kind `other`; ETF unit splits go to owner review (D139). Review items are decided by Claude with independent evidence, applied as migrations (D141). Insolvency capital reductions are series breaks, not factors (D146).
   - Split/bonus: factor = share-count ratio from MCAP, which must match the Bc text within 0.1%.
   - Rights: TERP.
   - Demerger / capital reduction: price-ratio estimate, always reviewed.
@@ -828,6 +828,7 @@ probe/                throwaway reachability check
 | D143 | M0 signed off; M1's 10 clean sessions non-blocking (owner #278) | **M0 approved by the owner** with the review screen (B5) moved later (D141). The 10 consecutive clean sessions (M1) are tracked by the daily check and do not block the next items. |
 | D144 | Downloads always run ahead of need (owner #278: "any downloads when not running, we should have pending downloads running… so idle time can be utilised effectively") | Extends D128: every source a later milestone needs is downloaded **as soon as its path is verified**, in parallel with current work, one source at a time in milestone order; the list of pending downloads lives in HANDOVER and is checked at every hourly update. Nothing waits for its milestone to start downloading. |
 | D145 | Old bank-format results files without any period context are excluded (owner #278: "if required don't use those 275 old format, stocks will have empty financial statements") | The ~275 `banking_entry_point` files whose period is not in the file (no period facts, no dimension-free contexts) are marked *excluded* (not review); the affected bank quarters stay empty until another source exists. Counted separately in the M2 parse rate. |
+| D146 | Series break for insolvency capital reductions and merged-away shares (Claude, from the owner-requested web search #278) | Resolution-plan capital reductions (SPENTEX, SABTN, MELSTAR, SUMEETINDS, MBECL, ALPSINDUS, EASTSILK: 90–99% of public capital extinguished, suspension then relisting) cannot be bridged by an honest factor. **No factor; the price series is marked as broken at that date** and charts/returns (M3) do not join across it. A merged-away share (Tata Coffee) ends its series. |
 
 ## Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |
