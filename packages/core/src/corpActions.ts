@@ -54,6 +54,11 @@ export function decideFactor(i: FactorInputs): FactorDecision {
   }
   const bc = bcShareMultiplier(i.components);
   if (!bc) return { factor: null, method: null, status: "review", reason: "no share multiplier in Bc text" };
+  if (i.exDate >= "2024-02-01" && (i.sharesBefore === null || i.sharesOnEx === null) && i.prevClose && i.openOnEx) {
+    // No share counts (e.g. first day in MCAP): accept the Bc ratio only if the price move agrees within 5%.
+    const priceRatio = div(dec(i.prevClose), dec(i.openOnEx), 8);
+    if (withinRatio(priceRatio, bc, dec("0.05"))) return { factor: toText(div(dec(1), bc, 10)), method: "bc_ratio", status: "auto", reason: `share counts missing; Bc ${toText(bc)} matches price move ${toText(priceRatio)} within 5%` };
+  }
   if (i.exDate < "2024-02-01" || i.sharesBefore === null || i.sharesOnEx === null) {
     return { factor: toText(div(dec(1), bc, 10)), method: "bc_ratio", status: i.exDate < "2024-02-01" ? "auto" : "review", reason: i.exDate < "2024-02-01" ? "before MCAP history: Bc ratio (D6)" : "share counts missing: Bc ratio, review" };
   }

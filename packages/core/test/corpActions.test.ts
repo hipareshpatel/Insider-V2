@@ -35,3 +35,12 @@ describe("corporate-action factors (D6)", () => {
       .toMatchObject({ factor: "10", method: "share_ratio", status: "auto" });
   });
 });
+
+describe("split without share counts (first day in MCAP)", () => {
+  it("auto when the price move agrees with the Bc ratio within 5%, else review", () => {
+    const comps = parsePurpose("FV SPLT FRM RS 10 TO RE 1").components;
+    expect(decideFactor({ exDate: "2025-03-10", components: comps, sharesBefore: null, sharesOnEx: null, prevClose: "1000", faceValue: "10", openOnEx: "101" }))
+      .toMatchObject({ factor: "0.1", method: "bc_ratio", status: "auto" });
+    expect(decideFactor({ exDate: "2025-03-10", components: comps, sharesBefore: null, sharesOnEx: null, prevClose: "1000", faceValue: "10", openOnEx: "500" }).status).toBe("review");
+  });
+});

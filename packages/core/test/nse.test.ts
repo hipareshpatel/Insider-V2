@@ -161,3 +161,20 @@ describe("REIT/InvIT, trust debt and misspelt rights (seen 2025)", () => {
     expect(parsePurpose("RGHTS 1:5 PRM RS 120").components).toEqual([{ type: "rights", newShares: "1", held: "5", premium: "120" }]);
   });
 });
+
+describe("more purpose spellings (seen in the reload)", () => {
+  it.each(["INTDV/SPDV - RS 5 & 3", "DIV/SP DIV - RS 4 & 2", "INT/SPLDIV - RS 3 & 1", "INTDVSPDV RE 0.5 & 0.5"])("%s → dividends", (p) => {
+    const r = parsePurpose(p);
+    expect(r.unparsed).toEqual([]);
+    expect(r.components.filter((c) => c.type === "dividend").length).toBe(2);
+  });
+  it.each(["FSTFINCL RS 5 PR SH", "SECNDFINCAL RS 2.5 PR SH", "FIRSTCAL RS 10 PER SH"])("%s → call money (not price-adjusting)", (p) => {
+    const r = parsePurpose(p);
+    expect(r.unparsed).toEqual([]);
+    expect(r.components).toEqual([{ type: "call" }]);
+    expect(affectsPrice(r)).toBe(false);
+  });
+  it("DISTRIBUTION - 2.5 (no RS)", () => {
+    expect(parsePurpose("DISTRIBUTION - 2.5").components).toEqual([{ type: "dividend", amount: "2.5", kind: "final" }]);
+  });
+});
