@@ -328,7 +328,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 270 | "Slight extra $ ok, max is $5 + $5 for this month for all Cloudflare usage." | D137: ceiling $10/month ($5 plan + up to $5 usage). Stress-tested: Cloudflare has no hard $ stop; budget alerts only notify. Built: daily scheduled cost guard in infra-check (fails above $4, GitHub emails the owner). Suggested owner action: Budget Alert at $5. | 🔶 owner: optional budget alert |
 | 271 | "Good, investigate." (on the D1 rows-read risk) | Measured (top 30 queries this period): 780M rows from a `shares_daily` lookup by date with no index (Claude's D130 schema omission), 213M from `/status` counting all price rows (Claude's polling), 194M from the Jan-2024 back-fill check on every run, 188M from the one-off census, 21M from the every-minute prefetch empty-check. The guessed cause (prefetch discovery) was wrong. Fixed: date index (market/0015), back-fill done-marker, cheap `/status`, `LIMIT 1`. One attempted fix (narrowing the share lookup) was reverted before commit: the D129 check needs every security. FMEA C18. | ✅ re-measure ≈ 5 Nov |
 | 272 | "Good Progress" (after the D137/D138 work and the whole-universe jump audit). | Noted; continuing with the jump classes (gap length per jump, ETF kind). | ✅ |
-| 273 | "It seems like you got into wrong loops or worm hole. Take a minute, think everything, plan a solution and work accordingly." | Agreed with the diagnosis (audit → immediate fix → next class; 4 wrong claims; gate items not moving). Plan re-anchored on the §14 gates: review screen (B5, missing) first, daily freshness second, 10 clean sessions, then M2 reader classes. D140 work protocol. | 🔶 plan proposed |
+| 273 | "It seems like you got into wrong loops or worm hole. Take a minute, think everything, plan a solution and work accordingly." | Agreed with the diagnosis (audit → immediate fix → next class; 4 wrong claims; gate items not moving). Plan re-anchored on the §14 gates: review screen (B5, missing) first, daily freshness second, 10 clean sessions, then M2 reader classes. D140 work protocol. | ✅ order confirmed (#274) |
+| 274 | On review-screen access: "You do it manually one by one." Plan order: "Yes, this order." | Read as: Claude reviews the queue item by item instead of building the screen now. Stress-tested: D6/A13 required owner confirmation to stop guessed factors → D141: every decision needs independent evidence, otherwise the item stays open; decisions applied as migrations in git with the evidence. | 🔶 reviewing |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -337,7 +338,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-03 after entry #273: all checks pass (140 decisions, 273 entries); no open ⚠.*
+*Last run 2026-11-03 after entry #274: all checks pass (141 decisions, 274 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*

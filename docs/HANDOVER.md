@@ -17,7 +17,7 @@
 **Plan (D140, 2026-11-03 10:05 IST) — gate order, one item at a time:**
 | # | Item | Gate it serves | Done when |
 |---|---|---|---|
-| 1 | **Owner review screen** (B5, missing): list open items with evidence, approve / reject / edit factor; decisions written back (factor confirmed/rejected) | M0 B5; M1 tests 2 and 6 | Owner can clear the queue from a phone; access protected (owner choice) |
+| 1 | **Review queue decided by Claude item by item** (owner #274, D141): independent evidence per item, decisions as migrations; screen (B5) later | M1 tests 2 and 6 | Every item decided with evidence or left open with the reason |
 | 2 | **Daily freshness:** new filings discovered each day into the ledger (D135); per-company corporate-action lists refreshed (D138) | M1 "10 sessions, no manual fix"; M2 | A filing / action published today is queued and loaded tomorrow without a hand step |
 | 3 | **10 consecutive clean daily sessions** (from 2026-11-03), one check per evening | M1 | 10 sessions, no manual fix |
 | 4 | Results reader classes (old bank format 249, Integrated Filings with alias names 112): one census → fix → census | M2 (≥ 99.5% parse) | parse rate measured on the whole population ≥ 99.5% |
