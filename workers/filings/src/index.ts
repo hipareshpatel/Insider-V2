@@ -36,10 +36,12 @@ export default {
       let out: Awaited<ReturnType<typeof loadBatch>> = [];
       try {
         const ldeps = { filings: d1Sql(env.DB_FILINGS, meter), market: d1Sql(env.DB_MARKET), getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: env.BSCF_LOAD === "1" };
+        // C47: events first. Placed last, they never ran while the results backlog filled every run (cursor stuck at
+        // job 250168; INFY 20 of NSE's 2,199 insider trades). Lists are small; 150 per run.
+        await loadEvents(ldeps.filings, ldeps.getText, 150); // M2 events: PIT, SAST, board meetings, credit ratings (owner #289)
         out = await loadBatch(ldeps, 300, 8);
         if (ldeps.bscf && out.length < 300) await backfillBsCf(ldeps, 200); // M2: balance sheet + cash flow for earlier filings, when the queue is light
         await versionBackfill(ldeps.filings, 150); // D48: label earlier-loaded revisions once
-        await loadEvents(ldeps.filings, ldeps.getText, 200); // M2 events: PIT, SAST, board meetings, credit ratings (owner #289)
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
       }
