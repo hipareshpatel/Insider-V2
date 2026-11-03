@@ -20,7 +20,7 @@ Each mitigation is in code with a test unless marked *process*.
 | A11 | Upload blocked (1010) | Attachments not saved | Python default User-Agent | Explicit UA; token check before work | Closed |
 | A12 | Deploy kills a running cron | Partial date | Worker replaced mid-run | Upserts converge; avoid deploys during long loads (*process*) | Accepted |
 | A13 | Guessed factor applied | Wrong adjusted prices | Price-ratio estimate written for unknown text | Unknown → no factor; only `auto`/`confirmed` applied | Closed |
-| A14 | Write allowance burned | Overage / stop | Repeated reloads | Daily write budget (D131) | Closed |
+| A14 | Write allowance burned | Overage / stop | Repeated reloads | Monthly cap on billed writes, daily job exempt (D136) | Closed |
 
 ## B. Open risks for the next steps
 | # | Area | Failure mode | Effect | S | L | D | Mitigation (before / while building) |
@@ -53,4 +53,6 @@ Each mitigation is in code with a test unless marked *process*.
 | C8 | Splits held when the previous day's share count is missing → factor not applied → wrong adjusted prices | Bc ratio applied automatically when the price move agrees within 5%; otherwise review |
 | C9 | Queued deploy cancelled by GitHub (one pending run per concurrency group) → new code not live | After every push, check each workflow's conclusion; re-dispatch anything cancelled (*process*) |
 | C10 | A commit pushed although tests failed (shell chain ignored the test result) | Commit only when `npm run check` itself exits 0; CI blocks deploys on failure (it did) |
-| C11 | A "for later" config change (write budget back to 3M) sat in a commit and the single pipeline deployed it with the next push, mid-reload; today's writes were already 5.0M, so the next cron run would have stopped the reload (the in-flight run kept the old 8M value) | Never commit a change meant for a later state; budget set to 6M (normal day ≈ 10k rows, so it only bounds a runaway; within the 50M/month included) |
+| C11 | A "for later" config change (write budget back to 3M) sat in a commit and the single pipeline deployed it with the next push, mid-reload; today's writes were already 5.0M, so the next cron run would have stopped the reload (the in-flight run kept the old 8M value) | Never commit a change meant for a later state; then replaced by the owner's monthly cap (D136, 30M billed rows; daily job exempt) |
+| C12 | Write counter undercounted the bill: it summed table rows changed, but D1 bills index writes too | Count D1 `meta.rows_written` across every write in market + filings; baseline from Cloudflare analytics (D136) |
+| C13 | Same file content stored under several URLs (3,229 contents × 13,013 URLs) | Ledger shows duplicates (`/status`); cause and fix by class — see #265/#266 follow-up |

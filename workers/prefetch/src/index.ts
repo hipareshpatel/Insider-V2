@@ -155,6 +155,7 @@ export default {
       // was saved twice under different URLs.
       failed_by_reason: await q("SELECT kind, http_status, (attempts >= 3 OR IFNULL(http_status,0) = 404) AS final, count(*) AS n FROM fetch_job WHERE status='failed' GROUP BY 1,2,3 ORDER BY n DESC LIMIT 20"),
       duplicate_content: (await q("SELECT count(*) AS hashes, IFNULL(sum(n),0) AS rows, IFNULL(sum(b),0) AS bytes FROM (SELECT count(*) AS n, sum(bytes) AS b FROM fetch_job WHERE sha256 IS NOT NULL GROUP BY sha256 HAVING count(*) > 1)"))[0],
+      duplicate_samples: await q("SELECT sha256, count(*) AS n, group_concat(kind, ' ') AS kinds, min(url) AS url_a, max(url) AS url_b, max(bytes) AS bytes FROM fetch_job WHERE sha256 IN (SELECT sha256 FROM fetch_job WHERE sha256 IS NOT NULL GROUP BY sha256 HAVING count(*) > 1 ORDER BY count(*) DESC LIMIT 6) GROUP BY sha256 ORDER BY n DESC"),
       recent_errors: await q("SELECT kind, symbol, http_status, error FROM fetch_job WHERE status='failed' ORDER BY fetched_at DESC LIMIT 5"),
       last_runs: await q("SELECT at, detail FROM prefetch_log ORDER BY id DESC LIMIT 5"),
     }, { headers: { "cache-control": "no-store" } });

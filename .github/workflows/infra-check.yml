@@ -36,3 +36,19 @@ jobs:
             echo "== $db"; wrangler d1 info $db 2>&1 | mask | grep -iE "size|rows|tables" || true
           done
           for b in disclo-raw disclo-raw-staging; do echo "== $b"; wrangler r2 bucket info $b 2>&1 | mask | grep -iE "size|object|count" || true; done
+      - name: D1 billed usage this month (owner #266 cap; numbers only)
+        run: |
+          FROM=$(TZ=Asia/Kolkata date +%Y-%m-01)
+          python3 - "$FROM" <<'PY' | mask
+          import json, os, sys, urllib.request
+          q = {"query": "query($a:String!,$f:Date!){viewer{accounts(filter:{accountTag:$a}){d1AnalyticsAdaptiveGroups(limit:1000,filter:{date_geq:$f}){sum{rowsWritten rowsRead}dimensions{databaseId date}}}}}",
+               "variables": {"a": os.environ["CLOUDFLARE_ACCOUNT_ID"], "f": sys.argv[1]}}
+          req = urllib.request.Request("https://api.cloudflare.com/client/v4/graphql", data=json.dumps(q).encode(), headers={"Authorization": "Bearer " + os.environ["CLOUDFLARE_API_TOKEN"], "Content-Type": "application/json", "User-Agent": "disclo-infra-check/1"})
+          d = json.load(urllib.request.urlopen(req, timeout=60))
+          if d.get("errors"): print("graphql errors:", [e.get("message") for e in d["errors"]]); sys.exit(0)
+          g = d["data"]["viewer"]["accounts"][0]["d1AnalyticsAdaptiveGroups"]
+          by_day = {}
+          for r in g: by_day[r["dimensions"]["date"]] = by_day.get(r["dimensions"]["date"], 0) + r["sum"]["rowsWritten"]
+          for k in sorted(by_day): print(k, by_day[k])
+          print("MONTH_ROWS_WRITTEN", sum(by_day.values()), "rows_read", sum(r["sum"]["rowsRead"] for r in g))
+          PY
