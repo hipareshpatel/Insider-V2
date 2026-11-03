@@ -19,7 +19,7 @@
 **Owner to do:** nothing blocking. Optional: free Gemini AI Studio key for later prompt trials (not needed yet); review queue once the review screen exists (M3); trademark check for Disclo; email test last.
 **Decided (D132):** as-filed XBRL facts kept in R2 (gzip), canonical lines in D1.
 
-**Plan for today:** (1) D130 compact storage + no bonds + gate extension, then reload market history from R2 (≈ 1–2 h); (2) first index snapshot → Phase 1 test 2; (3) market cron back to every 10 min; (4) shareholding reader; load canonical results from R2 into `filings`; (5) remove the probe schedule (≈ 4 Nov).
+**Plan for today:** (1) ✅ D130 compact storage + no bonds + gate extension deployed 06:40 IST; reload from R2 running; (2) first index snapshot → Phase 1 test 2; (3) market cron back to every 10 min; (4) shareholding reader; load canonical results from R2 into `filings`; (5) remove the probe schedule (≈ 4 Nov).
 
 ## Build state (updated 2026-11-03 03:55 IST)
 **Running on Cloudflare (production unless noted):**
