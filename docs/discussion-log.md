@@ -345,6 +345,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 287 | "Ignore code in previous AI generated response." (sent twice, around a session restart) | Ambiguous; asked. Owner: "Code was in AI generated stock specific answer it contain code which I asked to ignore, not your code" — i.e. the code remarks in V1's pasted answer (excise fix, Hindalco/Novelis card) are ignored; none of it was used. V2 work continues. | ✅ |
 | 288 | Quoting Claude's estimate note: "One task is pending from M1 and you are moving to M2, is it automated already running?" Plus a pasted AI analysis of UEL (insolvency resolution plan mislabelled as demerger; claimed 666:1 capital reduction; prices ₹6.95 → ₹25.55) and a ledger restating the other six decisions, with a code block. | Yes: market-structure history loads automatically (F&O OI, ban, price bands, bulk done; block in progress; short next) and the 10-session count runs from the scheduled check. Found and reported: 480 of 704 bulk-deal history days hit the API cap (flagged). UEL: code ignored (#287); claims tested — core claim (NCLT resolution plan) confirmed by independent sources; the paste's prices and capital-reduction timing contradict NSE data (₹43.80 → ₹160.95; reduction before the April 2024 relisting) → decided as a series break (D146). Test 6 queue now empty. | ✅ |
 | 289 | "Go ahead with the PIT and SAST readers" … "readers for insider trading, takeover disclosures (SAST), credit ratings and board meetings … Go ahead." | Format check found the per-company PIT/SAST/board-meeting/corporate-action/governance lists capped at the latest 20 rows (BRSR 1): history mostly missing (C40). Full history queued first (D149; 8,189 calls), readers built and deployed (insider trades, SAST, board meetings, credit ratings; real-file tests incl. NSE's duplicate rows). | ✅ (loading) |
+| 290 | "Go ahead with the checks and sector map" (counts vs NSE, restatement + basis rules on known cases, sector map for review). | In progress: count check against NSE's own lists; sector map drafted for owner review (D121, #240); restatement / basis known-case tests (M2 gate). | 🔶 in progress |
 
 ## Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -353,7 +354,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-03 after entry #289: all checks pass (149 decisions, 289 entries); no open ⚠.*
+*Last run 2026-11-03 after entry #290: all checks pass (149 decisions, 290 entries); no open ⚠.*
 
 ## Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
