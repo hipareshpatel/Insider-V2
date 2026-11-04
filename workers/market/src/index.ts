@@ -12,7 +12,7 @@ import { digestDay } from "./digest.js";
 import { WEEKEND_MARKER, loadIndexHistory, loadIndexWeekends } from "./indexhist.js";
 import { runDay } from "./daily.js";
 import { istNow } from "./dates.js";
-import { type D1Meter, FORBIDDEN_TEXT, chargeReads, readLevel, readsToday, statusAuthorized } from "@disclo/core";
+import { type D1Meter, FORBIDDEN_TEXT, chargeReads, writeCaps, writeLevel, writesThisMonth, readLevel, readsToday, statusAuthorized } from "@disclo/core";
 
 export interface Env {
   DB_MARKET: D1Database;
@@ -23,6 +23,7 @@ export interface Env {
   ENVIRONMENT: string;
   BACKFILL_FROM?: string; // staging loads recent dates only
   MONTHLY_WRITE_CAP?: string;  // owner #266: billed D1 rows per IST month (market + filings); bulk work stops at the cap
+  WRITE_SOFT_CAP?: string; WRITE_HARD_CAP?: string; WRITE_CAP_MONTH?: string; // D166: two-tier caps for one month
   CACHE_AUTHORITATIVE_UNTIL?: string; // D128: archive prefetch complete up to this date
   STATUS_TOKEN?: string; // diagnostic pages answer only with this token (audit 4 Nov)
   DAILY_READ_CAP?: string; // C56 read breaker: rows read per IST day, all workers
@@ -56,8 +57,12 @@ export default {
         // C56 read breaker (audit 4 Nov): the daily market load always runs; the optional passes after it stop once
         // today's rows read (all workers) pass the daily cap.
         const level = readLevel(await readsToday(deps.market, new Date()), Number(env.DAILY_READ_CAP ?? 150_000_000));
-        const r = await runPending(deps, { maxDates: 40, budgetMs: 8 * 60_000, from: env.BACKFILL_FROM, monthlyCap: env.MONTHLY_WRITE_CAP ? Number(env.MONTHLY_WRITE_CAP) : undefined });
+        // D166: back-fill dates stop at the soft cap (the daily job of the last 7 days always runs, D136); the live
+        // structure and sector steps run up to the hard cap
+        const caps = writeCaps(env, new Date());
+        const r = await runPending(deps, { maxDates: 40, budgetMs: 8 * 60_000, from: env.BACKFILL_FROM, monthlyCap: caps.soft });
         if (level !== "ok") { structure = { read_cap: 1 }; return r; }
+        if (writeLevel(await writesThisMonth(deps.market, new Date()), caps) === "hard") { structure = { write_cap: 1 }; return r; }
         // M1 market structure (D144): R2 only, in date order, within what is left of this run (live delta: today's files).
         structure = await loadStructure({ market: deps.market, raw: env.RAW, now: deps.now }, Math.max(0, 11 * 60_000 - (Date.now() - t0)));
         // D150: sector history from new announcement lists (download ledger → R2), with what is left.
@@ -81,6 +86,7 @@ export default {
     if (!statusAuthorized(req, env.STATUS_TOKEN)) return new Response(FORBIDDEN_TEXT, { status: 403, headers: { "cache-control": "no-store" } });
     // D163 (P1): one-off passes started explicitly (ops workflow), one bounded batch per call; each saves its position
     if (url.pathname.startsWith("/maint/") && req.method === "POST") {
+      if (writeLevel(await writesThisMonth(d1Sql(env.DB_MARKET), new Date()), writeCaps(env, new Date())) !== "ok") return Response.json({ done: false, refused: "monthly soft write cap reached (D166): one-off passes wait" }, { status: 429 });
       const m = d1Sql(env.DB_MARKET), name = url.pathname.slice(7), sd = { market: m, raw: env.RAW, now: () => new Date() };
       let r: unknown;
       if (name === "deals_refill") { const x = await refillDealsCsv(sd, 60_000); r = { ...x, done: !x.refilled && !x.waiting }; }

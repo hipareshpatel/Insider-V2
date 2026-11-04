@@ -94,7 +94,8 @@ jobs:
           total = sum(cost.values())
           print(f"period from {start}: d1 written {w:,} read {rd:,}; r2 class A {a:,} class B {b:,}; r2 stored {gb:.2f} GB")
           print("estimated usage charges ($):", {k: round(v, 2) for k, v in cost.items()}, "total", round(total, 2), "(Workers CPU from the dashboard: $0.02 per extra million ms)")
-          if total > 4: print("::error::estimated usage charges above $4 this period (owner ceiling $5, D137)"); sys.exit(1)
+          limit = 20 if str(start) == "2026-11-02" else 4  # D166: $25 ceiling for the Nov 2026 billing period only; $10 (usage $4 alarm) again after
+          if total > limit: print(f"::error::estimated usage charges above ${limit} this period (D137, D166)"); sys.exit(1)
           PY
       - name: Top D1 queries by rows read this period (owner #271)
         run: |

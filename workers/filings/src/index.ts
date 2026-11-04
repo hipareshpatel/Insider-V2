@@ -6,9 +6,9 @@ import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
 import { primaryBasisStep } from "./basis.js";
 import { caLists } from "./calists.js";
-import { BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
+import { BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
-export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string; STATUS_TOKEN?: string; DAILY_READ_CAP?: string }
+export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; WRITE_SOFT_CAP?: string; WRITE_HARD_CAP?: string; WRITE_CAP_MONTH?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string; STATUS_TOKEN?: string; DAILY_READ_CAP?: string }
 
 /** D155 (owner #316): load filings only for the focus indices' companies (default Nifty 50 + Next 50 + Midcap 150); "ALL" = everyone. */
 export async function focusSymbols(market: D1Database, spec = FOCUS_DEFAULT, meter?: D1Meter): Promise<string[] | undefined> {
@@ -20,9 +20,9 @@ export const RUN_BUDGET_MS = 210_000, LOCK_TTL_MS = 10 * 60_000;
 
 /** Owner #266: one monthly cap on billed D1 writes, shared with the market worker (ledger in the market DB). */
 const istDay = (d: Date) => new Date(d.getTime() + 330 * 60_000).toISOString().slice(0, 10);
-async function capReached(env: Env, now: Date): Promise<boolean> {
-  const r = await env.DB_MARKET.prepare("SELECT sum(rows) AS rows FROM write_budget WHERE day LIKE ?1").bind(istDay(now).slice(0, 7) + "-%").first<{ rows: number | null }>();
-  return (r?.rows ?? 0) >= Number(env.MONTHLY_WRITE_CAP ?? 45_000_000);
+/** D166: "soft" = optional steps and one-off passes stop; "hard" = nothing runs (live loading stops only here). */
+async function capLevel(env: Env, now: Date) {
+  return writeLevel(await writesThisMonth(d1Sql(env.DB_MARKET), now), writeCaps(env, now));
 }
 
 async function getText(bucket: R2Bucket, key: string): Promise<string | null> {
@@ -42,7 +42,8 @@ export default {
         ON CONFLICT (name) DO UPDATE SET holder = ?1, expires_at = ?2 WHERE job_lock.expires_at < ?3`)
         .bind(holder, new Date(now.getTime() + LOCK_TTL_MS).toISOString(), now.toISOString()).run();
       if (!lock.meta.changes) return;
-      if (await capReached(env, now)) { await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run(); console.log(JSON.stringify({ env: env.ENVIRONMENT, skipped: "monthly write cap reached" })); return; }
+      const writes = await capLevel(env, now);
+      if (writes === "hard") { await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run(); console.log(JSON.stringify({ env: env.ENVIRONMENT, skipped: "monthly hard write cap reached" })); return; }
       const meter: D1Meter = { rows: 0, reads: 0 };
       let out: Awaited<ReturnType<typeof loadBatch>> = [];
       const errors: string[] = [];
@@ -70,7 +71,7 @@ export default {
         // D50/D51: primary basis + basis-switch breaks, only for focus companies with newly loaded filings (live delta).
         // D163 (P1): the one-off passes (BS/CF backfill, version pass, remark pass) are not in the cron; they run when
         // started explicitly (POST /maint/<name> through the ops workflow), one bounded batch per call.
-        if (level === "ok" && focus) await step("primary_basis", async () => {
+        if (level === "ok" && writes === "ok" && focus) await step("primary_basis", async () => {
           const sids = new Set((await market.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(focus)])).map((r) => r.security_id));
           return primaryBasisStep(ldeps.filings, market, ldeps.getText, sids, now);
         });
@@ -81,7 +82,7 @@ export default {
       if (meter.rows > 0) await env.DB_MARKET.prepare("INSERT INTO write_budget (day, rows) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET rows = rows + excluded.rows").bind(istDay(new Date()), meter.rows).run();
       const by: Record<string, number> = {};
       for (const o of out) by[o.status] = (by[o.status] ?? 0) + 1;
-      console.log(JSON.stringify({ env: env.ENVIRONMENT, processed: out.length, by, reads: level, errors, ms: Date.now() - now.getTime() }));
+      console.log(JSON.stringify({ env: env.ENVIRONMENT, processed: out.length, by, reads: level, writes, errors, ms: Date.now() - now.getTime() }));
     })());
   },
   async fetch(req: Request, env: Env) {
@@ -95,6 +96,7 @@ export default {
     const path = new URL(req.url).pathname;
     // D163 (P1): one-off passes started explicitly (ops workflow), one bounded batch per call; each saves its position
     if (path.startsWith("/maint/") && req.method === "POST") {
+      if ((await capLevel(env, new Date())) !== "ok") return Response.json({ done: false, refused: "monthly soft write cap reached (D166): one-off passes wait" }, { status: 429 });
       const db = d1Sql(env.DB_FILINGS), focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES), name = path.slice(7);
       const ldeps = { filings: db, market: d1Sql(env.DB_MARKET), getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: true, focus };
       let r: unknown;
