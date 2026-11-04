@@ -80,6 +80,11 @@ export default {
     })());
   },
   async fetch(req: Request, env: Env) {
+    // read-only pages: an exception is returned as its message (no data, no secrets) instead of a bare 1101
+    try { return await this.page(req, env); } catch (e) { return Response.json({ error: String(e).slice(0, 300) }, { status: 500, headers: { "cache-control": "no-store" } }); }
+  },
+
+  async page(req: Request, env: Env): Promise<Response> {
     const path = new URL(req.url).pathname;
     if (path === "/revisions") {
       // Read-only (D48): periods with more than one results filing for the same security and basis, with key figures.
