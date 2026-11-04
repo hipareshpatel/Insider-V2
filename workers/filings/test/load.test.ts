@@ -377,7 +377,11 @@ describe("restatement and basis rules on known cases (M2 gate, D48/D50)", () => 
       expect(v.map((x) => x.version)).toEqual(["original", "restated"]);
       const flags = await filings.all<{ line: string; change_pct: string }>("SELECT line, change_pct FROM restatement_flag");
       expect(flags.length).toBeGreaterThanOrEqual(2); // revenue, total income, PAT changed by 2% > 0.5%
-      expect(flags.every((f) => Math.abs(Number(f.change_pct) - 2) < 0.1)).toBe(true);
+      const off = flags.filter((f) => Math.abs(Math.abs(Number(f.change_pct)) - 2) >= 0.1); // negative lines move by −2%
+      expect(off).toEqual([]);
+      // owner #336: every changed line is flagged, not only 4 core lines (expenses, tax, EPS-free rupee lines …)
+      expect(flags.length).toBeGreaterThan(4);
+      expect(flags.some((f) => !["revenue", "total_income", "pat", "interest_earned"].includes(f.line))).toBe(true);
     }
   });
   it("standalone and consolidated for the same quarter stay two series (INFY Sep 2024, real files)", async () => {

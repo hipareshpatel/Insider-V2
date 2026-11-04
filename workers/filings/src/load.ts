@@ -189,16 +189,18 @@ export async function versionPeriod(db: Sql, sid: number, periodEnd: string, per
   const first = at[0]!.disclosed_at;
   await db.run("UPDATE fin_value SET version='original' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at=? AND version<>'original'", [sid, periodEnd, periodKind, basis, first]);
   await db.run("UPDATE fin_value SET version='restated' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at>? AND version='original'", [sid, periodEnd, periodKind, basis, first]);
-  const vals = await db.all<{ line: string; value: string | null; disclosed_at: string }>(
-    "SELECT line, value, disclosed_at FROM fin_value WHERE security_id=? AND statement='pl' AND line IN ('revenue','total_income','pat','interest_earned') AND period_end=? AND period_kind=? AND basis=?", [sid, periodEnd, periodKind, basis]);
-  const orig = new Map(vals.filter((v) => v.disclosed_at === first).map((v) => [v.line, v.value]));
+  // Owner #336: every line of every statement (P&L, balance sheet, cash flow, detail lines) is compared with its first
+  // disclosure; a change of more than 0.5% and more than ₹1 lakh is flagged (was: 4 core P&L lines only).
+  const vals = await db.all<{ statement: string; line: string; value: string | null; disclosed_at: string }>(
+    "SELECT statement, line, value, disclosed_at FROM fin_value WHERE security_id=? AND dims='' AND period_end=? AND period_kind=? AND basis=? ORDER BY disclosed_at", [sid, periodEnd, periodKind, basis]);
+  const orig = new Map<string, { value: string | null; at: string }>();
+  for (const v of vals) { const k = `${v.statement}|${v.line}`; if (!orig.has(k)) orig.set(k, { value: v.value, at: v.disclosed_at }); }
   const flags: unknown[][] = [];
   for (const v of vals) {
-    if (v.disclosed_at === first || v.value === null) continue;
-    const o = orig.get(v.line);
-    if (o === undefined || o === null || Number(o) === 0) continue;
-    const pct = (Number(v.value) - Number(o)) / Math.abs(Number(o));
-    if (Math.abs(pct) > 0.005) flags.push([sid, "pl", v.line, periodEnd, periodKind, basis, o, v.value, (pct * 100).toFixed(2), first, v.disclosed_at]);
+    const o = orig.get(`${v.statement}|${v.line}`)!;
+    if (v.disclosed_at === o.at || v.value === null || o.value === null || Number(o.value) === 0) continue;
+    const diff = Number(v.value) - Number(o.value), pct = diff / Math.abs(Number(o.value));
+    if (Math.abs(pct) > 0.005 && Math.abs(diff) > 1e5) flags.push([sid, v.statement, v.line, periodEnd, periodKind, basis, o.value, v.value, (pct * 100).toFixed(2), o.at, v.disclosed_at]);
   }
   if (flags.length) await batchAll(db, insertRows("INSERT OR REPLACE INTO restatement_flag (security_id,statement,line,period_end,period_kind,basis,original_value,restated_value,change_pct,original_at,restated_at)", 11, flags));
   return flags.length;

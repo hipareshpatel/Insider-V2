@@ -82,6 +82,17 @@ export default {
         board_meetings: await one("SELECT count(*) AS n FROM board_meeting WHERE symbol=?1 AND coalesce(meeting_d, 0) BETWEEN ?2 AND ?3"),
       }, { headers: { "cache-control": "no-store" } });
     }
+    if (path === "/restatements") {
+      // Read-only (owner #336): restatement flags — one company (?symbol=) or a summary of all.
+      const sym = new URL(req.url).searchParams.get("symbol");
+      if (!sym) return Response.json({
+        by_statement: (await env.DB_FILINGS.prepare("SELECT statement, count(*) AS lines, count(DISTINCT security_id || period_end || basis) AS periods FROM restatement_flag GROUP BY statement").all()).results,
+        progress: (await env.DB_FILINGS.prepare("SELECT at, detail FROM daily_refresh WHERE day='once' AND slot='version_backfill'").all()).results,
+      }, { headers: { "cache-control": "no-store" } });
+      const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
+      const rows = (await env.DB_FILINGS.prepare("SELECT statement, line, period_end, period_kind, basis, original_value, restated_value, change_pct, original_at, restated_at FROM restatement_flag WHERE security_id=?1 ORDER BY period_end DESC, basis, statement, abs(change_pct) DESC LIMIT 200").bind(sid ?? -1).all()).results;
+      return Response.json(rows, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/py-check") {
       // Read-only (owner #336): balance-sheet restatements. Each stored results file of one company also carries the
       // PRIOR year-end balance sheet (PY_I); compare it with what we stored when that year-end was first reported.
