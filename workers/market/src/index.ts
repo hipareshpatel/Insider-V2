@@ -54,7 +54,8 @@ export default {
         // D156: 10-year index history from stored daily index files (R2 only). Runs before the sector job (owner #325:
         // it only got leftover seconds after it); once the range is loaded this returns at once.
         indexHist = await loadIndexHistory(deps.market, env.RAW, Math.max(0, 11.5 * 60_000 - (Date.now() - t0)));
-        const weekends = await loadIndexWeekends(deps.market, env.RAW, Math.max(0, 11.5 * 60_000 - (Date.now() - t0)));
+        // one-off and small (836 weekend days, 25 per batch): its own minute, since the steps before it can use the run's time
+        const weekends = await loadIndexWeekends(deps.market, env.RAW, Math.max(60_000, 11.5 * 60_000 - (Date.now() - t0)));
         if (weekends) indexHist = { ...(indexHist as object), weekends };
         // D150: sector history from the stored announcement lists (R2 only), with what is left.
         sectors = await buildSectors({ market: deps.market, raw: env.RAW, today: istNow(deps.now()).date }, Math.max(0, 12 * 60_000 - (Date.now() - t0)));
