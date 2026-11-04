@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
-import { backfillBsCf, broadcastFor, loadBatch, nseIstToUtc } from "../src/load.js";
+import { backfillBsCf, broadcastFor, loadBatch, nseIstToUtc, submissionFor } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 function sqlite(domain: string): Sql & { raw: DatabaseSync } {
@@ -413,5 +413,18 @@ describe("restatement and basis rules on known cases (M2 gate, D48/D50)", () => 
     expect(r.map((x) => x.basis)).toEqual(["consolidated", "standalone"]);
     expect(r.every((x) => x.version === "original")).toBe(true); // different basis = not a restatement
     expect(r[0]!.value).not.toBe(r[1]!.value);
+  });
+});
+
+describe("submission type and revision remark (owner #337)", () => {
+  it("Union Bank Q4 FY26 revision (list row shape as stored): type and remark kept; original rows have no remark", () => {
+    const U = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_BANKING_1730436_29092026050823_WEB.xml";
+    const list = JSON.stringify({ data: [
+      { qe_Date: "31-MAR-2026", consolidated: "Consolidated", revised_Date: "29-SEP-2026 17:08:12", type_Sub: "Revision", xbrl: U,
+        revision_Remark: "Informed by BSE to insert the figures of cash and cash equivalents cash flow statement at beginning of period for both standalone and consolidated" },
+      { qe_Date: "31-MAR-2026", consolidated: "Consolidated", broadcast_Date: "23-Apr-2026 19:23:02", type_Sub: "Original", xbrl: "https://nsearchives.nseindia.com/corporate/xbrl/X.xml" }] });
+    expect(submissionFor(list, U)).toEqual({ submission: "Revision", remark: expect.stringContaining("Informed by BSE to insert the figures of cash") });
+    expect(submissionFor(list, "https://nsearchives.nseindia.com/corporate/xbrl/X.xml")).toEqual({ submission: "Original", remark: null });
+    expect(broadcastFor(list, U)).toBe("2026-09-29T11:38:12.000Z"); // revisions carry no broadcast time: the revision date (IST → UTC)
   });
 });

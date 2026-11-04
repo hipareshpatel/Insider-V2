@@ -1,7 +1,7 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { RESULT_KINDS, backfillBsCf, loadBatch, versionBackfill } from "./load.js";
+import { RESULT_KINDS, backfillBsCf, loadBatch, remarkBackfill, versionBackfill } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents } from "./events.js";
 import { caLists } from "./calists.js";
@@ -53,6 +53,7 @@ export default {
         out = await loadBatch(ldeps, 300, 8);
         if (ldeps.bscf) await backfillBsCf(ldeps, out.length < 300 ? 200 : 60); // M2: BS/CF + FY (D90) for earlier filings; a small share every run (it never started while the backlog filled every run)
         await versionBackfill(ldeps.filings, 150); // D48: label earlier-loaded revisions once
+        await remarkBackfill(ldeps.filings, (k) => getText(env.RAW, k), 40); // owner #337: submission type + revision remark, once
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
       }
@@ -119,11 +120,13 @@ export default {
       const sym = new URL(req.url).searchParams.get("symbol");
       if (!sym) return Response.json({
         by_statement: (await env.DB_FILINGS.prepare("SELECT statement, count(*) AS lines, count(DISTINCT security_id || period_end || basis) AS periods FROM restatement_flag GROUP BY statement").all()).results,
-        progress: (await env.DB_FILINGS.prepare("SELECT at, detail FROM daily_refresh WHERE day='once' AND slot='version_backfill'").all()).results,
+        progress: (await env.DB_FILINGS.prepare("SELECT slot, at, detail FROM daily_refresh WHERE day='once' AND slot IN ('version_backfill','remark_backfill')").all()).results,
+        revised_filings: (await env.DB_FILINGS.prepare("SELECT count(*) AS n, sum(revision_remark IS NOT NULL) AS with_remark FROM filing WHERE submission='Revision'").first()),
       }, { headers: { "cache-control": "no-store" } });
       const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
       const rows = (await env.DB_FILINGS.prepare("SELECT statement, line, period_end, period_kind, basis, original_value, restated_value, change_pct, original_at, restated_at FROM restatement_flag WHERE security_id=?1 ORDER BY period_end DESC, basis, statement, abs(change_pct) DESC LIMIT 200").bind(sid ?? -1).all()).results;
-      return Response.json(rows, { headers: { "cache-control": "no-store" } });
+      const revisions = (await env.DB_FILINGS.prepare("SELECT period_end, period_kind, basis, disclosed_at, submission, revision_remark FROM filing WHERE security_id=?1 AND (submission='Revision' OR revision_remark IS NOT NULL) ORDER BY period_end DESC").bind(sid ?? -1).all()).results;
+      return Response.json({ flags: rows, revisions }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/py-check") {
       // Read-only (owner #336): balance-sheet restatements. Each stored results file of one company also carries the

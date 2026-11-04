@@ -43,6 +43,41 @@ export function broadcastFor(listJson: string, url: string): string | null {
   return null;
 }
 
+/** Owner #337: NSE's submission type ("Original" / "Revision") and revision remark for the list row linking this file. */
+export function submissionFor(listJson: string, url: string): { submission: string | null; remark: string | null } {
+  let rows: Record<string, unknown>[] = [];
+  try { const d = JSON.parse(listJson); rows = Array.isArray(d) ? d : (d.data ?? []); } catch { return { submission: null, remark: null }; }
+  const row = rows.find((r) => JSON.stringify(r).includes(url));
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 500) : null);
+  return { submission: str(row?.type_Sub ?? row?.typeOfSubmission), remark: str(row?.revision_Remark ?? row?.revisionRemark) };
+}
+
+/** One-off (owner #337): fill submission type and revision remark of already-loaded filings from their stored lists. */
+export async function remarkBackfill(db: Sql, getText: (k: string) => Promise<string | null>, limit = 40): Promise<{ after: number; done: boolean; updated: number } | null> {
+  const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='remark_backfill'");
+  const cur = st ? JSON.parse(st.detail) as { after: number; done: boolean; updated: number } : { after: 0, done: false, updated: 0 };
+  if (cur.done) return null;
+  const lists = await db.all<{ job_id: number; r2_key: string }>("SELECT job_id, r2_key FROM fetch_job WHERE job_id > ? AND status='done' AND kind IN ('integrated_financials','results_quarterly','results_annual') ORDER BY job_id LIMIT ?", [cur.after, limit]);
+  const stmts: { sql: string; params: unknown[] }[] = [];
+  for (const l of lists) {
+    const text = await getText(l.r2_key).catch(() => null);
+    if (!text) continue;
+    let rows: Record<string, unknown>[] = [];
+    try { const d = JSON.parse(text); rows = Array.isArray(d) ? d : (d.data ?? []); } catch { continue; }
+    for (const r of rows) {
+      const sub = typeof (r.type_Sub ?? r.typeOfSubmission) === "string" ? String(r.type_Sub ?? r.typeOfSubmission).trim() : "";
+      const rem = typeof (r.revision_Remark ?? r.revisionRemark) === "string" ? String(r.revision_Remark ?? r.revisionRemark).trim().slice(0, 500) : "";
+      if (!sub && !rem) continue;
+      for (const u of JSON.stringify(r).match(/https:\/\/nsearchives\.nseindia\.com\/corporate\/[^"\s\\]+?\.xml/gi) ?? [])
+        stmts.push({ sql: "UPDATE filing SET submission=coalesce(submission, ?), revision_remark=coalesce(revision_remark, ?) WHERE source_url=?", params: [sub || null, rem || null, u] });
+    }
+  }
+  if (stmts.length) await batchAll(db, stmts, 200);
+  const next = { after: lists.length ? lists[lists.length - 1]!.job_id : cur.after, done: lists.length < limit, updated: cur.updated + stmts.length };
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','remark_backfill',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(next)]);
+  return next;
+}
+
 const TEMPLATE: Record<CanonicalResult["template"], string> = { industrial: "industrial", bank: "bank", life_insurance: "insurance", general_insurance: "insurance" }; // life and general share the stored value; their line names differ
 const CORE: Record<CanonicalResult["template"], string[]> = { industrial: ["revenue", "pat"], bank: ["interest_earned", "pat"], life_insurance: ["gross_premium", "pat"], general_insurance: ["gross_premium", "pat"] };
 
@@ -159,10 +194,11 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   const disclosedAt = (job.parent_key && broadcastFor(listCache.get(job.parent_key) ?? "", job.url)) ?? null;
   if (!disclosedAt) return { jobId: job.job_id, status: "review", detail: "broadcast time not found in its list (D32 needs disclosed_at)" };
 
+  const sub = submissionFor(listCache.get(job.parent_key!) ?? "", job.url);
   await deps.filings.run(
-    `INSERT INTO filing (security_id, kind, period_end, period_kind, basis, disclosed_at, source_url, status) VALUES (?,?,?,?,?,?,?,'loaded')
+    `INSERT INTO filing (security_id, kind, period_end, period_kind, basis, disclosed_at, source_url, status, submission, revision_remark) VALUES (?,?,?,?,?,?,?,'loaded',?,?)
      ON CONFLICT (kind, source_url) DO NOTHING`,
-    [sec.security_id, job.kind.replace(/^xbrl_/, ""), r.periodEnd, r.periodKind, r.basis, disclosedAt, job.url]);
+    [sec.security_id, job.kind.replace(/^xbrl_/, ""), r.periodEnd, r.periodKind, r.basis, disclosedAt, job.url, sub.submission, sub.remark]);
   const [f] = await deps.filings.all<{ filing_id: number }>("SELECT filing_id FROM filing WHERE kind=? AND source_url=?", [job.kind.replace(/^xbrl_/, ""), job.url]);
   const rows = [
     ...Object.entries(r.lines).map(([line, value]) => [
