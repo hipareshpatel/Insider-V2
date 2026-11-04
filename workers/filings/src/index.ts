@@ -54,7 +54,7 @@ export default {
         out = await loadBatch(ldeps, 300, 8);
         if (ldeps.bscf) await backfillBsCf(ldeps, out.length < 300 ? 200 : 60); // M2: BS/CF + FY (D90) for earlier filings; a small share every run (it never started while the backlog filled every run)
         await versionBackfill(ldeps.filings, 150); // D48: label earlier-loaded revisions once
-        await remarkBackfill(ldeps.filings, (k) => getText(env.RAW, k), 40); // owner #337: submission type + revision remark, once
+        await remarkBackfill(ldeps.filings, (k) => getText(env.RAW, k), 40); // owner #334: submission type + revision remark, once
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
       }
@@ -85,7 +85,7 @@ export default {
       }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/if-list") {
-      // Read-only (owner #337): every row of the stored NSE results lists for one company (period, basis, submission
+      // Read-only (owner #334): every row of the stored NSE results lists for one company (period, basis, submission
       // type, revision remarks, dates, XBRL link) — to see whether a revised/restated filing exists for a period.
       const sym = new URL(req.url).searchParams.get("symbol") ?? "";
       const lists = (await env.DB_FILINGS.prepare("SELECT job_id, kind, url, r2_key, fetched_at FROM fetch_job WHERE symbol=?1 AND kind IN ('integrated_financials','results_quarterly','results_annual') AND status='done' ORDER BY job_id").bind(sym).all<{ job_id: number; kind: string; url: string; r2_key: string; fetched_at: string }>()).results;
@@ -104,7 +104,7 @@ export default {
       return Response.json({ lists: lists.length, rows }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/contexts") {
-      // Read-only (owner #337): every context of one stored XBRL file — id, dates, dimensions, number of facts, sample tags.
+      // Read-only (owner #334): every context of one stored XBRL file — id, dates, dimensions, number of facts, sample tags.
       const key = new URL(req.url).searchParams.get("key") ?? "";
       if (!/^att\/xbrl\/[A-Za-z0-9_.-]+\.xml$/.test(key)) return new Response("bad key", { status: 400 });
       const xml = await getText(env.RAW, key);
@@ -123,7 +123,7 @@ export default {
       return Response.json({ facts: inst.facts.length, contexts: ctx.filter((c) => c.facts > 0).sort((a, b) => b.facts - a.facts), undefined_refs: undefinedRefs }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/restatements") {
-      // Read-only (owner #336): restatement flags — one company (?symbol=) or a summary of all.
+      // Read-only (owner #334): restatement flags — one company (?symbol=) or a summary of all.
       const sym = new URL(req.url).searchParams.get("symbol");
       if (!sym) return Response.json({
         by_statement: (await env.DB_FILINGS.prepare("SELECT statement, count(*) AS lines, count(DISTINCT security_id || period_end || basis) AS periods FROM restatement_flag GROUP BY statement").all()).results,
@@ -136,7 +136,7 @@ export default {
       return Response.json({ flags: rows, revisions }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/py-check") {
-      // Read-only (owner #336): balance-sheet restatements. Each stored results file of one company also carries the
+      // Read-only (owner #334): balance-sheet restatements. Each stored results file of one company also carries the
       // PRIOR year-end balance sheet (PY_I); compare it with what we stored when that year-end was first reported.
       const sym = new URL(req.url).searchParams.get("symbol") ?? "";
       const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;

@@ -86,7 +86,7 @@ describe("FY22 old-format March-quarter file (contexts referenced but undefined)
   });
 });
 
-describe("revised filing of a half year: balance sheet and cash flow versioned and flagged (owner #336)", () => {
+describe("revised filing of a half year: balance sheet and cash flow versioned and flagged (owner #334)", () => {
   it("INFY Sep 2026 filed twice, the second with every balance-sheet figure 2% larger: H-period rows original/restated, BS lines flagged", async () => {
     const UA = "https://nsearchives.nseindia.com/corporate/xbrl/IF_A.xml", UB = "https://nsearchives.nseindia.com/corporate/xbrl/IF_B.xml";
     const filings = sqlite("filings"), market = sqlite("market");
@@ -399,7 +399,7 @@ describe("restatement and basis rules on known cases (M2 gate, D48/D50)", () => 
       expect(flags.length).toBeGreaterThanOrEqual(2); // revenue, total income, PAT changed by 2% > 0.5%
       const off = flags.filter((f) => Math.abs(Math.abs(Number(f.change_pct)) - 2) >= 0.1); // negative lines move by −2%
       expect(off).toEqual([]);
-      // owner #336: every changed line is flagged, not only 4 core lines (expenses, tax, EPS-free rupee lines …)
+      // owner #334: every changed line is flagged, not only 4 core lines (expenses, tax, EPS-free rupee lines …)
       expect(flags.length).toBeGreaterThan(4);
       expect(flags.some((f) => !["revenue", "total_income", "pat", "interest_earned"].includes(f.line))).toBe(true);
     }
@@ -416,7 +416,7 @@ describe("restatement and basis rules on known cases (M2 gate, D48/D50)", () => 
   });
 });
 
-describe("submission type and revision remark (owner #337)", () => {
+describe("submission type and revision remark (owner #334)", () => {
   it("Union Bank Q4 FY26 revision (list row shape as stored): type and remark kept; original rows have no remark", () => {
     const U = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_BANKING_1730436_29092026050823_WEB.xml";
     const list = JSON.stringify({ data: [

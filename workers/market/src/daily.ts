@@ -456,7 +456,7 @@ export const EQUITY_STORE_SERIES = new Set(["EQ", "BE", "BZ", "BL", "SM", "ST", 
 export function isRightsEntitlement(isin: string): boolean {
   return isin.length === 12 && isin.startsWith("INE") && isin.slice(7, 9) === "20";
 }
-/** Owner #339: NSE's "DUMMY…" symbols are test instruments for corporate-action processing, not companies. Stored as
+/** Owner #335: NSE's "DUMMY…" symbols are test instruments for corporate-action processing, not companies. Stored as
  *  'other' (nothing downloaded is deleted, #282), outside the universe, statistics, sectors and the site. */
 export function isDummySymbol(symbol: string): boolean {
   return /^DUMMY/i.test(symbol.trim());

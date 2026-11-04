@@ -43,7 +43,7 @@ export function broadcastFor(listJson: string, url: string): string | null {
   return null;
 }
 
-/** Owner #337: NSE's submission type ("Original" / "Revision") and revision remark for the list row linking this file. */
+/** Owner #334: NSE's submission type ("Original" / "Revision") and revision remark for the list row linking this file. */
 export function submissionFor(listJson: string, url: string): { submission: string | null; remark: string | null } {
   let rows: Record<string, unknown>[] = [];
   try { const d = JSON.parse(listJson); rows = Array.isArray(d) ? d : (d.data ?? []); } catch { return { submission: null, remark: null }; }
@@ -52,7 +52,7 @@ export function submissionFor(listJson: string, url: string): { submission: stri
   return { submission: str(row?.type_Sub ?? row?.typeOfSubmission), remark: str(row?.revision_Remark ?? row?.revisionRemark) };
 }
 
-/** One-off (owner #337): fill submission type and revision remark of already-loaded filings from their stored lists. */
+/** One-off (owner #334): fill submission type and revision remark of already-loaded filings from their stored lists. */
 export async function remarkBackfill(db: Sql, getText: (k: string) => Promise<string | null>, limit = 40): Promise<{ after: number; done: boolean; updated: number } | null> {
   const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='remark_backfill'");
   const cur = st ? JSON.parse(st.detail) as { after: number; done: boolean; updated: number } : { after: 0, done: false, updated: 0 };
@@ -225,7 +225,7 @@ export async function versionPeriod(db: Sql, sid: number, periodEnd: string, per
   const first = at[0]!.disclosed_at;
   await db.run("UPDATE fin_value SET version='original' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at=? AND version<>'original'", [sid, periodEnd, periodKind, basis, first]);
   await db.run("UPDATE fin_value SET version='restated' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at>? AND version='original'", [sid, periodEnd, periodKind, basis, first]);
-  // Owner #336: every line of every statement (P&L, balance sheet, cash flow, detail lines) is compared with its first
+  // Owner #334: every line of every statement (P&L, balance sheet, cash flow, detail lines) is compared with its first
   // disclosure; a change of more than 0.5% and more than ₹1 lakh is flagged (was: 4 core P&L lines only).
   const vals = await db.all<{ statement: string; line: string; value: string | null; disclosed_at: string }>(
     "SELECT statement, line, value, disclosed_at FROM fin_value WHERE security_id=? AND dims='' AND period_end=? AND period_kind=? AND basis=? ORDER BY disclosed_at", [sid, periodEnd, periodKind, basis]);
@@ -291,7 +291,7 @@ export async function loadBsCf(inst: XbrlInstance, sid: number, template: string
   }
   if (rows.length) await batchAll(deps.filings, insertRows(
     "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, rows, "ON CONFLICT DO NOTHING"));
-  // owner #336: version + flag the balance-sheet / cash-flow periods too, after their rows exist (H and 9M periods
+  // owner #334: version + flag the balance-sheet / cash-flow periods too, after their rows exist (H and 9M periods
   // were never checked, and Q/FY were checked before these rows were written)
   const periods = new Set(rows.map((r) => `${r[5]}|${r[6]}`));
   for (const pk of periods) { const [end, k] = pk.split("|"); await versionPeriod(deps.filings, sid, end!, k!, basis); }

@@ -246,7 +246,7 @@ describe("instrument kinds (#257)", () => {
     const { kindOf } = await import("../src/daily.js");
     expect(kindOf({ series: "EQ", isin: "INE009A01021" })).toBe("equity");
     expect(kindOf({ series: "SM", isin: "INE0ABC01012" })).toBe("equity");
-    expect(kindOf({ series: "EQ", isin: "INE000000001", symbol: "DUMMYSKF1" })).toBe("other"); // owner #339: corporate-action test symbols
+    expect(kindOf({ series: "EQ", isin: "INE000000001", symbol: "DUMMYSKF1" })).toBe("other"); // owner #335: corporate-action test symbols
     expect(kindOf({ series: "E1", isin: "IN9123A01012" })).toBe("equity");
     expect(kindOf({ series: "EQ", isin: "INF204KB14I2" })).toBe("etf");
     expect(kindOf({ series: "RR", isin: "INE0CCU25019" })).toBe("reit");
