@@ -209,7 +209,9 @@ function months(a: string, b: string): number {
 /** span "ytd": read the year-to-date context instead of the quarter (Q4 files → full-year figures, D90). NSE convention
  *  (checked on INFY Mar 2024 in-bse-fin and Mar 2026 Integrated Filing): FourD is FY start → period end even when it
  *  carries the quarter's own dates (C29); without FourD, the context from FY start to period end. */
-export interface CanonicalOptions { aliases?: "auto" | "all" | "none"; span?: "period" | "ytd"; undefinedYtd?: boolean }
+/** periodStart (D169): read the dimension-free context from this date to the period end instead of the file's own
+ *  reporting period (the quarter inside a half-year file). */
+export interface CanonicalOptions { aliases?: "auto" | "all" | "none"; span?: "period" | "ytd"; undefinedYtd?: boolean; periodStart?: string }
 
 export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {}): CanonicalResult {
   const P = prefixOf(inst);
@@ -218,7 +220,7 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
   if (!pStart || !end) throw new Error("results: reporting period not found");
   const ytd = opts.span === "ytd";
   const fyStartMeta = meta("DateOfStartOfFinancialYear");
-  const start = ytd ? (fyStartMeta ?? (() => { throw new Error("results: financial-year start not found"); })()) : pStart;
+  const start = ytd ? (fyStartMeta ?? (() => { throw new Error("results: financial-year start not found"); })()) : (opts.periodStart ?? pStart);
   // Current-period context: entity level (no dimensions) spanning exactly the reporting period.
   // V1 hint (C29): the year-to-date context (FourD) can carry the quarter's own dates; prefer the quarter (OneD)
   // explicitly instead of relying on document order (20,437 files had both).
@@ -228,7 +230,7 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
       ?? (opts.undefinedYtd && inst.facts.some((f) => f.contextRef === "FourD") ? { id: "FourD", entity: meta("Symbol"), start, end, instant: null, dims: {} } : undefined))
     : spans.find((c) => c.id === "OneD") ?? spans.find((c) => !/^four/i.test(c.id)) ?? spans[0];
   if (ytd && !ctx) throw new Error(`results: no year-to-date context for ${start}..${end}`);
-  if (!ctx) {
+  if (!ctx && !opts.periodStart) {
     // Some filings (seen: 2021 in-bse-fin files) reference a context id they never define. The filing's own
     // DateOfStart/EndOfReportingPeriod facts sit in that same context id, so they define its period (FMEA C4).
     const ref = inst.facts.find((f) => f.tag === P + "DateOfEndOfReportingPeriod")?.contextRef;
@@ -258,7 +260,7 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
   // V1 hint (#276): alternative line names (e.g. ProfitLossForThePeriod in Integrated Filings) are the same concept
   // only if the file's own arithmetic proves it: retry with aliases and accept only when every check passes.
   if (mode === "auto" && !useAliases && template === "industrial" && missing.some((m) => ["revenue", "total_income", "pat"].includes(m))) {
-    const alt = canonicalResult(inst, { aliases: "all", span: opts.span, undefinedYtd: opts.undefinedYtd });
+    const alt = canonicalResult(inst, { aliases: "all", span: opts.span, undefinedYtd: opts.undefinedYtd, periodStart: opts.periodStart });
     const filled = ["revenue", "total_income", "pat"].every((k) => alt.lines[k] !== undefined);
     if (filled && alt.checks.length >= 3 && alt.checks.every((c) => c.ok)) return { ...alt, aliasProven: true };
   }

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
-import { backfillBsCf, broadcastFor, loadBatch, nseIstToUtc, submissionFor, versionPeriod } from "../src/load.js";
+import { backfillBsCf, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 function sqlite(domain: string): Sql & { raw: DatabaseSync } {
@@ -529,5 +529,62 @@ describe("renamed companies (work list item 2)", () => {
     expect(renamed).not.toBe(xml);
     const { deps } = setup({ "att/xbrl/a.xml": renamed, "api/results_quarterly/INFY/x.json": list });
     expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded" });
+  });
+});
+
+describe("half-year-only files (D169): the quarter from its own column, else half-year minus the previous quarter", () => {
+  const F = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_IF_Q2FY27_cons_full.xml"), "utf8");
+  // a file whose own reporting period is the half-year (Apr–Sep), as COFORGE / COALINDIA filed
+  const halfMeta = F.replace('DateOfStartOfReportingPeriod contextRef="OneD">2026-07-01<', 'DateOfStartOfReportingPeriod contextRef="OneD">2026-04-01<');
+  // ... and with no 3-month column at all (the quarter's context turned into a second half-year one)
+  const halfOnly = halfMeta.replace(/(<xbrli:context id="OneD">.*?<xbrli:startDate>)2026-07-01/, "$12026-04-01");
+  const prepare = () => {
+    const filings = sqlite("filings"), market = sqlite("market");
+    filings.raw.exec("INSERT INTO filing (filing_id,security_id,kind,period_end,period_kind,basis,disclosed_at,source_url) VALUES (50,7,'integrated_financials','2026-09-30','H','consolidated','2026-10-16T11:10:00.000Z','u')");
+    return { filings, deps: { filings, market, getText: async () => null, now: () => new Date("2026-11-03T02:00:00Z") } };
+  };
+  it("quarter bounds", () => {
+    expect(quarterBounds("2026-09-30")).toEqual({ start: "2026-07-01", prevEnd: "2026-06-30" });
+    expect(quarterBounds("2025-03-31")).toEqual({ start: "2025-01-01", prevEnd: "2024-12-31" });
+    expect(quarterBounds("2025-12-31")).toEqual({ start: "2025-10-01", prevEnd: "2025-09-30" });
+    expect(quarterBounds("2026-02-28")).toEqual({ start: "2025-12-01", prevEnd: "2025-11-30" });
+  });
+  it("(a) the file has a 3-month column: the quarter is loaded as reported", async () => {
+    const { filings, deps } = prepare();
+    const inst = parseXbrl(halfMeta), h = canonicalResult(inst);
+    expect(h.periodKind).toBe("H");
+    const r = await loadQuarterOfHalf(inst, h, 7, "2026-10-16T11:10:00.000Z", 50, deps);
+    expect(r.note).toContain("loaded from its own column");
+    const rev = await filings.all<Record<string, unknown>>("SELECT value, period_kind, origin FROM fin_value WHERE line='revenue'");
+    expect(rev).toEqual([{ value: "492440000000", period_kind: "Q", origin: "reported" }]);
+    expect((await loadQuarterOfHalf(inst, h, 7, "2026-10-16T11:10:00.000Z", 50, deps)).rows).toBe(0); // already stored
+  });
+  it("(b) no quarter column: half-year minus the stored previous quarter, flow lines only, origin computed", async () => {
+    const { filings, deps } = prepare();
+    const inst = parseXbrl(halfOnly), h = canonicalResult(inst);
+    expect(h.periodKind).toBe("H");
+    expect((await loadQuarterOfHalf(inst, h, 7, "2026-10-16T11:10:00.000Z", 50, deps)).note).toContain("2026-06-30 not stored");
+    filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (49,7,'integrated_financials','2026-07-17T00:00:00Z','q1');
+      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version) VALUES
+      (7,'industrial','pl','revenue','','2026-06-30','Q','consolidated','original','200000000000','2026-07-17T00:00:00Z',49,'reported','t'),
+      (7,'industrial','pl','pat','','2026-06-30','Q','consolidated','original','50000000000','2026-07-17T00:00:00Z',49,'reported','t'),
+      (7,'industrial','pl','eps_basic','','2026-06-30','Q','consolidated','original','12.1','2026-07-17T00:00:00Z',49,'reported','t')`);
+    const r = await loadQuarterOfHalf(inst, h, 7, "2026-10-16T11:10:00.000Z", 50, deps);
+    expect(r.note).toContain("half-year minus quarter ending 2026-06-30 (2 lines)");
+    const q = await filings.all<Record<string, unknown>>("SELECT line, value, origin, extractor_version FROM fin_value WHERE period_end='2026-09-30' AND period_kind='Q' ORDER BY line");
+    expect(q).toEqual([
+      { line: "pat", value: String(Number(h.lines.pat) - 50000000000), origin: "computed", extractor_version: "q-from-h-v1" },
+      { line: "revenue", value: String(Number(h.lines.revenue) - 200000000000), origin: "computed", extractor_version: "q-from-h-v1" },
+    ]); // eps (per share) is never subtracted
+  });
+  it("(b) an implausible result (previous quarter bigger than the half-year) writes nothing", async () => {
+    const { filings, deps } = prepare();
+    const inst = parseXbrl(halfOnly), h = canonicalResult(inst);
+    filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (49,7,'integrated_financials','2026-07-17T00:00:00Z','q1');
+      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version) VALUES
+      (7,'industrial','pl','revenue','','2026-06-30','Q','consolidated','original','${Number(h.lines.revenue) * 2}','2026-07-17T00:00:00Z',49,'reported','t'),
+      (7,'industrial','pl','pat','','2026-06-30','Q','consolidated','original','1','2026-07-17T00:00:00Z',49,'reported','t')`);
+    expect((await loadQuarterOfHalf(inst, h, 7, "2026-10-16T11:10:00.000Z", 50, deps)).note).toContain("outside");
+    expect((await filings.all<{ n: number }>("SELECT count(*) AS n FROM fin_value WHERE period_end='2026-09-30'"))[0]!.n).toBe(0);
   });
 });

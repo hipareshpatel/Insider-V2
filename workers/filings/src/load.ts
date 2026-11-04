@@ -1,7 +1,7 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, statementDetail, type Sql, type XbrlInstance, balanceAndCash, batchAll, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, statementDetail, type Sql, type XbrlInstance, balanceAndCash, batchAll, byKindAfter, markFresh, canonicalResult, dec, div, sub, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
 
 export interface Deps {
   filings: Sql;
@@ -247,7 +247,8 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   await versionPeriod(deps.filings, sec.security_id, r.periodEnd, r.periodKind, r.basis);
   const extra = deps.bscf ? await loadBsCf(inst!, sec.security_id, TEMPLATE[r.template], r.basis, disclosedAt, f!.filing_id, deps) : { rows: 0, note: "" };
   const fyx = await loadFy(inst!, r, sec.security_id, disclosedAt, f!.filing_id, deps);
-  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}${extra.note}${fyx.note}`, rows: rows.length + extra.rows + fyx.rows , counts: { "filing:results": ins.changes ? 1 : 0, pl: rows.length + fyx.rows, bs: extra.by?.bs ?? 0, cf: extra.by?.cf ?? 0 }, newest: disclosedAt };
+  const qh = await loadQuarterOfHalf(inst!, r, sec.security_id, disclosedAt, f!.filing_id, deps);
+  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}${extra.note}${fyx.note}${qh.note}`, rows: rows.length + extra.rows + fyx.rows + qh.rows, counts: { "filing:results": ins.changes ? 1 : 0, pl: rows.length + fyx.rows + qh.rows, bs: extra.by?.bs ?? 0, cf: extra.by?.cf ?? 0 }, newest: disclosedAt };
 }
 
 /** D48: for one company, period and basis, the earliest disclosure is 'original' and every later one 'restated'
@@ -387,7 +388,8 @@ export async function loadBsCf(inst: XbrlInstance, sid: number, template: string
 /** D90: full-year P&L from a March-quarter (fiscal-year-end) file's year-to-date context, loaded only when its own
  *  identities pass and FY ÷ quarter of the core line is plausible (1–12×). Same filing, disclosed_at and basis. */
 export async function loadFy(inst: XbrlInstance, q: CanonicalResult, sid: number, disclosedAt: string, filingId: number, deps: Deps): Promise<{ rows: number; note: string }> {
-  if (q.periodKind !== "Q") return { rows: 0, note: "" };
+  // D169: a half-year file ending at the year end (H2, no 3-month column) carries the full year too
+  if (q.periodKind !== "Q" && q.periodKind !== "H") return { rows: 0, note: "" };
   const fyStart = inst.facts.find((x) => /:DateOfStartOfFinancialYear$/.test(x.tag))?.value ?? null;
   if (!fyStart || months(fyStart, q.periodEnd) !== 12) return { rows: 0, note: "" };
   let fy: CanonicalResult;
@@ -398,12 +400,95 @@ export async function loadFy(inst: XbrlInstance, q: CanonicalResult, sid: number
   if (core.some((k) => fy.lines[k] === undefined)) return { rows: 0, note: `; FY not loaded: missing ${core.filter((k) => fy.lines[k] === undefined).join(",")}` };
   if (fy.checks.length < 2 || fy.checks.some((c) => !c.ok)) return { rows: 0, note: `; FY not loaded: ${fy.checks.filter((c) => !c.ok).map((c) => c.name).join(", ") || "too few checks"}` };
   const qv = Number(q.lines[core[0]!]), fv = Number(fy.lines[core[0]!]);
-  if (qv > 0 && fv > 0 && (fv / qv < 1 || fv / qv > 12)) return { rows: 0, note: `; FY not loaded: FY ÷ quarter ${(fv / qv).toFixed(2)}` };
+  if (qv > 0 && fv > 0 && (fv / qv < 1 || fv / qv > 12)) return { rows: 0, note: `; FY not loaded: FY ÷ ${q.periodKind === "H" ? "half-year" : "quarter"} ${(fv / qv).toFixed(2)}` };
   const rows = Object.entries(fy.lines).map(([line, value]) => [sid, TEMPLATE[fy.template], "pl", line, "", fy.periodEnd, "FY", fy.basis, "original", value, null, disclosedAt, filingId, line, "reported", "results-fy-v1"]);
   await batchAll(deps.filings, insertRows(
     "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, rows, "ON CONFLICT DO NOTHING"));
   await versionPeriod(deps.filings, sid, fy.periodEnd, "FY", fy.basis);
   return { rows: rows.length, note: `; ${fy.label} loaded` };
+}
+
+/** Lines that are not flows over the period (per-share, ratios, balances): never derived by subtraction (D169). */
+const NOT_FLOW = /^(eps|paid_up_capital$|gross_npa$|net_npa$|gnpa_pct$|nnpa_pct$|cet1_ratio$|roa$)|_ratio$/;
+const ymd = (y: number, m: number, d: number) => `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+/** First day of the quarter ending at `end`, and the end of the quarter before it (period ends are month ends). */
+export function quarterBounds(end: string): { start: string; prevEnd: string } {
+  const y = Number(end.slice(0, 4)), m = Number(end.slice(5, 7));
+  const sm = m - 2, sy = sm < 1 ? y - 1 : y, smm = sm < 1 ? sm + 12 : sm;
+  const pm = m - 3, py = pm < 1 ? y - 1 : y, pmm = pm < 1 ? pm + 12 : pm;
+  return { start: ymd(sy, smm, 1), prevEnd: ymd(py, pmm, new Date(Date.UTC(py, pmm, 0)).getUTCDate()) };
+}
+export const SQL_Q_EXISTS = "SELECT 1 AS x FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id=? AND period_end=? AND period_kind='Q' AND basis=? AND statement='pl' LIMIT 1";
+export const SQL_PREV_Q = "SELECT line, value, disclosed_at FROM fin_value WHERE security_id=? AND period_end=? AND period_kind='Q' AND basis=? AND statement='pl' AND dims='' AND disclosed_at <= ?";
+
+/** D169 (work list item 2): some filers report the second or fourth quarter as a half-year file only (reporting
+ *  period of 6 months; seen: COFORGE Mar 2025 has H2 + FY columns and no quarter). The quarter is then
+ *  (a) read from the file when it has a dimension-free 3-month context (origin 'reported'), else
+ *  (b) the half-year minus the quarter before it, as stored at or before this file's disclosure (flow lines only,
+ *      origin 'computed', extractor 'q-from-h-v1'), only when the previous quarter is stored with the core line and
+ *      the result is plausible (core line between 0 and the half-year's).
+ *  Nothing is written when a quarter for that period is already stored (any filing). */
+export async function loadQuarterOfHalf(inst: XbrlInstance, h: CanonicalResult, sid: number, disclosedAt: string, filingId: number, deps: Deps): Promise<{ rows: number; note: string }> {
+  if (h.periodKind !== "H") return { rows: 0, note: "" };
+  const { start, prevEnd } = quarterBounds(h.periodEnd);
+  if ((await deps.filings.all(SQL_Q_EXISTS, [sid, h.periodEnd, h.basis])).length) return { rows: 0, note: "" };
+  const insert = (rows: unknown[][]) => batchAll(deps.filings, insertRows(
+    "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, rows, "ON CONFLICT DO NOTHING"));
+  const core = CORE[h.template];
+  // (a) the quarter's own column, when the file has one
+  let q: CanonicalResult | null = null;
+  try { q = canonicalResult(inst, { periodStart: start }); } catch { q = null; }
+  if (q && q.periodKind === "Q" && q.template === h.template && core.every((k) => q!.lines[k] !== undefined) && q.checks.length >= 2 && q.checks.every((c) => c.ok)) {
+    const rows = Object.entries(q.lines).map(([line, value]) => [sid, TEMPLATE[q!.template], "pl", line, "", q!.periodEnd, "Q", q!.basis, "original", value, null, disclosedAt, filingId, line, "reported", "results-q-in-h-v1"]);
+    await insert(rows);
+    return { rows: rows.length, note: `; ${q.label} loaded from its own column` };
+  }
+  // (b) half-year minus the previous quarter
+  const prev = await deps.filings.all<{ line: string; value: string | null; disclosed_at: string }>(SQL_PREV_Q, [sid, prevEnd, h.basis, disclosedAt]);
+  const latest = new Map<string, { value: string | null; at: string }>();
+  for (const r of prev) { const o = latest.get(r.line); if (!o || r.disclosed_at > o.at) latest.set(r.line, { value: r.value, at: r.disclosed_at }); }
+  if (core.some((k) => latest.get(k)?.value == null)) return { rows: 0, note: `; quarter not derived: quarter ending ${prevEnd} not stored` };
+  const out: [string, string][] = [];
+  for (const [line, hv] of Object.entries(h.lines)) {
+    const pv = latest.get(line)?.value;
+    if (NOT_FLOW.test(line) || pv == null) continue;
+    out.push([line, toText(sub(dec(hv), dec(pv)))]);
+  }
+  const qCore = Number(out.find(([l]) => l === core[0])?.[1]), hCore = Number(h.lines[core[0]!]);
+  if (!(qCore >= 0 && qCore <= hCore)) return { rows: 0, note: `; quarter not derived: ${core[0]} ${qCore} outside 0..${hCore}` };
+  const rows = out.map(([line, value]) => [sid, TEMPLATE[h.template], "pl", line, "", h.periodEnd, "Q", h.basis, "original", value, null, disclosedAt, filingId, `${line} = H - Q ${prevEnd}`, "computed", "q-from-h-v1"]);
+  await insert(rows);
+  return { rows: rows.length, note: `; quarter computed: half-year minus quarter ending ${prevEnd} (${rows.length} lines)` };
+}
+
+/** D169 one-off for the active "loaded, but under another period or basis" gaps (from the D168 floor): re-reads each
+ *  gap's half-year file and adds its quarter and (at the year end) its full year. Bounded: coverage_gap is small;
+ *  per gap one indexed filing lookup, one fetch_job lookup and one R2 read. */
+export async function halfYearGaps(deps: Deps, floor = COVERAGE_FLOOR): Promise<{ gaps: number; files: number; rows: number; sids: number[]; notes: string[] }> {
+  const gaps = await deps.filings.all<{ security_id: number; period_end: string; basis: string }>(
+    "SELECT security_id, period_end, basis FROM coverage_gap WHERE status = 'loaded, but under another period or basis' AND period_end >= ?", [floor]);
+  let files = 0, rows = 0;
+  const notes: string[] = [];
+  for (const g of gaps) {
+    const fs = await deps.filings.all<{ filing_id: number; kind: string; source_url: string; disclosed_at: string }>(
+      "SELECT filing_id, kind, source_url, disclosed_at FROM filing WHERE security_id=? AND period_end=? AND period_kind='H' AND basis=?", [g.security_id, g.period_end, g.basis]);
+    for (const f of fs) {
+      const [j] = await deps.filings.all<{ r2_key: string }>("SELECT r2_key FROM fetch_job WHERE url=?", [f.source_url]);
+      const xml = j?.r2_key ? await deps.getText(j.r2_key) : null;
+      if (!xml) { notes.push(`${g.security_id} ${g.period_end} ${g.basis}: file not stored`); continue; }
+      files++;
+      try {
+        const inst = parseXbrl(xml);
+        const h = canonicalResult(inst);
+        const a = await loadQuarterOfHalf(inst, h, g.security_id, f.disclosed_at, f.filing_id, deps);
+        const b = await loadFy(inst, h, g.security_id, f.disclosed_at, f.filing_id, deps);
+        rows += a.rows + b.rows;
+        notes.push(`${g.security_id} ${g.period_end} ${g.basis}:${a.note || " quarter already stored"}${b.note}`);
+      } catch (e) { notes.push(`${g.security_id} ${g.period_end} ${g.basis}: ${String(e).slice(0, 80)}`); }
+    }
+    if (!fs.length) notes.push(`${g.security_id} ${g.period_end} ${g.basis}: no half-year filing at this date`);
+  }
+  return { gaps: gaps.length, files, rows, sids: [...new Set(gaps.map((g) => g.security_id))], notes };
 }
 
 /** One-off backfill: balance sheet + cash flow, and full-year figures (D90), for results files loaded before those

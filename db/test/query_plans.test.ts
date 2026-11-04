@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
-import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_VERSION_ROWS } from "../../workers/filings/src/load.js";
+import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_PREV_Q, SQL_Q_EXISTS, SQL_VERSION_ROWS } from "../../workers/filings/src/load.js";
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT } from "../../workers/filings/src/events.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
@@ -44,6 +44,9 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["market: new announcement lists for the sector job (every 10 min)", SQL_SECTOR_LISTS, ["announcements_daily", 0, 200], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
   ["filings: periods filed more than once, one company (version pass, manual)", "SELECT period_end, period_kind, basis FROM filing WHERE security_id=? AND kind <> 'shareholding' GROUP BY period_end, period_kind, basis HAVING count(*) > 1", [7], /ix_filing_sec \(security_id=\?\)/],
   ["filings: insider count check (/fresh)", "SELECT count(DISTINCT did) AS filings, count(*) AS trades FROM insider_trade WHERE key >= 'pitx:' AND key < 'pitx;'", [], /PRIMARY KEY \(key>\? AND key<\?\)/],
+  ["filings: quarter already stored? (D169, per half-year file)", SQL_Q_EXISTS, [1, "2026-09-30", "consolidated"], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
+  ["filings: previous quarter's rows (D169, per half-year file)", SQL_PREV_Q, [1, "2026-06-30", "consolidated", "2026-10-16"], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\? AND disclosed_at<\?\)/],
+  ["filings: half-year filing of one gap (D169, manual)", "SELECT filing_id, kind, source_url, disclosed_at FROM filing WHERE security_id=? AND period_end=? AND period_kind='H' AND basis=?", [1, "2025-03-31", "consolidated"], /ix_filing_sec/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 
