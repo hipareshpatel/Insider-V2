@@ -59,7 +59,12 @@
 | **Owner decisions (#343)** | **D167** cash flow with untagged adjustments: option (a) — a labelled "Other adjustments (not itemised in the filing)" line only when all three section totals reconcile; otherwise the file goes to review (to build with the D154 item, after its census, D134). Restart the deals CSV refill (1.8), remark pass and version pass now, focus companies only, **behind a first-batch cost gate** (rows read / written of the first call recorded; continue only if cheap and writes stay well below the 60M soft cap). `fin_value` key change stays deferred to a fresh billing cycle (D162) |
 | **Built for the gate** | `/maint` calls are metered (rows read, billed rows written) — returned in each answer and charged to the read and write budgets (they were not charged before: a gap in P1); `ops` takes `max_calls` (1 = one batch) and always makes at least one call; version pass rewritten for the focus companies, company by company over `ix_filing_sec` (`version_backfill_focus`; the old pass grouped all of `filing` per call) |
 | **Item 1 — freshness rule for every feed** | `feed_fresh` (filings 0036): one watermark per feed (newest disclosure, rows, when), written by the loaders (results, shareholding, insider trades, SAST, board meetings, credit ratings); market feeds from the newest loaded session / `ms_day` (primary-key lookups). `/fresh` now: per feed age vs its rule (`FEED_RULES`, e.g. results ≤ 4 days, SAST ≤ 5, ratings ≤ 10), the stale list, the insider count check (distinct appIds loaded vs XBRL files by status, failures recorded in `event_load`), the last two days' slots — no table scan |
-| Deploy / gate results | next update |
+| **Deploys** | PR #4 (`a456197`, deploy 125, 12:21 IST) and PR #5 (`127e71f`, deploy 126, 12:31 IST) — both green |
+| **First-batch cost gate (one call each, metered)** | deals CSV refill: 1,415 rows read, 0 written, **nothing left to refill** (finished before the P1 pause); remark pass: 28,615 read, 1 written; version pass: 30,077 read, 7 written. Both passes cheap → continued. Found by the gate: the focus-list query read **~28.6k rows per call** (it started from every symbol identifier) — also on every 5-minute filings run (~8M rows/day); fixed with a CROSS JOIN from the index members (PR #5, query-plan test) |
+| **Passes completed** | Version pass (focus, by company): 250 companies, 213 multi-filing periods, 10 calls, ≈ 122k rows read, ≈ 13.3k written (12:33–12:40 IST). Remark pass (focus): done, 7,053 updates issued (was 4,194), ~40 calls of 1.4–2k rows read, ≈ 3k written (12:43–12:50 IST). Deals refill: done (no capped day left) |
+| **Item 1 verified (`/fresh`, 12:53 IST)** | **Insider count check passes: 3,298 new-system filings loaded = 3,298 XBRL files downloaded** (1 file failed for good), 7,036 trades, 0 load failures. Freshness: **no stale feed** — results 3 Nov 20:02 UTC, shareholding 3 Nov, insider trades 3 Nov 22:09, SAST 3 Nov, board meetings 3 Nov, ratings 3 Nov, prices / bulk / block / FII-DII 3 Nov. Still to see: the first daily-queued insider XBRL (kind `xbrl_pit_gg`) and SAST / board / ratings lists from tonight's 20:30 IST slot |
+
+| ↳ | Item 1 ✅. Next: item 2, coverage gaps for the 250 |
 
 ### Build state — 2026-11-04 11:40 IST (audit P1 "plan realignment" built; owner #341)
 | Area | State |
@@ -399,8 +404,8 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 ### Added 2026-11-04 (owner #333)
 | Item | Status | Next |
 |---|---|---|
-| NSE inventory + daily-workflow evidence: every dataset we take from NSE (endpoint/file, history range, daily workflow) and, per feed, proof the daily update ran and the newest row is recent | ⬜ | build `/fresh`-style freshness checks for every feed; table in Part 1 |
-| C53 insider trades from `corporates-pit-gg` (3 May 2026 →) | 🔶 list via Cloudflare, 3,298 XBRL via GitHub, reader + loader live (newest 3 Nov 22:09) | count check vs NSE list; freshness rule |
+| NSE inventory + daily-workflow evidence: every dataset we take from NSE (endpoint/file, history range, daily workflow) and, per feed, proof the daily update ran and the newest row is recent | 🔶 freshness per feed ✅ (`feed_fresh` + `/fresh`, 4 Nov 12:53 IST: no stale feed) | inventory table (endpoint → history → daily workflow) |
+| C53 insider trades from `corporates-pit-gg` (3 May 2026 →) | ✅ count check: 3,298 filings loaded = 3,298 files (4 Nov 12:53 IST); freshness rule live | first daily-queued XBRL after the 20:30 IST slot |
 <!-- END docs/worklist.md -->
 
 # Part 3 — Plan: product, architecture, data, AI, quality, operations, budget, legal, milestones, decisions
