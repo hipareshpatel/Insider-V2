@@ -559,32 +559,17 @@ describe("half-year-only files (D169): the quarter from its own column, else hal
     expect(rev).toEqual([{ value: "492440000000", period_kind: "Q", origin: "reported" }]);
     expect((await loadQuarterOfHalf(inst, h, 7, "2026-10-16T11:10:00.000Z", 50, deps)).rows).toBe(0); // already stored
   });
-  it("(b) no quarter column: half-year minus the stored previous quarter, flow lines only, origin computed", async () => {
+  it("(b) no quarter column: nothing is derived from the half-year (owner #345), even with the previous quarter stored", async () => {
     const { filings, deps } = prepare();
     const inst = parseXbrl(halfOnly), h = canonicalResult(inst);
     expect(h.periodKind).toBe("H");
-    expect((await loadQuarterOfHalf(inst, h, 7, "2026-10-16T11:10:00.000Z", 50, deps)).note).toContain("2026-06-30 not stored");
     filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (49,7,'integrated_financials','2026-07-17T00:00:00Z','q1');
       INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version) VALUES
       (7,'industrial','pl','revenue','','2026-06-30','Q','consolidated','original','200000000000','2026-07-17T00:00:00Z',49,'reported','t'),
-      (7,'industrial','pl','pat','','2026-06-30','Q','consolidated','original','50000000000','2026-07-17T00:00:00Z',49,'reported','t'),
-      (7,'industrial','pl','eps_basic','','2026-06-30','Q','consolidated','original','12.1','2026-07-17T00:00:00Z',49,'reported','t')`);
+      (7,'industrial','pl','pat','','2026-06-30','Q','consolidated','original','50000000000','2026-07-17T00:00:00Z',49,'reported','t')`);
     const r = await loadQuarterOfHalf(inst, h, 7, "2026-10-16T11:10:00.000Z", 50, deps);
-    expect(r.note).toContain("half-year minus quarter ending 2026-06-30 (2 lines)");
-    const q = await filings.all<Record<string, unknown>>("SELECT line, value, origin, extractor_version FROM fin_value WHERE period_end='2026-09-30' AND period_kind='Q' ORDER BY line");
-    expect(q).toEqual([
-      { line: "pat", value: String(Number(h.lines.pat) - 50000000000), origin: "computed", extractor_version: "q-from-h-v1" },
-      { line: "revenue", value: String(Number(h.lines.revenue) - 200000000000), origin: "computed", extractor_version: "q-from-h-v1" },
-    ]); // eps (per share) is never subtracted
-  });
-  it("(b) an implausible result (previous quarter bigger than the half-year) writes nothing", async () => {
-    const { filings, deps } = prepare();
-    const inst = parseXbrl(halfOnly), h = canonicalResult(inst);
-    filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (49,7,'integrated_financials','2026-07-17T00:00:00Z','q1');
-      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version) VALUES
-      (7,'industrial','pl','revenue','','2026-06-30','Q','consolidated','original','${Number(h.lines.revenue) * 2}','2026-07-17T00:00:00Z',49,'reported','t'),
-      (7,'industrial','pl','pat','','2026-06-30','Q','consolidated','original','1','2026-07-17T00:00:00Z',49,'reported','t')`);
-    expect((await loadQuarterOfHalf(inst, h, 7, "2026-10-16T11:10:00.000Z", 50, deps)).note).toContain("outside");
+    expect(r).toMatchObject({ rows: 0 });
+    expect(r.note).toContain("never derived");
     expect((await filings.all<{ n: number }>("SELECT count(*) AS n FROM fin_value WHERE period_end='2026-09-30'"))[0]!.n).toBe(0);
   });
 });

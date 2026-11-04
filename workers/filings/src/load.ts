@@ -1,7 +1,7 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, statementDetail, type Sql, type XbrlInstance, balanceAndCash, batchAll, byKindAfter, markFresh, canonicalResult, dec, div, sub, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, statementDetail, type Sql, type XbrlInstance, balanceAndCash, batchAll, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
 
 export interface Deps {
   filings: Sql;
@@ -408,8 +408,6 @@ export async function loadFy(inst: XbrlInstance, q: CanonicalResult, sid: number
   return { rows: rows.length, note: `; ${fy.label} loaded` };
 }
 
-/** Lines that are not flows over the period (per-share, ratios, balances): never derived by subtraction (D169). */
-const NOT_FLOW = /^(eps|paid_up_capital$|gross_npa$|net_npa$|gnpa_pct$|nnpa_pct$|cet1_ratio$|roa$)|_ratio$/;
 const ymd = (y: number, m: number, d: number) => `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 /** First day of the quarter ending at `end`, and the end of the quarter before it (period ends are month ends). */
 export function quarterBounds(end: string): { start: string; prevEnd: string } {
@@ -419,18 +417,15 @@ export function quarterBounds(end: string): { start: string; prevEnd: string } {
   return { start: ymd(sy, smm, 1), prevEnd: ymd(py, pmm, new Date(Date.UTC(py, pmm, 0)).getUTCDate()) };
 }
 export const SQL_Q_EXISTS = "SELECT 1 AS x FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id=? AND period_end=? AND period_kind='Q' AND basis=? AND statement='pl' LIMIT 1";
-export const SQL_PREV_Q = "SELECT line, value, disclosed_at FROM fin_value WHERE security_id=? AND period_end=? AND period_kind='Q' AND basis=? AND statement='pl' AND dims='' AND disclosed_at <= ?";
 
-/** D169 (work list item 2): some filers report the second or fourth quarter as a half-year file only (reporting
- *  period of 6 months; seen: COFORGE Mar 2025 has H2 + FY columns and no quarter). The quarter is then
- *  (a) read from the file when it has a dimension-free 3-month context (origin 'reported'), else
- *  (b) the half-year minus the quarter before it, as stored at or before this file's disclosure (flow lines only,
- *      origin 'computed', extractor 'q-from-h-v1'), only when the previous quarter is stored with the core line and
- *      the result is plausible (core line between 0 and the half-year's).
- *  Nothing is written when a quarter for that period is already stored (any filing). */
+/** D169 (work list item 2, owner #345): some filers submit the second or fourth quarter as a half-year file
+ *  (reporting period 6 months). The quarter is loaded only when the file itself carries a dimension-free 3-month
+ *  column (origin 'reported'). It is NEVER derived from the half-year (half-year minus the previous quarter is not a
+ *  filed figure, owner #345): without that column the quarter stays empty. Nothing is written when a quarter for that
+ *  period is already stored. */
 export async function loadQuarterOfHalf(inst: XbrlInstance, h: CanonicalResult, sid: number, disclosedAt: string, filingId: number, deps: Deps): Promise<{ rows: number; note: string }> {
   if (h.periodKind !== "H") return { rows: 0, note: "" };
-  const { start, prevEnd } = quarterBounds(h.periodEnd);
+  const { start } = quarterBounds(h.periodEnd);
   if ((await deps.filings.all(SQL_Q_EXISTS, [sid, h.periodEnd, h.basis])).length) return { rows: 0, note: "" };
   const insert = (rows: unknown[][]) => batchAll(deps.filings, insertRows(
     "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, rows, "ON CONFLICT DO NOTHING"));
@@ -443,22 +438,7 @@ export async function loadQuarterOfHalf(inst: XbrlInstance, h: CanonicalResult, 
     await insert(rows);
     return { rows: rows.length, note: `; ${q.label} loaded from its own column` };
   }
-  // (b) half-year minus the previous quarter
-  const prev = await deps.filings.all<{ line: string; value: string | null; disclosed_at: string }>(SQL_PREV_Q, [sid, prevEnd, h.basis, disclosedAt]);
-  const latest = new Map<string, { value: string | null; at: string }>();
-  for (const r of prev) { const o = latest.get(r.line); if (!o || r.disclosed_at > o.at) latest.set(r.line, { value: r.value, at: r.disclosed_at }); }
-  if (core.some((k) => latest.get(k)?.value == null)) return { rows: 0, note: `; quarter not derived: quarter ending ${prevEnd} not stored` };
-  const out: [string, string][] = [];
-  for (const [line, hv] of Object.entries(h.lines)) {
-    const pv = latest.get(line)?.value;
-    if (NOT_FLOW.test(line) || pv == null) continue;
-    out.push([line, toText(sub(dec(hv), dec(pv)))]);
-  }
-  const qCore = Number(out.find(([l]) => l === core[0])?.[1]), hCore = Number(h.lines[core[0]!]);
-  if (!(qCore >= 0 && qCore <= hCore)) return { rows: 0, note: `; quarter not derived: ${core[0]} ${qCore} outside 0..${hCore}` };
-  const rows = out.map(([line, value]) => [sid, TEMPLATE[h.template], "pl", line, "", h.periodEnd, "Q", h.basis, "original", value, null, disclosedAt, filingId, `${line} = H - Q ${prevEnd}`, "computed", "q-from-h-v1"]);
-  await insert(rows);
-  return { rows: rows.length, note: `; quarter computed: half-year minus quarter ending ${prevEnd} (${rows.length} lines)` };
+  return { rows: 0, note: "; no 3-month column in this half-year file: quarter not loaded (never derived, D169)" };
 }
 
 /** D169 one-off for the active "loaded, but under another period or basis" gaps (from the D168 floor): re-reads each
