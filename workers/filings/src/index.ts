@@ -1,7 +1,7 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { RESULT_KINDS, backfillBsCf, halfYearGaps, misattributed, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { RESULT_KINDS, backfillBsCf, halfYearGaps, misattributed, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
@@ -124,6 +124,7 @@ export default {
         const basis = m.sids.length ? await runPrimaryBasis(db, m.sids, new Date(), basisLists(db, mk, (k) => getText(env.RAW, k))) : 0;
         r = { ...m, basis_companies: basis };
       }
+      else if (name === "requeue_404") r = await requeue404(ldeps, (new URL(req.url).searchParams.get("jobs") ?? "").split(",").map(Number));
       else if (name === "remark_backfill") r = await remarkBackfill(db, (k) => getText(env.RAW, k), 200, focus); // lists outside the focus are skipped without an R2 read
       else return new Response("unknown pass", { status: 404 });
       const now = new Date();

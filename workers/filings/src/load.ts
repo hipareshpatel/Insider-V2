@@ -645,3 +645,14 @@ export async function misattributed(deps: Deps, fix: boolean): Promise<{ done: t
   }
   return { done: true, found: wrong.length, moved, conflicts, sids: [...sids], items: items.slice(0, 60) };
 }
+
+/** Work list item 2 (owner #351 "download only missing XBRL"): a 404 is final for the downloader (never retried), so a
+ *  file NSE did not serve once stays a gap for good. This re-queues named jobs once: only failed 404 XBRL archive jobs of
+ *  the focus companies; the next prefetch-attachments run fetches them (a second 404 is final again). */
+export const SQL_REQUEUE_404 = `UPDATE fetch_job SET status='todo' WHERE job_id IN (SELECT value FROM json_each(?)) AND +status='failed'
+  AND http_status=404 AND kind LIKE 'xbrl_%' AND url LIKE 'https://nsearchives%' AND symbol IN (SELECT value FROM json_each(?))`;
+export async function requeue404(deps: Deps, jobIds: number[]): Promise<{ done: true; asked: number; requeued: number }> {
+  const ids = jobIds.filter((n) => Number.isInteger(n) && n > 0).slice(0, 50);
+  const r = ids.length ? await deps.filings.run(SQL_REQUEUE_404, [JSON.stringify(ids), JSON.stringify(deps.focus ?? [])]) : { changes: 0 };
+  return { done: true, asked: ids.length, requeued: r.changes };
+}

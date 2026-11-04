@@ -524,6 +524,14 @@ describe("feed watermarks and the focus version pass (owner #343)", () => {
 });
 
 describe("renamed companies (work list item 2)", () => {
+  it("requeue_404 resets only named failed-404 XBRL jobs of the focus companies", async () => {
+    const { requeue404 } = await import("../src/load.js");
+    const { deps, filings } = setup({});
+    filings.raw.exec("UPDATE fetch_job SET status='failed', http_status=404, url='https://nsearchives.nseindia.com/x.xml' WHERE job_id=2");
+    expect(await requeue404({ ...deps, focus: ["TCS"] }, [2])).toMatchObject({ requeued: 0 });
+    expect(await requeue404({ ...deps, focus: ["INFY"] }, [1, 2])).toMatchObject({ asked: 2, requeued: 1 });
+    expect(await filings.all("SELECT status FROM fetch_job WHERE job_id=2")).toEqual([{ status: "todo" }]);
+  });
   it("a file carrying a pre-rename symbol loads under the company whose list linked it", async () => {
     const renamed = xml.replace(/(<in-bse-fin:Symbol\b[^>]*>)[^<]*/, "$1INFOSYSOLD");
     expect(renamed).not.toBe(xml);
