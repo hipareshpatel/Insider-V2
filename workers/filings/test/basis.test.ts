@@ -18,4 +18,15 @@ describe("primary basis (D50)", () => {
     const d = decideBasis({ template: "industrial", quarters: [q("2025-06-30", "standalone"), q("2025-09-30", "standalone"), q("2025-09-30", "consolidated"), q("2025-12-31", "standalone")] });
     expect(d.breaks).toEqual([{ period_end: "2025-09-30", change: "consolidated starts" }, { period_end: "2025-12-31", change: "consolidated stops" }]);
   });
+  it("a consolidated quarter that NSE lists but we did not load is a coverage gap, not a basis switch", () => {
+    const quarters = [q("2022-03-31", "consolidated"), q("2022-06-30", "standalone"), q("2022-09-30", "consolidated")];
+    expect(decideBasis({ template: "industrial", quarters }).breaks.length).toBe(2);
+    expect(decideBasis({ template: "industrial", quarters, nseConsolidated: new Set(["2022-06-30"]) }).breaks).toEqual([]);
+  });
+  it("NSE list rows → (quarter, basis): Integrated Filing qe_Date and results toDate; annual rows skipped", async () => {
+    const { nseListed } = await import("../src/basis.js");
+    const s = nseListed([JSON.stringify({ data: [{ qe_Date: "31-MAR-2026", consolidated: "Consolidated" }, { qe_Date: "31-MAR-2026", consolidated: "Standalone" }] }),
+      JSON.stringify([{ toDate: "31-Dec-2024", consolidated: "Non-Consolidated", period: "Quarterly" }, { toDate: "31-Mar-2024", consolidated: "Consolidated", period: "Annual" }])]);
+    expect([...s].sort()).toEqual(["2024-12-31|standalone", "2026-03-31|consolidated", "2026-03-31|standalone"]);
+  });
 });

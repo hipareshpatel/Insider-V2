@@ -67,14 +67,20 @@ export default {
         await step("remark_backfill", () => remarkBackfill(ldeps.filings, (k) => getText(env.RAW, k), 40)); // owner #334: submission type + revision remark, once
         // D50/D51: primary basis + basis-switch breaks for the focus companies, once per IST day
         const day = istDay(now);
-        const [pb] = (await env.DB_FILINGS.prepare("SELECT detail FROM daily_refresh WHERE day=?1 AND slot='primary_basis'").bind(day).all<{ detail: string }>()).results;
+        const [pb] = (await env.DB_FILINGS.prepare("SELECT detail FROM daily_refresh WHERE day=?1 AND slot='primary_basis_v2'").bind(day).all<{ detail: string }>()).results;
         const pbCur = pb ? JSON.parse(pb.detail) as { after: number; done: boolean; companies: number } : { after: 0, done: false, companies: 0 };
         if (!pbCur.done && ldeps.focus) await step("primary_basis", async () => {
-          // 50 companies per run (per-run query limit), resumed from the saved position
-          const sids = (await env.DB_MARKET.prepare("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) AND security_id > ?2 ORDER BY security_id LIMIT 50").bind(JSON.stringify(ldeps.focus), pbCur.after).all<{ security_id: number }>()).results.map((r) => r.security_id);
-          const n = await runPrimaryBasis(ldeps.filings, sids, now);
-          const next = { after: sids.length ? sids[sids.length - 1]! : pbCur.after, done: sids.length < 50, companies: pbCur.companies + n };
-          await env.DB_FILINGS.prepare("INSERT INTO daily_refresh (day, slot, at, detail) VALUES (?1, 'primary_basis', ?2, ?3) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail").bind(day, now.toISOString(), JSON.stringify(next)).run();
+          // 25 companies per run (per-run query and R2 limits), resumed from the saved position
+          const sids = (await env.DB_MARKET.prepare("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) AND security_id > ?2 ORDER BY security_id LIMIT 25").bind(JSON.stringify(ldeps.focus), pbCur.after).all<{ security_id: number }>()).results.map((r) => r.security_id);
+          // NSE's own results lists per company (for coverage gaps and to tell a missing file from a real basis switch)
+          const lists = async (sid: number) => {
+            const syms = (await env.DB_MARKET.prepare("SELECT DISTINCT value FROM security_identifier WHERE id_type='nse_symbol' AND security_id=?1").bind(sid).all<{ value: string }>()).results.map((r) => r.value);
+            const keys = (await env.DB_FILINGS.prepare("SELECT r2_key FROM fetch_job WHERE status='done' AND kind IN ('results_quarterly','integrated_financials') AND symbol IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(syms)).all<{ r2_key: string }>()).results;
+            return (await Promise.all(keys.map((k) => getText(env.RAW, k.r2_key)))).filter((t): t is string => !!t);
+          };
+          const n = await runPrimaryBasis(ldeps.filings, sids, now, lists);
+          const next = { after: sids.length ? sids[sids.length - 1]! : pbCur.after, done: sids.length < 25, companies: pbCur.companies + n };
+          await env.DB_FILINGS.prepare("INSERT INTO daily_refresh (day, slot, at, detail) VALUES (?1, 'primary_basis_v2', ?2, ?3) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail").bind(day, now.toISOString(), JSON.stringify(next)).run();
         });
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
@@ -159,6 +165,8 @@ export default {
         counts: await q("SELECT basis, count(*) AS n FROM primary_basis GROUP BY basis"),
         companies: rows.map((r) => ({ symbol: sym.get(Number((r as { security_id: number }).security_id)), ...r })),
         breaks: (await q("SELECT security_id, period_end, change FROM basis_break ORDER BY security_id, period_end")).map((r) => ({ symbol: sym.get(Number((r as { security_id: number }).security_id)), ...r })),
+        coverage_gaps: { total: (await q("SELECT count(*) AS n, count(DISTINCT security_id) AS companies FROM coverage_gap"))[0],
+          sample: (await q("SELECT security_id, period_end, basis FROM coverage_gap ORDER BY period_end DESC LIMIT 40")).map((r) => ({ symbol: sym.get(Number((r as { security_id: number }).security_id)), ...r })) },
       }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/restatements") {
