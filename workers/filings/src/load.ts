@@ -57,7 +57,7 @@ export async function remarkBackfill(db: Sql, getText: (k: string) => Promise<st
   const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='remark_backfill'");
   const cur = st ? JSON.parse(st.detail) as { after: number; done: boolean; updated: number } : { after: 0, done: false, updated: 0 };
   if (cur.done) return null;
-  const lists = await db.all<{ job_id: number; r2_key: string }>("SELECT job_id, r2_key FROM fetch_job WHERE job_id > ? AND status='done' AND kind IN ('integrated_financials','results_quarterly','results_annual') ORDER BY job_id LIMIT ?", [cur.after, limit]);
+  const lists = await db.all<{ job_id: number; r2_key: string }>("SELECT job_id, r2_key FROM fetch_job WHERE job_id > ? AND +status='done' AND +kind IN ('integrated_financials','results_quarterly','results_annual') ORDER BY job_id LIMIT ?", [cur.after, limit]);
   const stmts: { sql: string; params: unknown[] }[] = [];
   for (const l of lists) {
     const text = await getText(l.r2_key).catch(() => null);

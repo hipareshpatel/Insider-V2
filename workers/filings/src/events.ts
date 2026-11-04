@@ -10,7 +10,7 @@ export async function loadEvents(db: Sql, getText: (k: string) => Promise<string
   const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='events_cursor'");
   const cur = st ? JSON.parse(st.detail) as { after: number; rows: number } : { after: 0, rows: 0 };
   const jobs = await db.all<{ job_id: number; kind: string; r2_key: string; status: string; attempts: number }>(
-    `SELECT job_id, kind, r2_key, status, attempts FROM fetch_job WHERE job_id > ? AND kind IN (${KINDS.map(() => "?").join(",")}) ORDER BY job_id LIMIT ?`, [cur.after, ...KINDS, limit]);
+    `SELECT job_id, kind, r2_key, status, attempts FROM fetch_job WHERE job_id > ? AND +kind IN (${KINDS.map(() => "?").join(",")}) ORDER BY job_id LIMIT ?`, [cur.after, ...KINDS, limit]);
   let lists = 0;
   for (const j of jobs) {
     const terminal = j.status === "done" || j.status === "empty" || (j.status === "failed" && j.attempts >= 4);
@@ -59,7 +59,7 @@ export async function loadPitXbrl(db: Sql, getText: (k: string) => Promise<strin
   const cur = st ? JSON.parse(st.detail) as { after: number; rows: number } : { after: 0, rows: 0 };
   const jobs = await db.all<{ job_id: number; url: string; r2_key: string; status: string; attempts: number; http_status: number | null; parent_key: string | null }>(
     `SELECT j.job_id, j.url, j.r2_key, j.status, j.attempts, j.http_status, p.r2_key AS parent_key FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
-     WHERE j.job_id > ? AND j.kind IN (${PITX.map(() => "?").join(",")}) ORDER BY j.job_id LIMIT ?`, [cur.after, ...PITX, limit]);
+     WHERE j.job_id > ? AND +j.kind IN (${PITX.map(() => "?").join(",")}) ORDER BY j.job_id LIMIT ?`, [cur.after, ...PITX, limit]);
   const lists = new Map<string, Record<string, unknown>[]>();
   let files = 0, waiting = false;
   for (const j of jobs) {

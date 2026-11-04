@@ -9,12 +9,13 @@ export interface CensusRow { job: number; schema: string; prefix: string; templa
 const shortSchema = (ref: string | null) => (ref ?? "").replace(/^.*\//, "").replace(/[_-]?\d{4}-\d{2}-\d{2}/, "").replace(/\.xsd$/, "") || "(none)";
 
 export async function census(db: Sql, getText: (k: string) => Promise<string | null>, after: number, limit: number): Promise<{ rows: CensusRow[]; next: number | null }> {
+  // '+status'/'+kind': use the job_id range, not the status index (4 Nov: 12,940 calls read 3.2 billion rows)
   const marks = RESULT_KINDS.map(() => "?").join(",");
   // Primary-key range paging (C18: the earlier filter-then-page query read ~213k rows per call).
   const [mx] = await db.all<{ m: number | null }>("SELECT max(job_id) AS m FROM fetch_job");
   const hi = after + limit * 6;
   const jobs = await db.all<{ job_id: number; r2_key: string }>(
-    `SELECT job_id, r2_key FROM fetch_job WHERE job_id > ? AND job_id <= ? AND status='done' AND kind IN (${marks}) ORDER BY job_id`, [after, hi, ...RESULT_KINDS]);
+    `SELECT job_id, r2_key FROM fetch_job WHERE job_id > ? AND job_id <= ? AND +status='done' AND +kind IN (${marks}) ORDER BY job_id`, [after, hi, ...RESULT_KINDS]);
   const rows = await Promise.all(jobs.map(async (j): Promise<CensusRow> => {
     const xml = await getText(j.r2_key);
     if (!xml) return { job: j.job_id, schema: "", prefix: "", error: "missing in R2" };
@@ -73,7 +74,7 @@ export async function tagCensus(db: Sql, getText: (k: string) => Promise<string 
   const [mx] = await db.all<{ m: number | null }>("SELECT max(job_id) AS m FROM fetch_job");
   const hi = after + limit * 6;
   const jobs = await db.all<{ job_id: number; r2_key: string }>(
-    `SELECT job_id, r2_key FROM fetch_job WHERE job_id > ? AND job_id <= ? AND status='done' AND kind IN (${marks}) ORDER BY job_id`, [after, hi, ...RESULT_KINDS]);
+    `SELECT job_id, r2_key FROM fetch_job WHERE job_id > ? AND job_id <= ? AND +status='done' AND +kind IN (${marks}) ORDER BY job_id`, [after, hi, ...RESULT_KINDS]);
   const out: TagCensus = { files: 0, next: hi < (mx?.m ?? 0) ? hi : null, by: {} };
   await Promise.all(jobs.map(async (j) => {
     const xml = await getText(j.r2_key);

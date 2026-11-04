@@ -9,7 +9,7 @@ export async function compressStep(db: Sql, bucket: R2Bucket, gzip: (b: Uint8Arr
   const cur = st ? JSON.parse(st.detail) as { after: number; done?: boolean; packed: number; saved: number; failedVerify?: number } : { after: 0, packed: 0, saved: 0 } as { after: number; done?: boolean; packed: number; saved: number; failedVerify?: number };
   if (cur.done) return null;
   const rows = await db.all<{ job_id: number; r2_key: string }>(
-    "SELECT job_id, r2_key FROM fetch_job WHERE job_id > ? AND status='done' ORDER BY job_id LIMIT ?", [cur.after, perRun]);
+    "SELECT job_id, r2_key FROM fetch_job WHERE job_id > ? AND +status='done' ORDER BY job_id LIMIT ?", [cur.after, perRun]);
   let i = 0;
   const work = async () => {
     while (i < rows.length) {

@@ -104,12 +104,13 @@ export default {
     // Phase 1 tests 4–5 (§9.2): per-table checksums of one date; staging can re-run a date to prove it changes nothing.
     if (url.pathname === "/index-check") {
       // D156 verification (read-only): per year, days loaded / no file, indices per day, days without Nifty 50; plus closes asked for
+      // 4 Nov: the old form (a NOT EXISTS lookup per day on lower(index_name), no index) read 16 billion rows over 139
+      // calls. Now: ms_day only (~3k rows); the Nifty 50 check is one indexed range read per call.
       const years = (await env.DB_MARKET.prepare(`SELECT substr(m.d,1,4) AS y, sum(m.rows > 0) AS days, sum(m.rows = -1) AS no_file, sum(m.rows > 0 AND m.note = 'weekend session') AS weekend_sessions, sum(m.rows = -2) AS unreadable,
-          min(CASE WHEN m.rows > 0 THEN m.rows END) AS min_idx, max(m.rows) AS max_idx,
-          sum(m.rows > 0 AND NOT EXISTS (SELECT 1 FROM index_daily i WHERE i.d = m.d AND lower(i.index_name) = 'nifty 50')) AS no_nifty50
+          min(CASE WHEN m.rows > 0 THEN m.rows END) AS min_idx, max(m.rows) AS max_idx
         FROM ms_day m WHERE m.source = 'index_hist' GROUP BY 1 ORDER BY 1`).all()).results;
       const at = (url.searchParams.get("at") ?? "").split(",").filter((x) => /^\d{8}$/.test(x)).slice(0, 20);
-      const closes = at.length ? (await env.DB_MARKET.prepare(`SELECT d, index_name, close, pe, pb, div_yield FROM index_daily WHERE lower(index_name) = 'nifty 50' AND d IN (SELECT value FROM json_each(?1)) ORDER BY d`)
+      const closes = at.length ? (await env.DB_MARKET.prepare(`SELECT d, index_name, close, pe, pb, div_yield FROM index_daily WHERE index_name IN ('Nifty 50','NIFTY 50') AND d IN (SELECT value FROM json_each(?1)) ORDER BY d`)
         .bind(JSON.stringify(at.map(Number))).all()).results : [];
       const marker = !!(await env.RAW.head(WEEKEND_MARKER).catch(() => null));
       const weekendRow = (await env.DB_MARKET.prepare("SELECT source, d, rows, note FROM ms_day WHERE source IN ('index_hist_weekends','index_hist_weekends_err')").all()).results;
