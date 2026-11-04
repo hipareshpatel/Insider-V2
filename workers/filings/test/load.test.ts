@@ -80,7 +80,13 @@ describe("FY22 old-format March-quarter file (contexts referenced but undefined)
     filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES (1,'results_quarterly','INFY','u1','api/results_quarterly/INFY/x.json','done');
       INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status,parent_id) VALUES (2,'xbrl_results_quarterly','INFY','${URL22}','att/xbrl/fy22.xml','done',1)`);
     const x22 = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_Q4FY22_cons_undefinedctx.xml"), "utf8");
-    const deps = { filings, market, getText: async (k: string) => (k === "att/xbrl/fy22.xml" ? x22 : list22), now: () => new Date("2026-11-03T02:00:00Z") };
+    const base = { filings, market, getText: async (k: string) => (k === "att/xbrl/fy22.xml" ? x22 : list22), now: () => new Date("2026-11-03T02:00:00Z") };
+    // D168: in production a Mar 2022 file is before the coverage floor and is excluded, nothing loaded
+    expect((await loadBatch(base))[0]).toMatchObject({ status: "excluded", detail: expect.stringContaining("coverage floor (D168)") });
+    expect(await filings.all("SELECT 1 FROM fin_value")).toEqual([]);
+    // the reader itself (C4 for the year) is still checked, with an earlier floor
+    filings.raw.exec("DELETE FROM fin_load; DELETE FROM daily_refresh WHERE slot='loader_cursor'");
+    const deps = { ...base, floor: "2000-01-01" };
     expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded", detail: expect.stringContaining("FY22 loaded") });
     expect(await filings.all("SELECT period_kind, value FROM fin_value WHERE line='revenue' ORDER BY period_kind")).toEqual([{ period_kind: "FY", value: "1216410000000" }, { period_kind: "Q", value: "322760000000" }]);
   });
