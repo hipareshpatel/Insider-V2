@@ -516,3 +516,12 @@ describe("feed watermarks and the focus version pass (owner #343)", () => {
     expect(await versionBackfillFocus(filings, [9, 7], 1)).toMatchObject({ after: 9, done: true, companies: 2, groups: 1 });
   });
 });
+
+describe("renamed companies (work list item 2)", () => {
+  it("a file carrying a pre-rename symbol loads under the company whose list linked it", async () => {
+    const renamed = xml.replace(/(<in-bse-fin:Symbol\b[^>]*>)[^<]*/, "$1INFOSYSOLD");
+    expect(renamed).not.toBe(xml);
+    const { deps } = setup({ "att/xbrl/a.xml": renamed, "api/results_quarterly/INFY/x.json": list });
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded" });
+  });
+});

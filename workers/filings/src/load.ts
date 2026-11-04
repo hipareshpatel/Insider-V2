@@ -96,6 +96,20 @@ export interface LoadOutcome { jobId: number; status: "loaded" | "review" | "ski
   newest?: string }
 
 /** Shareholding pattern (FMEA B3, B4, C1–C3): loaded only when the top-level categories sum exactly to total shares. */
+/** Security of a file: by the symbol written in the file, else (work list item 2, owner #343) by the company whose NSE
+ *  list linked it. Files filed before a rename carry the old symbol (ADANITRANS, LTI, SRTRANSFIN, MOTHERSUMI …), which
+ *  the market identity (from 2024) never saw: 79 coverage gaps in 9 focus companies. Lists are per company, so the
+ *  linking company is the filer. */
+async function securityFor(deps: Deps, fileSymbol: string | null | undefined, listSymbol: string | null): Promise<{ security_id: number } | undefined> {
+  const q = "SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=? ORDER BY valid_to IS NULL DESC, valid_from DESC LIMIT 1";
+  for (const s of [fileSymbol, listSymbol]) {
+    if (!s) continue;
+    const [sec] = await deps.market.all<{ security_id: number }>(q, [s]);
+    if (sec) return sec;
+  }
+  return undefined;
+}
+
 export async function loadShp(job: { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }, deps: Deps, listCache: Map<string, string | null>): Promise<LoadOutcome> {
   const xml = await deps.getText(job.r2_key);
   if (!xml) return { jobId: job.job_id, status: "failed", detail: "file not in R2" };
@@ -107,8 +121,7 @@ export async function loadShp(job: { job_id: number; kind: string; symbol: strin
   if (parseErr && !/total shares not found/.test(parseErr)) return { jobId: job.job_id, status: "review", detail: `not a supported shareholding file: ${parseErr.slice(0, 140)}` };
   const sumCheck = "promoter + public + non-promoter-non-public = total shares";
   const symbol = (r ?? (() => { try { return parseShareholding(inst, { totalOverride: 1 }); } catch { return null; } })())?.symbol ?? job.symbol;
-  const [sec] = await deps.market.all<{ security_id: number }>(
-    "SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=? ORDER BY valid_to IS NULL DESC, valid_from DESC LIMIT 1", [symbol]);
+  const sec = await securityFor(deps, symbol, job.symbol);
   if (!sec) return { jobId: job.job_id, status: "skipped", detail: `symbol ${symbol} not in market identity yet` };
   let note: string | null = null;
   if (!r || r.checks.some((c) => c.name === sumCheck && !c.ok)) {
@@ -174,8 +187,7 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   if (!r.checks.length) return { jobId: job.job_id, status: "review", detail: "no identity check could run" };
 
   const symbol = r.symbol ?? job.symbol;
-  const [sec] = await deps.market.all<{ security_id: number }>(
-    "SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=? ORDER BY valid_to IS NULL DESC, valid_from DESC LIMIT 1", [symbol]);
+  const sec = await securityFor(deps, symbol, job.symbol);
   if (!sec) return { jobId: job.job_id, status: "skipped", detail: `symbol ${symbol} not in market identity yet` };
 
   // B7 scale guard: revenue-type core line vs this company's latest earlier value for the same basis and period kind.
