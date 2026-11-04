@@ -211,7 +211,10 @@ function months(a: string, b: string): number {
  *  carries the quarter's own dates (C29); without FourD, the context from FY start to period end. */
 /** periodStart (D169): read the dimension-free context from this date to the period end instead of the file's own
  *  reporting period (the quarter inside a half-year file). */
-export interface CanonicalOptions { aliases?: "auto" | "all" | "none"; span?: "period" | "ytd"; undefinedYtd?: boolean; periodStart?: string }
+export interface CanonicalOptions { aliases?: "auto" | "all" | "none"; span?: "period" | "ytd"; undefinedYtd?: boolean; periodStart?: string;
+  /** C65 (owner #353): read the current-period context (OneD) as the quarter starting here although its filed dates are
+   *  mis-typed; the caller loads it only after the C62 proof (earlier filed quarters + this column = the year to date). */
+  quarterFrom?: string }
 
 export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {}): CanonicalResult {
   const P = prefixOf(inst);
@@ -250,6 +253,11 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
     const one = inst.contexts.get("OneD");
     if (one && one !== ctx && one.start && one.end === end && Object.keys(one.dims).length === 0 && [3, 6, 9, 12].includes(months(one.start, end))) { ctx = one; start = one.start; }
   }
+  if (!ytd && opts.quarterFrom) {
+    const one = inst.contexts.get("OneD");
+    if (!one || one.end !== end || Object.keys(one.dims).length !== 0) throw new Error("results: no current-period context ending on the reporting date");
+    ctx = one; start = opts.quarterFrom;
+  }
   const n = months(start, end);
   const kind: PeriodKind = n === 3 ? "Q" : n === 6 ? "H" : n === 9 ? "9M" : n === 12 ? "FY" : (() => { throw new Error(`results: ${n}-month period`); })();
   const fyEnd = meta("DateOfEndOfFinancialYear");
@@ -273,7 +281,7 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
   // V1 hint (#276): alternative line names (e.g. ProfitLossForThePeriod in Integrated Filings) are the same concept
   // only if the file's own arithmetic proves it: retry with aliases and accept only when every check passes.
   if (mode === "auto" && !useAliases && template === "industrial" && missing.some((m) => ["revenue", "total_income", "pat"].includes(m))) {
-    const alt = canonicalResult(inst, { aliases: "all", span: opts.span, undefinedYtd: opts.undefinedYtd, periodStart: opts.periodStart });
+    const alt = canonicalResult(inst, { aliases: "all", span: opts.span, undefinedYtd: opts.undefinedYtd, periodStart: opts.periodStart, quarterFrom: opts.quarterFrom });
     const filled = ["revenue", "total_income", "pat"].every((k) => alt.lines[k] !== undefined);
     if (filled && alt.checks.length >= 3 && alt.checks.every((c) => c.ok)) return { ...alt, aliasProven: true };
   }
