@@ -5,7 +5,7 @@ import { acceptance } from "./acceptance.js";
 import { jumps } from "./jumps.js";
 import { evidence } from "./evidence.js";
 import { chargeBudget, gapDates, runPending } from "./runner.js";
-import { loadStructure } from "./structure.js";
+import { loadStructure, refillDealsCsv } from "./structure.js";
 import { buildSectors } from "./sectors.js";
 import { digestDay } from "./digest.js";
 import { WEEKEND_MARKER, loadIndexHistory, loadIndexWeekends } from "./indexhist.js";
@@ -51,6 +51,11 @@ export default {
         const r = await runPending(deps, { maxDates: 40, budgetMs: 8 * 60_000, revisitSessions: 5, from: env.BACKFILL_FROM, monthlyCap: env.MONTHLY_WRITE_CAP ? Number(env.MONTHLY_WRITE_CAP) : undefined });
         // M1 market structure (D144): R2 only, in date order, within what is left of this run.
         structure = await loadStructure({ market: deps.market, raw: env.RAW, now: deps.now }, Math.max(0, 11 * 60_000 - (Date.now() - t0)));
+        // work list 1.8: capped bulk/block days replaced from NSE's uncapped CSV windows (no-op once none are left)
+        try {
+          const refill = await refillDealsCsv({ market: deps.market, raw: env.RAW, now: deps.now }, Math.max(60_000, 11.2 * 60_000 - (Date.now() - t0)));
+          if (refill.refilled || refill.waiting) structure = { ...(structure ?? {}), csv_refilled: refill.refilled, csv_waiting: refill.waiting };
+        } catch (e) { console.log(JSON.stringify({ refill_error: String(e).slice(0, 200) })); }
         // D156: 10-year index history from stored daily index files (R2 only). Runs before the sector job (owner #325:
         // it only got leftover seconds after it); once the range is loaded this returns at once.
         indexHist = await loadIndexHistory(deps.market, env.RAW, Math.max(0, 11.5 * 60_000 - (Date.now() - t0)));

@@ -99,6 +99,44 @@ const SOURCES: Source[] = [
   } },
 ];
 
+/** Work list 1.8: a day whose API answer hit the 70-row cap is replaced from NSE's uncapped CSV for its 10-day window
+ *  (windows start 2024-01-01 every 10 days; downloaded by the prefetch). The CSV is complete, so the day's rows are
+ *  replaced, not merged (API and CSV can round the weighted price differently). Waits while a window isn't stored. */
+export const DEALS_CSV_FROM = "2024-01-01";
+export function dealsCsvKey(kind: "bulk" | "block", iso: string): string {
+  const days = Math.floor((Date.parse(iso + "T00:00:00Z") - Date.parse(DEALS_CSV_FROM + "T00:00:00Z")) / 86400_000);
+  const start = new Date(Date.parse(DEALS_CSV_FROM + "T00:00:00Z") + Math.floor(days / 10) * 10 * 86400_000).toISOString().slice(0, 10);
+  return `api/market_structure/${kind}_deals_csv/${start}.csv`;
+}
+export async function refillDealsCsv(deps: StructureDeps, budgetMs: number, limit = 60): Promise<{ refilled: number; waiting: number }> {
+  const t0 = Date.now(), m = deps.market;
+  const days = await m.all<{ source: "bulk" | "block"; d: number; rows: number }>("SELECT source, d, rows FROM ms_day WHERE source IN ('bulk','block') AND note LIKE 'possibly truncated%' ORDER BY d LIMIT ?", [limit]);
+  if (!days.length) return { refilled: 0, waiting: 0 };
+  const ids = await m.all<{ security_id: number; value: string; valid_from: string; valid_to: string | null }>("SELECT security_id, value, valid_from, valid_to FROM security_identifier WHERE id_type='nse_symbol'");
+  const bySym = new Map<string, typeof ids>();
+  for (const r of ids) { const l = bySym.get(r.value) ?? []; l.push(r); bySym.set(r.value, l); }
+  const sid = (s: string, iso: string) => bySym.get(s)?.find((r) => r.valid_from <= iso && (!r.valid_to || r.valid_to >= iso))?.security_id ?? bySym.get(s)?.[0]?.security_id ?? null;
+  const cache = new Map<string, string | null>();
+  let refilled = 0, waiting = 0;
+  for (const x of days) {
+    if (Date.now() - t0 > budgetMs) break;
+    const iso = `${String(x.d).slice(0, 4)}-${String(x.d).slice(4, 6)}-${String(x.d).slice(6, 8)}`, key = dealsCsvKey(x.source, iso);
+    if (!cache.has(key)) cache.set(key, await r2Text(deps.raw, key));
+    const text = cache.get(key);
+    if (text === null || text === undefined) { waiting++; continue; }
+    let deals: ReturnType<typeof parseDealsCsv> = [];
+    try { deals = parseDealsCsv(text).filter((y) => y.date === iso); } catch { waiting++; continue; }
+    if (deals.length < x.rows) { await m.run("UPDATE ms_day SET note=? WHERE source=? AND d=?", [`csv window has ${deals.length} < api ${x.rows}: kept api rows`, x.source, x.d]); continue; }
+    await batchAll(m, [
+      { sql: "DELETE FROM deal WHERE kind=? AND d=?", params: [x.source, x.d] },
+      ...insertRows("INSERT OR IGNORE INTO deal (kind, d, symbol, client, side, qty, price_paise, security_id, remarks)", 9, deals.map((y) => [x.source, x.d, y.symbol, y.client, y.side, y.qty, toPaise(y.price) ?? 0, sid(y.symbol, iso), y.remarks || null])),
+      { sql: "UPDATE ms_day SET rows=?, note='complete (csv window)' WHERE source=? AND d=?", params: [deals.length, x.source, x.d] },
+    ], 500);
+    refilled++;
+  }
+  return { refilled, waiting };
+}
+
 /** Load market-structure sessions within `budgetMs`. Returns days loaded per source. */
 export async function loadStructure(deps: StructureDeps, budgetMs: number): Promise<Record<string, number>> {
   const t0 = Date.now(), m = deps.market, today = istNow(deps.now()).date;
