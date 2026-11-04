@@ -6,11 +6,8 @@ on:
     paths:
       - "probe/**"
       - ".github/workflows/probe.yml"
-  schedule:
-    # 04:30 UTC = 10:00 IST, 09:30 UTC = 15:00 IST, 17:00 UTC = 22:30 IST
-    - cron: "30 4 * * *"
-    - cron: "30 9 * * *"
-    - cron: "0 17 * * *"
+  # 3×/day schedule removed 4 Nov 2026 (work list §16: ~2 days of consistent results; Cloudflare → NSE reachability is
+  # now proven every day by the prefetch slots themselves). Manual runs and probe edits still run it.
 
 permissions:
   contents: read

@@ -213,7 +213,7 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | D130, D131, D132, D135, D147 | Compact storage; gzip; as-filed XBRL in R2; one ledger; never delete | ✅ (compression: 0 verify failures) | — |
 | D124, D128, D144 | Fast archive pace; downloads ahead of need | ✅ (index history 🔶) | — |
 | D133, D134, D140, D142, D158 | V1 lessons as rules; census first; one item at a time; V1 when stuck; this list | ✅ in use | — |
-| §16 | Remove the probe's 3×/day schedule | ⬜ due ≈ 4 Nov | Remove |
+| §16 | Remove the probe's 3×/day schedule | ✅ removed 4 Nov (prefetch slots prove reachability daily) | — |
 | C18 | D1 rows-read re-measure; Workers CPU check | ⬜ ≈ 5 Nov | Measure |
 
 #### A2. M1 — market data (§14 gate; §9.1; §9.2)
@@ -234,7 +234,7 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | **D146** | Series breaks | 🔶 recorded only as review decisions | Own table for the site/API |
 | §9.2 | Phase 1 tests 1–6 | ✅ all six | Re-run at freeze |
 | §14 | 10 consecutive clean sessions | 🔶 counting | Daily |
-| D156 | Index history 2016–2023 | 🔶 download running; loader deployed | Load, verify days and index counts |
+| D156 | Index history 2016–2023 | ✅ 2,086 weekdays + 5 weekend sessions, 165k rows, Nifty 50 every day, closes = NSE (4 Jan 2016, 23 Mar 2020, 29 Dec 2023) | — |
 | C28 | Stale-Bc multi-day test | ✅ 3 Nov: multi-day test existed (6 Jun stale factor removed when the 16 Jun split applies); added the negative case (a same-ratio factor 27 days earlier is left alone) | — |
 
 #### A3. M2 — filings and financials (§14 gate; scope = the 250, D155)
@@ -249,7 +249,7 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | D90 | 5 years of statements for the 250 | 🔶 loading | Coverage per company vs NSE's lists |
 | §14 | ≥ 99.5% parse + identity checks | 🔶 99.66% (part) | Measure on the 250 |
 | D90 FY | Full-year figures | ✅ census 99.68% | Re-measure on the 250 |
-| D154 | Every reported line, three statements | 🔶 deployed; BS 99.58%; CF re-census running | CF residual classes; bank/NBFC/insurer maps |
+| D154 | Every reported line, three statements | 🔶 BS 99.58%, CF 95.81% (0 newly failing); totals vs Screener 189/255 (rest = Screener conventions/errors, #332) | owner a/b on untagged adjustments; 17 direct-method; bank/NBFC/insurer maps |
 | **D157** | Heads with sub-rows (Schedule III layout per format) | ⬜ | Build the layout trees |
 | D121, D150 | Sector | ✅ | Confirm all 250 have one |
 | 2.8 | Shareholding coverage + counts vs NSE (250) | ⬜ | Check |
@@ -328,7 +328,7 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | Item | Status | Next |
 |---|---|---|
 | NSE inventory + daily-workflow evidence: every dataset we take from NSE (endpoint/file, history range, daily workflow) and, per feed, proof the daily update ran and the newest row is recent | ⬜ | build `/fresh`-style freshness checks for every feed; table in Part 1 |
-| C53 insider trades from `corporates-pit-gg` (3 May 2026 →): GitHub bundle → R2 → loader | 🔶 download running | PIT XBRL reader + loader, then count check vs NSE |
+| C53 insider trades from `corporates-pit-gg` (3 May 2026 →) | 🔶 list via Cloudflare, 3,298 XBRL via GitHub, reader + loader live (newest 3 Nov 22:09) | count check vs NSE list; freshness rule |
 <!-- END docs/worklist.md -->
 
 # Part 3 — Plan: product, architecture, data, AI, quality, operations, budget, legal, milestones, decisions
@@ -2919,6 +2919,8 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 331 | Pasted advice on NSE insider data (endpoint `corporates-pit`; proxies, cookie warm-up with a disguised browser, browser-header spoofing, self-hosted runner; BSE fallback). | Corrections: `corporates-pit` is the dead endpoint (proved: empty for June and October 2026); the live one is `corporates-pit-gg`, which our own fetcher already read (3,299 filings, 3 May → 3 Nov 2026). Not adopted: proxies to mask origin, disguised browsers, spoofed headers (bot-check circumvention). Acceptable if GitHub is refused: a self-hosted runner on the owner's own connection. | ✅ |
 | 332 | Shared 30 Screener exports (Tata Motors PV, Union Bank, Mankind, Vedanta, Ambuja, Paradeep, Tata Power, NHPC, Bajaj Holdings, ABCAP, BEL, Hindalco, Power Grid, M&M, UltraTech, IOC, JSW Steel, Adani Ports, Adani Green, NTPC, Coal India, Grasim, ONGC, LIC, Bajaj Finance, Infosys, SBI, ICICI Bank, Bharti, Reliance): "may be helpful". | Compared full-year consolidated cash-flow totals FY24–FY26 with ours (NSE filings): **163 of 255 match to ₹1 crore as filed; 189 once Screener's convention is applied** (Screener adds the exchange-rate effect on cash to investing — INFY FY26: filed +1,946 cr + FX 1,600 = Screener's 3,546). Remaining differences: equal-and-opposite moves between sections (classification / later annual-report figures: Ambuja, Coal India, NTPC, Bajaj Finance, Bajaj Holdings), banks and LIC (Screener's Union Bank FY25–26 values are off by ~100× — Screener's error, not ours), Paradeep not in our 250. Screener's export has no sub-rows, so it cannot check the adjustment breakdown. Rule for the site: show NSE's filed sections; label any Screener-style view. | ✅ |
 | 333 | "Add in to do: make a list of things we got from NSE and check that every daily update workflow is working, with evidence." | Added to the work list (Part 2): NSE inventory (dataset → endpoint/file → history range → daily workflow) + evidence per feed (last run, newest row date within N days — the check that would have caught C53). | ⬜ |
+| 334 | "How on earth is it possible that companies file PDF but no XBRL … NSE itself uses XBRL for their data services, so it's impossible not to have revised XBRL." (+ "Coming to restated, did you compare two results and verify the PDF?") | Partly right, checked on evidence: revised XBRL exists (BSE FAQ Nov 2025 Q11; Union Bank Q4 FY26 revised 29 Sep 2026, remark stored) and is downloaded; but no results XBRL carries prior-year columns (74,571 files; Union Bank's 45), and Union Bank filed no revised FY25 XBRL although its FY26 PDF shows regrouped FY25 cash flows. FMEA C55; revision check widened to every line, statement and period kind. | ✅ |
+| 335 | "Keep in mind we are going live with 250 stocks; remove stocks whose name starts with DUMMY, they are for corporate actions. Let's focus our energy on finishing the tasks we decided in the unified document." | DUMMY… symbols taken out of the universe and marked 'other' (stored rows kept, #282). Working the Part 2 list in order for the 250: probe schedule removed, D156 closed, insider load (C53) and revision checks finishing; next 1.8 bulk/block split, D146 series-break table, D50/D51 primary basis, 2.8 shareholding counts, D157 layout. | 🔶 |
 
 ### Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -2927,7 +2929,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-04 after entry #333: all checks pass (159 decisions, 333 entries); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
+*Last run 2026-11-04 after entry #335: all checks pass (159 decisions, 335 entries); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
 
 ### Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
