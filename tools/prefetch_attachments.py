@@ -8,18 +8,36 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like 
 BASE, MINUTES = sys.argv[1].rstrip("/"), float(sys.argv[2])
 TOKEN = os.environ["INGEST_TOKEN"]
 
-def batch(limit=1500):
-    sql = ("SELECT job_id, url FROM fetch_job WHERE url LIKE 'https://nsearchives%' "
-           "AND (status='todo' OR (status='failed' AND attempts < 3 AND IFNULL(http_status, 0) <> 404)) "
-           "ORDER BY attempts, job_id LIMIT " + str(int(limit)))
+def d1(binding, sql):
     for i in range(5):
-        r = subprocess.run(["npx", "--yes", "wrangler@4.156.1", "d1", "execute", "DB_FILINGS", "--remote", "-c", "wrangler.migrate.json", "--json", "--command", sql],
+        r = subprocess.run(["npx", "--yes", "wrangler@4.156.1", "d1", "execute", binding, "--remote", "-c", "wrangler.migrate.json", "--json", "--command", sql],
                            capture_output=True, text=True)
         if r.returncode == 0:
             out = r.stdout
             return json.loads(out[out.index("["):])[0]["results"]
         time.sleep(10 * (i + 1))
     raise SystemExit("d1 query failed: " + r.stderr[-300:])
+
+# Owner's universe lock (4 Nov): only the 250 focus companies' files are downloaded (current members of the focus
+# indices, every NSE symbol they have had). Queued files of other companies stay queued, untouched.
+FOCUS = os.environ.get("FOCUS_INDICES", "NIFTY 50,NIFTY NEXT 50,NIFTY MIDCAP 150")
+def focus_symbols():
+    if FOCUS.strip().upper() == "ALL": return None
+    names = json.dumps([x.strip() for x in FOCUS.split(",") if x.strip()]).replace("'", "''")
+    rows = d1("DB_MARKET", "SELECT DISTINCT i.value FROM index_membership m JOIN security_identifier i ON i.security_id = m.security_id "
+              f"AND i.id_type = 'nse_symbol' WHERE m.valid_to IS NULL AND m.index_name IN (SELECT value FROM json_each('{names}'))")
+    syms = sorted(r["value"] for r in rows if r.get("value"))
+    if not syms: raise SystemExit("focus list empty (no index snapshot?) - refusing to download everything")
+    return syms
+SYMS = focus_symbols()
+print(f"focus: {'all' if SYMS is None else len(SYMS)} symbols", flush=True)
+
+def batch(limit=1500):
+    only = "" if SYMS is None else " AND symbol IN (SELECT value FROM json_each('" + json.dumps(SYMS).replace("'", "''") + "'))"
+    sql = ("SELECT job_id, url FROM fetch_job WHERE url LIKE 'https://nsearchives%' "
+           "AND (status='todo' OR (status='failed' AND attempts < 3 AND IFNULL(http_status, 0) <> 404))" + only +
+           " ORDER BY attempts, job_id LIMIT " + str(int(limit)))
+    return d1("DB_FILINGS", sql)
 
 def fetch(url):
     for i in range(4):

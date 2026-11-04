@@ -95,3 +95,25 @@ describe("full history for the 20-row-capped lists (C40)", () => {
     expect(await seedFullHistory(db, new Date("2026-11-03T05:00:00Z"))).toBe(0);
   });
 });
+
+describe("universe lock and insider XBRL (owner 4 Nov; audit P0)", () => {
+  it("only focus companies get per-company refreshes and XBRL; files are born discovered=1; the insider list's XBRL is queued", async () => {
+    const db = sqlite("filings"), market = sqlite("market");
+    const raw = { async put() {}, async get() { return null; } } as unknown as R2Bucket;
+    const both: Record<string, unknown> = { ...NSE, corporateAnnouncements: [{ symbol: "INFY", desc: "Outcome of Board Meeting" }, { symbol: "ZZOTHER", desc: "Financial Results" }],
+      corporateShareHoldingsMaster: [{ symbol: "INFY", broadcastDate: "02-Nov-2026 18:00:00", xbrl: XBRL }, { symbol: "ZZOTHER", broadcastDate: "02-Nov-2026 18:00:00", xbrl: "https://nsearchives.nseindia.com/corporate/xbrl/SHP_9_ZZ.xml" }],
+      pitGg: { data: [{ appId: "1", symbol: "INFY", broadcastDateTime: "03-Nov-2026 22:09:12", xmlFileName: "https://nsearchives.nseindia.com/corporate/xbrl/IT_1.xml" },
+        { appId: "2", symbol: "ZZOTHER", broadcastDateTime: "03-Nov-2026 22:10:00", xmlFileName: "https://nsearchives.nseindia.com/corporate/xbrl/IT_2.xml" }] } };
+    const get = async (url: string) => ({ status: 200, bytes: enc(both[key(url)]) });
+    const now = new Date("2026-11-03T15:05:00Z");
+    const out = await dailyRefresh({ db, market, raw, get, gzip: async (b) => b, now, focus: ["INFY", "TCS"] }, "evening");
+    expect(out).toMatchObject({ shareholding_attachments: 1, results_refresh: 1, insider_attachments: 1 });
+    expect(await db.all("SELECT kind, symbol, discovered FROM fetch_job WHERE kind IN ('xbrl_shareholding','xbrl_pit_gg') ORDER BY kind"))
+      .toEqual([{ kind: "xbrl_pit_gg", symbol: "INFY", discovered: 1 }, { kind: "xbrl_shareholding", symbol: "INFY", discovered: 1 }]);
+    expect((await db.all<{ symbol: string }>("SELECT symbol FROM fetch_job WHERE kind='integrated_financials'")).map((r) => r.symbol)).toEqual(["INFY"]);
+    // Sunday sweep: the focus companies only
+    const sun = new Date("2026-11-08T15:05:00Z");
+    await dailyRefresh({ db, market, raw, get, gzip: async (b) => b, now: sun, focus: ["INFY", "TCS"] }, "evening");
+    expect((await db.all<{ symbol: string }>("SELECT symbol FROM fetch_job WHERE kind='integrated_financials' AND r2_key LIKE '%-sweep.json' ORDER BY symbol")).map((r) => r.symbol)).toEqual(["INFY", "TCS"]);
+  });
+});

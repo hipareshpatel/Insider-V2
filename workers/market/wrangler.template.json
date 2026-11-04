@@ -15,7 +15,7 @@
   "env": {
     "staging": {
       "name": "disclo-market-staging",
-      "triggers": { "crons": ["*/10 * * * *"] },
+      "triggers": { "crons": [] },
       "vars": { "ENVIRONMENT": "staging", "BACKFILL_FROM": "2026-10-20" },
       "d1_databases": [
         { "binding": "DB_MARKET", "database_name": "disclo-market-staging", "database_id": "${market-staging}" },

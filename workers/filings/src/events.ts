@@ -1,16 +1,17 @@
 // M2 event loader (owner #289): reads the downloaded NSE lists (R2) for insider trades, SAST, board meetings and credit
-// ratings into their tables. Walks the ledger by a primary-key cursor (C18: no whole-table scans per run) and stops at a
+// ratings into their tables. Walks the ledger by a (kind, job_id) cursor over ix_fetch_kind_job (P0, 4 Nov: the former
+// "+kind" form scanned the whole table tail from the cursor on every run, since no new event list sits there) and stops at a
 // list that is not downloaded yet, so nothing is skipped. Rows are keyed; INSERT OR IGNORE makes re-reads harmless.
-import { type Sql, batchAll, insertRows, parseBoardMeetings, parseCreditRatings, parsePit, parsePitXbrl, parseSast, parseXbrl } from "@disclo/core";
+import { type Sql, batchAll, byKindAfter, insertRows, parseBoardMeetings, parseCreditRatings, parsePit, parsePitXbrl, parseSast, parseXbrl } from "@disclo/core";
 
 const dnum = (iso: string | null) => (iso ? Number(iso.replace(/-/g, "")) : null);
 const KINDS = ["pit", "sast29", "board_meetings", "credit_rating"];
+export const SQL_EVENTS_NEXT = "SELECT job_id, kind, r2_key, status, attempts FROM fetch_job WHERE kind = ? AND job_id > ? ORDER BY job_id LIMIT ?";
 
 export async function loadEvents(db: Sql, getText: (k: string) => Promise<string | null>, limit = 60): Promise<{ lists: number; rows: number; after: number }> {
   const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='events_cursor'");
   const cur = st ? JSON.parse(st.detail) as { after: number; rows: number } : { after: 0, rows: 0 };
-  const jobs = await db.all<{ job_id: number; kind: string; r2_key: string; status: string; attempts: number }>(
-    `SELECT job_id, kind, r2_key, status, attempts FROM fetch_job WHERE job_id > ? AND +kind IN (${KINDS.map(() => "?").join(",")}) ORDER BY job_id LIMIT ?`, [cur.after, ...KINDS, limit]);
+  const jobs = await byKindAfter<{ job_id: number; kind: string; r2_key: string; status: string; attempts: number }>(db, SQL_EVENTS_NEXT, KINDS, cur.after, limit);
   let lists = 0;
   for (const j of jobs) {
     const terminal = j.status === "done" || j.status === "empty" || (j.status === "failed" && j.attempts >= 4);
@@ -54,12 +55,12 @@ async function write(db: Sql, kind: string, json: string, jobId: number): Promis
  *  pit-gg lists that give its broadcast time, filing number (appId) and the filing it revises (prevAppId). Walks the
  *  ledger by job_id and waits at a file not downloaded yet (C47); a revision replaces the rows of the filing it revises. */
 const PITX = ["xbrl_pit_gg", "xbrl_pit_gg_probe"];
+export const SQL_PITX_NEXT = `SELECT j.job_id, j.url, j.r2_key, j.status, j.attempts, j.http_status, p.r2_key AS parent_key FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
+     WHERE j.kind = ? AND j.job_id > ? ORDER BY j.job_id LIMIT ?`;
 export async function loadPitXbrl(db: Sql, getText: (k: string) => Promise<string | null>, limit = 150): Promise<{ files: number; rows: number; after: number; waiting: boolean }> {
   const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='pitx_cursor'");
   const cur = st ? JSON.parse(st.detail) as { after: number; rows: number } : { after: 0, rows: 0 };
-  const jobs = await db.all<{ job_id: number; url: string; r2_key: string; status: string; attempts: number; http_status: number | null; parent_key: string | null }>(
-    `SELECT j.job_id, j.url, j.r2_key, j.status, j.attempts, j.http_status, p.r2_key AS parent_key FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
-     WHERE j.job_id > ? AND +j.kind IN (${PITX.map(() => "?").join(",")}) ORDER BY j.job_id LIMIT ?`, [cur.after, ...PITX, limit]);
+  const jobs = await byKindAfter<{ job_id: number; url: string; r2_key: string; status: string; attempts: number; http_status: number | null; parent_key: string | null }>(db, SQL_PITX_NEXT, PITX, cur.after, limit);
   const lists = new Map<string, Record<string, unknown>[]>();
   let files = 0, waiting = false;
   for (const j of jobs) {

@@ -1,7 +1,7 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, statementDetail, type Sql, type XbrlInstance, balanceAndCash, batchAll, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, statementDetail, type Sql, type XbrlInstance, balanceAndCash, batchAll, byKindAfter, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
 
 export interface Deps {
   filings: Sql;
@@ -216,35 +216,53 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
 }
 
 /** D48: for one company, period and basis, the earliest disclosure is 'original' and every later one 'restated'
- *  (labels corrected in both directions, since files load in download order). Core-line differences > 0.5% between
- *  the original and a restatement are recorded in restatement_flag. Uses the PK prefix (no scans). */
+ *  (labels corrected in both directions, since files load in download order). Differences > 0.5% (and > ₹1 lakh) on
+ *  any line between the original and a restatement are recorded in restatement_flag (owner #334: every line).
+ *  P0 (audit 4 Nov): ONE read through ix_fin_value_period (the PK serves only security_id here, so each of the six
+ *  former statements read the company's whole fin_value); writes only rows whose label or flag actually changes. */
+export const SQL_VERSION_ROWS = "SELECT statement, line, dims, version, value, disclosed_at FROM fin_value WHERE security_id=? AND period_end=? AND period_kind=? AND basis=?";
+const FIN_PK = "security_id=? AND statement=? AND line=? AND dims=? AND period_end=? AND period_kind=? AND basis=? AND version=? AND disclosed_at=?";
 export async function versionPeriod(db: Sql, sid: number, periodEnd: string, periodKind: string, basis: string): Promise<number> {
-  const at = await db.all<{ disclosed_at: string }>(
-    "SELECT DISTINCT disclosed_at FROM fin_value WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? ORDER BY disclosed_at", [sid, periodEnd, periodKind, basis]);
-  if (at.length < 2) return 0;
-  const first = at[0]!.disclosed_at;
-  // version is part of the key: a filing re-written after an earlier pass labelled it can hold the same figure under both
-  // labels (4 Nov: UNIQUE constraint stopped the pass). Relabel where no twin exists, then drop the twin copies (same
-  // filing, same disclosed_at, same figure — derived rows only, nothing downloaded is touched).
-  const k = [sid, periodEnd, periodKind, basis];
-  await db.run("UPDATE OR IGNORE fin_value SET version='original' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at=? AND version<>'original'", [...k, first]);
-  await db.run("DELETE FROM fin_value WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at=? AND version<>'original'", [...k, first]);
-  await db.run("UPDATE OR IGNORE fin_value SET version='restated' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at>? AND version='original'", [...k, first]);
-  await db.run("DELETE FROM fin_value WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at>? AND version='original'", [...k, first]);
-  // Owner #334: every line of every statement (P&L, balance sheet, cash flow, detail lines) is compared with its first
-  // disclosure; a change of more than 0.5% and more than ₹1 lakh is flagged (was: 4 core P&L lines only).
-  const vals = await db.all<{ statement: string; line: string; value: string | null; disclosed_at: string }>(
-    "SELECT statement, line, value, disclosed_at FROM fin_value WHERE security_id=? AND dims='' AND period_end=? AND period_kind=? AND basis=? ORDER BY disclosed_at", [sid, periodEnd, periodKind, basis]);
+  const all = await db.all<{ statement: string; line: string; dims: string; version: string; value: string | null; disclosed_at: string }>(SQL_VERSION_ROWS, [sid, periodEnd, periodKind, basis]);
+  if (!all.length) return 0;
+  let first = all[0]!.disclosed_at;
+  for (const r of all) if (r.disclosed_at < first) first = r.disclosed_at;
+  if (all.every((r) => r.disclosed_at === first) && all.every((r) => r.version === "original")) return 0; // one filing: nothing to do
+  // Version is part of the key: a filing re-written after an earlier pass can hold the same figure under both labels
+  // (4 Nov: UNIQUE constraint). Relabel where no twin exists, else drop the mislabelled copy (derived rows only).
+  const key = (r: { statement: string; line: string; dims: string; disclosed_at: string }, v: string) => `${r.statement}|${r.line}|${r.dims}|${r.disclosed_at}|${v}`;
+  const have = new Set(all.map((r) => key(r, r.version)));
+  const stmts: { sql: string; params: unknown[] }[] = [];
+  const kept: typeof all = [];
+  for (const r of all) {
+    const want = r.disclosed_at === first ? (r.version !== "original" ? "original" : null) : (r.version === "original" ? "restated" : null);
+    const pk = [sid, r.statement, r.line, r.dims, periodEnd, periodKind, basis, r.version, r.disclosed_at];
+    if (!want) { kept.push(r); continue; }
+    if (have.has(key(r, want))) { stmts.push({ sql: `DELETE FROM fin_value WHERE ${FIN_PK}`, params: pk }); continue; } // twin with the right label exists
+    stmts.push({ sql: `UPDATE fin_value SET version=? WHERE ${FIN_PK}`, params: [want, ...pk] });
+    have.add(key(r, want)); kept.push({ ...r, version: want });
+  }
+  // flags: every line without dimensions, each later disclosure against the first one
+  const vals = kept.filter((v) => v.dims === "").sort((x, y) => (x.disclosed_at < y.disclosed_at ? -1 : x.disclosed_at > y.disclosed_at ? 1 : 0));
   const orig = new Map<string, { value: string | null; at: string }>();
   for (const v of vals) { const k = `${v.statement}|${v.line}`; if (!orig.has(k)) orig.set(k, { value: v.value, at: v.disclosed_at }); }
   const flags: unknown[][] = [];
+  const seen = new Set<string>();
   for (const v of vals) {
     const o = orig.get(`${v.statement}|${v.line}`)!;
     if (v.disclosed_at === o.at || v.value === null || o.value === null || Number(o.value) === 0) continue;
+    const fk = `${v.statement}|${v.line}|${v.disclosed_at}`;
+    if (seen.has(fk)) continue; seen.add(fk);
     const diff = Number(v.value) - Number(o.value), pct = diff / Math.abs(Number(o.value));
     if (Math.abs(pct) > 0.005 && Math.abs(diff) > 1e5) flags.push([sid, v.statement, v.line, periodEnd, periodKind, basis, o.value, v.value, (pct * 100).toFixed(2), o.at, v.disclosed_at]);
   }
-  if (flags.length) await batchAll(db, insertRows("INSERT OR REPLACE INTO restatement_flag (security_id,statement,line,period_end,period_kind,basis,original_value,restated_value,change_pct,original_at,restated_at)", 11, flags));
+  // C33: an unchanged flag is not rewritten (was INSERT OR REPLACE: a delete + insert, billed, on every pass)
+  stmts.push(...insertRows("INSERT INTO restatement_flag (security_id,statement,line,period_end,period_kind,basis,original_value,restated_value,change_pct,original_at,restated_at)", 11, flags,
+    `ON CONFLICT (security_id,statement,line,period_end,period_kind,basis,restated_at) DO UPDATE SET original_value=excluded.original_value, restated_value=excluded.restated_value,
+     change_pct=excluded.change_pct, original_at=excluded.original_at
+     WHERE restatement_flag.original_value IS NOT excluded.original_value OR restatement_flag.restated_value IS NOT excluded.restated_value
+        OR restatement_flag.change_pct IS NOT excluded.change_pct OR restatement_flag.original_at IS NOT excluded.original_at`));
+  if (stmts.length) await batchAll(db, stmts);
   return flags.length;
 }
 
@@ -368,22 +386,62 @@ export async function backfillBsCf(deps: Deps, limit = 200, budgetMs = 45_000): 
   return { after: cur.after, done: cur.done, rows: cur.rows };
 }
 
-export async function loadBatch(deps: Deps, limit = 150, parallel = 8): Promise<LoadOutcome[]> {
-  // C43: a 'skipped' job (symbol not in market identity yet) is retried at most every 6 hours. Retrying it on every
-  // run filled the whole batch with the same ~300 skipped jobs, so new files and the BS/CF backfill stopped.
-  // C45: scale-guard holds are re-checked on the same 6-hour cycle. Backlog files load in download order and in
-  // parallel, so a hold was judged before its neighbouring periods were on record (ABCAPITAL: 5 post-merger quarters
-  // all held against pre-merger values). Re-checked with the full neighbourhood, an isolated outlier (a unit error)
-  // stays held; a lasting change loads and is still flagged by the series audit (/audit).
-  // C48/C50: an infrastructure error (any detail starting "Error: ": storage, network, D1 busy during an export) is
-  // temporary: retried on the same cycle. File problems (truncated XML, unsupported layout) are recorded differently.
-  const retryBefore = new Date(deps.now().getTime() - 6 * 3600_000).toISOString();
+/** P0 (audit 4 Nov): file selection no longer reads every 'done' row of fetch_job (~300k per run, 2.6 B a month even
+ *  when idle). New files: a job_id cursor per loadable kind over ix_fetch_kind_job ('once','loader_cursor'), which
+ *  stops before the first file not downloaded yet, so nothing is passed over. Retries: due rows of fin_load only
+ *  (ix_fin_load_retry), with backoff and a cap. */
+export const SQL_LOADER_NEW = `SELECT j.job_id, j.kind, j.symbol, j.url, j.r2_key, j.status, j.attempts, j.http_status, p.r2_key AS parent_key,
+     (SELECT l.job_id FROM fin_load l WHERE l.job_id = j.job_id) AS seen
+   FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
+   WHERE j.kind = ? AND j.job_id > ? ORDER BY j.job_id LIMIT ?`;
+export const SQL_LOADER_RETRY = `SELECT l.job_id, l.tries, j.kind, j.symbol, j.url, j.r2_key, p.r2_key AS parent_key
+   FROM fin_load l JOIN fetch_job j ON j.job_id = l.job_id LEFT JOIN fetch_job p ON p.job_id = j.parent_id
+   WHERE l.retry_after IS NOT NULL AND l.retry_after <= ? ORDER BY l.retry_after LIMIT ?`;
+/** C43/C45/C48/C50 retryable outcomes: identity not there yet, a scale-guard hold (re-judged with more neighbours),
+ *  an infrastructure error. Retried after 6 h, 12 h, 24 h … (doubling), at most MAX_TRIES outcomes in all (~32 days). */
+export const MAX_TRIES = 8;
+const retryable = (o: LoadOutcome) => o.status === "skipped" || (o.status === "review" && o.detail.startsWith("scale guard:")) || (o.status === "failed" && o.detail.startsWith("Error: "));
+/** A download in a final state: done, empty, or failed with no more GitHub retries (attempts >= 3 or a 404). */
+const settled = (j: { status: string; attempts: number; http_status: number | null }) => j.status === "done" || j.status === "empty" || (j.status === "failed" && (j.attempts >= 3 || j.http_status === 404));
+
+/** Short fingerprint of a focus list (order-free): count + FNV-1a of the sorted symbols; "all" when unrestricted. */
+export function focusPrint(focus?: string[]): string {
+  if (!focus) return "all";
+  let h = 0x811c9dc5;
+  for (const ch of [...focus].sort().join(",")) { h ^= ch.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+  return `${focus.length}:${h.toString(16)}`;
+}
+
+export async function loadBatch(deps: Deps, limit = 150, parallel = 8, scan = 2000): Promise<LoadOutcome[]> {
+  type Job = { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null; tries: number };
   const kinds = [...RESULT_KINDS, ...SHP_KINDS];
-  const marks = kinds.map(() => "?").join(",");
-  const jobs = await deps.filings.all<{ job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }>(
-    `SELECT j.job_id, j.kind, j.symbol, j.url, j.r2_key, p.r2_key AS parent_key FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
-     WHERE j.status='done' AND j.kind IN (${marks})${focusSql(deps).sql} AND NOT EXISTS (SELECT 1 FROM fin_load l WHERE l.job_id = j.job_id AND ((l.status <> 'skipped' AND NOT (l.status = 'review' AND substr(l.detail, 1, 12) = 'scale guard:') AND NOT (l.status = 'failed' AND substr(l.detail, 1, 7) = 'Error: ')) OR l.at > ?))
-     ORDER BY j.job_id LIMIT ?`, [...kinds, ...focusSql(deps).params, retryBefore, limit]);
+  const focus = deps.focus ? new Set(deps.focus) : null;
+  const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='loader_cursor'");
+  // The cursor belongs to one focus list: when it changes (index rebalance, D155 widening), files passed over as
+  // outside the focus must be looked at again, so the walk restarts from the beginning (a few thousand rows a run).
+  const fp = focusPrint(deps.focus);
+  const saved = st ? JSON.parse(st.detail) as { after: number; focus?: string } : null;
+  const cur = saved && saved.focus === fp ? saved : { after: 0, focus: fp };
+  // 1. New files (C43: before retries).
+  const rows = await byKindAfter<Job & { status: string; attempts: number; http_status: number | null; seen: number | null }>(deps.filings, SQL_LOADER_NEW, kinds, cur.after, scan);
+  const jobs: Job[] = [];
+  let after = cur.after, blocked = false;
+  for (const r of rows) {
+    const ours = !focus || (!!r.symbol && focus.has(r.symbol));
+    const pending = ours && !settled(r);
+    if (ours && r.status === "done" && r.seen === null) {
+      if (jobs.length >= limit) break; // the cursor stops before the first file not taken this run
+      jobs.push({ ...r, tries: 0 });
+    }
+    if (pending) blocked = true; // not downloaded yet: later files may load, the cursor waits here
+    if (!blocked) after = r.job_id;
+  }
+  if (!blocked && rows.length < scan && jobs.length < limit && rows.length) after = rows[rows.length - 1]!.job_id;
+  // 2. Retries that are due, with what is left of the batch.
+  if (jobs.length < limit) {
+    const due = await deps.filings.all<Job>(SQL_LOADER_RETRY, [deps.now().toISOString(), limit - jobs.length]);
+    for (const r of due) if (!focus || (!!r.symbol && focus.has(r.symbol))) jobs.push(r);
+  }
   const cache = new Map<string, string | null>();
   const out: LoadOutcome[] = [];
   let i = 0;
@@ -393,10 +451,13 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8): Promise<
       let o: LoadOutcome;
       try { o = SHP_KINDS.includes(j.kind) ? await loadShp(j, deps, cache) : await loadOne(j, deps, cache); } catch (e) { o = { jobId: j.job_id, status: "failed", detail: String(e).slice(0, 200) }; }
       out.push(o);
-      await deps.filings.run("INSERT INTO fin_load (job_id, status, detail, at) VALUES (?,?,?,?) ON CONFLICT (job_id) DO UPDATE SET status=excluded.status, detail=excluded.detail, at=excluded.at",
-        [o.jobId, o.status, o.detail, deps.now().toISOString()]);
+      const tries = j.tries + 1, now = deps.now();
+      const retryAt = retryable(o) && tries < MAX_TRIES ? new Date(now.getTime() + 6 * 3600_000 * 2 ** (tries - 1)).toISOString() : null;
+      await deps.filings.run("INSERT INTO fin_load (job_id, status, detail, at, tries, retry_after) VALUES (?,?,?,?,?,?) ON CONFLICT (job_id) DO UPDATE SET status=excluded.status, detail=excluded.detail, at=excluded.at, tries=excluded.tries, retry_after=excluded.retry_after",
+        [o.jobId, o.status, o.detail, now.toISOString(), tries, retryAt]);
     }
   };
   await Promise.all(Array.from({ length: Math.min(parallel, jobs.length || 1) }, worker)); // jobs are independent files
+  if (after !== saved?.after || fp !== saved?.focus) await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','loader_cursor',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [deps.now().toISOString(), JSON.stringify({ after, focus: fp })]);
   return out;
 }

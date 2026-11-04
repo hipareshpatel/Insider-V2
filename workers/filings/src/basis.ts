@@ -48,7 +48,8 @@ export function nseListed(listJsons: string[]): Set<string> {
   return out;
 }
 
-/** Once a day for the focus companies: decide and store; breaks and coverage gaps replaced per company. */
+/** Decide and store, per company. P0 (audit 4 Nov): writes only what changed (was: delete + re-insert of every gap and
+ *  break and a REPLACE of the decision for all 250 companies every day, C33). */
 export async function runPrimaryBasis(db: Sql, sids: number[], now: Date, lists?: (sid: number) => Promise<string[]>): Promise<number> {
   const stmts = [];
   for (const sid of sids) {
@@ -61,13 +62,53 @@ export async function runPrimaryBasis(db: Sql, sids: number[], now: Date, lists?
     const d = decideBasis({ template: rows.some((r) => r.template === "bank") ? "bank" : rows[0]!.template, quarters: rows.map((r) => ({ period_end: r.period_end, basis: r.basis, income: r.income === null ? null : Number(r.income) })), nseConsolidated });
     // coverage (D90, 5 years from 2021-04): listed by NSE but not loaded
     const loaded = new Set(rows.map((r) => `${r.period_end}|${r.basis}`));
-    const gaps = [...listed].filter((k) => !loaded.has(k) && k >= "2021-06-30");
-    stmts.push({ sql: "DELETE FROM coverage_gap WHERE security_id=?", params: [sid] });
-    stmts.push(...insertRows("INSERT OR IGNORE INTO coverage_gap (security_id, period_end, basis)", 3, gaps.map((k) => [sid, ...k.split("|")])));
-    stmts.push({ sql: "INSERT OR REPLACE INTO primary_basis (security_id,basis,reason,cons_q,sa_q,sa_share,decided_at) VALUES (?,?,?,?,?,?,?)", params: [sid, d.basis, d.reason, d.consQ, d.saQ, d.saShare === null ? null : String(d.saShare), now.toISOString()] });
-    stmts.push({ sql: "DELETE FROM basis_break WHERE security_id=?", params: [sid] });
-    stmts.push(...insertRows("INSERT OR IGNORE INTO basis_break (security_id, period_end, change)", 3, d.breaks.map((b) => [sid, b.period_end, b.change])));
+    const gaps = new Set([...listed].filter((k) => !loaded.has(k) && k >= "2021-06-30"));
+    const oldGaps = new Set((await db.all<{ period_end: string; basis: string }>("SELECT period_end, basis FROM coverage_gap WHERE security_id=?", [sid])).map((r) => `${r.period_end}|${r.basis}`));
+    for (const k of oldGaps) if (!gaps.has(k)) stmts.push({ sql: "DELETE FROM coverage_gap WHERE security_id=? AND period_end=? AND basis=?", params: [sid, ...k.split("|")] });
+    stmts.push(...insertRows("INSERT OR IGNORE INTO coverage_gap (security_id, period_end, basis)", 3, [...gaps].filter((k) => !oldGaps.has(k)).map((k) => [sid, ...k.split("|")])));
+    stmts.push({ sql: `INSERT INTO primary_basis (security_id,basis,reason,cons_q,sa_q,sa_share,decided_at) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT (security_id) DO UPDATE SET basis=excluded.basis, reason=excluded.reason, cons_q=excluded.cons_q, sa_q=excluded.sa_q, sa_share=excluded.sa_share, decided_at=excluded.decided_at
+      WHERE primary_basis.basis IS NOT excluded.basis OR primary_basis.reason IS NOT excluded.reason OR primary_basis.cons_q IS NOT excluded.cons_q
+         OR primary_basis.sa_q IS NOT excluded.sa_q OR primary_basis.sa_share IS NOT excluded.sa_share`,
+      params: [sid, d.basis, d.reason, d.consQ, d.saQ, d.saShare === null ? null : String(d.saShare), now.toISOString()] });
+    const brk = new Map(d.breaks.map((b) => [b.period_end, b.change]));
+    const oldBrk = new Map((await db.all<{ period_end: string; change: string }>("SELECT period_end, change FROM basis_break WHERE security_id=?", [sid])).map((r) => [r.period_end, r.change]));
+    for (const [e, c] of oldBrk) if (brk.get(e) !== c) stmts.push({ sql: "DELETE FROM basis_break WHERE security_id=? AND period_end=?", params: [sid, e] });
+    stmts.push(...insertRows("INSERT OR IGNORE INTO basis_break (security_id, period_end, change)", 3, [...brk].filter(([e, c]) => oldBrk.get(e) !== c).map(([e, c]) => [sid, e, c])));
   }
   await batchAll(db, stmts, 200);
   return sids.length;
+}
+
+/** Companies with filings loaded after the cursor (filing_id range: a rowid search, not a scan). */
+export const SQL_BASIS_NEW = "SELECT filing_id, security_id FROM filing WHERE filing_id > ? AND kind <> 'shareholding' ORDER BY filing_id LIMIT ?";
+/** A company's stored NSE results lists. INDEXED BY: without statistics SQLite picked the status index and read every
+ *  'done' row of fetch_job per company (audit 4 Nov). */
+export const SQL_BASIS_LISTS = "SELECT r2_key FROM fetch_job INDEXED BY ix_fetch_symbol_kind WHERE symbol IN (SELECT value FROM json_each(?)) AND kind IN ('results_quarterly','integrated_financials') AND status='done'";
+
+/** D50/D51 incremental (P0): only companies whose filings changed since the last pass, at most `limit` per run, in
+ *  filing order ('once','primary_basis_cursor'). The first pass after deploy walks every filing once (cursor 0). */
+export async function primaryBasisStep(filings: Sql, market: Sql, getText: (k: string) => Promise<string | null>, focusSids: Set<number>, now: Date, limit = 25): Promise<{ companies: number; after: number }> {
+  const [st] = await filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='primary_basis_cursor'");
+  const cur = st ? JSON.parse(st.detail) as { after: number; companies: number } : { after: 0, companies: 0 };
+  const rows = await filings.all<{ filing_id: number; security_id: number }>(SQL_BASIS_NEW, [cur.after, 2000]);
+  if (!rows.length) return { companies: 0, after: cur.after };
+  const sids: number[] = [];
+  let after = cur.after;
+  for (const r of rows) {
+    if (focusSids.has(r.security_id) && !sids.includes(r.security_id)) {
+      if (sids.length >= limit) break; // the cursor stops before the first company not done this run
+      sids.push(r.security_id);
+    }
+    after = r.filing_id;
+  }
+  const lists = async (sid: number) => {
+    const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND id_type='nse_symbol'", [sid])).map((r) => r.value);
+    const keys = await filings.all<{ r2_key: string }>(SQL_BASIS_LISTS, [JSON.stringify(syms)]);
+    return (await Promise.all(keys.map((k) => getText(k.r2_key)))).filter((t): t is string => !!t);
+  };
+  const n = sids.length ? await runPrimaryBasis(filings, sids, now, lists) : 0;
+  await filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','primary_basis_cursor',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail",
+    [now.toISOString(), JSON.stringify({ after, companies: cur.companies + n })]);
+  return { companies: n, after };
 }

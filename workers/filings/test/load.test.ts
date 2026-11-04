@@ -443,3 +443,33 @@ describe("version pass with twin rows (4 Nov: UNIQUE constraint stopped the pass
     expect(await filings.all("SELECT statement, change_pct FROM restatement_flag")).toEqual([{ statement: "bs", change_pct: "10.00" }]);
   });
 });
+
+describe("file selection without scanning the ledger (audit P0)", () => {
+  it("the cursor waits at a file not downloaded yet, later files still load, nothing is read twice", async () => {
+    const { filings, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    // job 3: an earlier-queued file still waiting for the GitHub download (todo), job 2 done
+    filings.raw.exec("UPDATE fetch_job SET job_id=4 WHERE job_id=2; INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status,parent_id) VALUES (3,'xbrl_results_quarterly','INFY','u3','att/xbrl/c.xml','todo',1)");
+    expect((await loadBatch(deps)).map((o) => o.jobId)).toEqual([4]);
+    expect(JSON.parse((await filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE slot='loader_cursor'"))[0]!.detail).after).toBe(0); // waits before 3 (job 1 is a list, not a file)
+    expect(await loadBatch(deps)).toEqual([]); // 4 is not read again
+    filings.raw.exec("UPDATE fetch_job SET status='failed', attempts=3 WHERE job_id=3"); // final: no more downloads
+    expect(await loadBatch(deps)).toEqual([]);
+    expect(JSON.parse((await filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE slot='loader_cursor'"))[0]!.detail).after).toBe(4);
+  });
+  it("a retryable outcome backs off (6 h, 12 h, …) and stops after MAX_TRIES", async () => {
+    const { MAX_TRIES } = await import("../src/load.js");
+    const { filings, market, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    market.raw.exec("DELETE FROM security_identifier"); // skipped every time
+    let t = Date.parse("2026-11-03T02:00:00Z");
+    const at = () => ({ ...deps, now: () => new Date(t) });
+    expect((await loadBatch(at()))[0]).toMatchObject({ status: "skipped" });
+    const row = async () => (await filings.all<{ tries: number; retry_after: string | null }>("SELECT tries, retry_after FROM fin_load"))[0]!;
+    expect(await row()).toEqual({ tries: 1, retry_after: "2026-11-03T08:00:00.000Z" });
+    t += 6 * 3600_000 - 60_000; expect(await loadBatch(at())).toEqual([]); // not due yet
+    t += 60_000; expect(await loadBatch(at())).toHaveLength(1);
+    expect((await row()).retry_after).toBe("2026-11-03T20:00:00.000Z"); // +12 h
+    for (let k = 3; k <= MAX_TRIES; k++) { t = Date.parse((await row()).retry_after!); expect(await loadBatch(at())).toHaveLength(1); }
+    expect(await row()).toEqual({ tries: MAX_TRIES, retry_after: null }); // given up: listed as skipped, never re-read
+    t += 400 * 86400_000; expect(await loadBatch(at())).toEqual([]);
+  });
+});

@@ -1,23 +1,18 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { RESULT_KINDS, backfillBsCf, loadBatch, remarkBackfill, versionBackfill } from "./load.js";
+import { RESULT_KINDS, backfillBsCf, loadBatch } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
-import { runPrimaryBasis } from "./basis.js";
+import { primaryBasisStep } from "./basis.js";
 import { caLists } from "./calists.js";
-import { BS_LINES, CF_LINES, balanceAndCash, parsePit, parseXbrl, statementDetail } from "@disclo/core";
+import { BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
-export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string }
+export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string; STATUS_TOKEN?: string; DAILY_READ_CAP?: string }
 
 /** D155 (owner #316): load filings only for the focus indices' companies (default Nifty 50 + Next 50 + Midcap 150); "ALL" = everyone. */
-export async function focusSymbols(market: D1Database, spec = "NIFTY 50,NIFTY NEXT 50,NIFTY MIDCAP 150"): Promise<string[] | undefined> {
-  if (spec.trim().toUpperCase() === "ALL") return undefined;
-  const names = spec.split(",").map((x) => x.trim()).filter(Boolean);
-  const r = await market.prepare(`SELECT DISTINCT i.value FROM index_membership m JOIN security_identifier i ON i.security_id = m.security_id AND i.id_type = 'nse_symbol'
-    WHERE m.valid_to IS NULL AND m.index_name IN (SELECT value FROM json_each(?1))`).bind(JSON.stringify(names)).all<{ value: string }>();
-  const syms = r.results.map((x) => x.value);
-  return syms.length ? syms : undefined; // no snapshot yet → don't block loading
+export async function focusSymbols(market: D1Database, spec = FOCUS_DEFAULT, meter?: D1Meter): Promise<string[] | undefined> {
+  return focusSymbolsOf(d1Sql(market, meter), spec); // no snapshot yet → undefined, loading not blocked
 }
 
 /** Owner #266: one monthly cap on billed D1 writes, shared with the market worker (ledger in the market DB). */
@@ -44,15 +39,21 @@ export default {
         .bind(holder, new Date(now.getTime() + 5 * 60_000).toISOString(), now.toISOString()).run();
       if (!lock.meta.changes) return;
       if (await capReached(env, now)) { await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run(); console.log(JSON.stringify({ env: env.ENVIRONMENT, skipped: "monthly write cap reached" })); return; }
-      const meter = { rows: 0 };
+      const meter: D1Meter = { rows: 0, reads: 0 };
       let out: Awaited<ReturnType<typeof loadBatch>> = [];
+      const market = d1Sql(env.DB_MARKET, meter);
+      // C56 read breaker (audit 4 Nov): rows read today by every worker. "soft": optional passes stop; "hard": only new
+      // files and events load.
+      const level = readLevel(await readsToday(market, now), Number(env.DAILY_READ_CAP ?? 150_000_000));
       try {
-        const ldeps = { filings: d1Sql(env.DB_FILINGS, meter), market: d1Sql(env.DB_MARKET), getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: env.BSCF_LOAD === "1", focus: await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES) };
+        const ldeps = { filings: d1Sql(env.DB_FILINGS, meter), market, getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: env.BSCF_LOAD === "1", focus: await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES, meter) };
         // C47: events first. Placed last, they never ran while the results backlog filled every run (cursor stuck at
         // job 250168; INFY 20 of NSE's 2,199 insider trades). Lists are small; 150 per run.
         await loadEvents(ldeps.filings, ldeps.getText, 150); // M2 events: PIT, SAST, board meetings, credit ratings (owner #289)
         await loadPitXbrl(ldeps.filings, ldeps.getText, 150); // C53: insider trades from NSE's system since 3 May 2026 (pit-gg XBRL)
-        out = await loadBatch(ldeps, 300, 8);
+        out = await loadBatch(ldeps, level === "hard" ? 60 : 300, 8);
+        if (level !== "ok") console.log(JSON.stringify({ env: env.ENVIRONMENT, reads: level, skipped: "optional passes (daily read cap)" }));
+        else await (async () => {
         if (ldeps.bscf) await backfillBsCf(ldeps, out.length < 300 ? 200 : 60); // M2: BS/CF + FY (D90) for earlier filings; a small share every run (it never started while the backlog filled every run)
         // One-off passes at the end of the run: each guarded, so one failing step (e.g. over the per-run query limit)
         // cannot stop the steps after it (4 Nov: the widened version pass, 150 groups × 5 kinds, stalled everything after).
@@ -63,27 +64,20 @@ export default {
               .bind(`error:${name}`, new Date().toISOString(), String(e).slice(0, 300)).run().catch(() => {});
           }
         };
-        await step("version_backfill", () => versionBackfill(ldeps.filings, 20)); // D48 + owner #334: label and flag earlier-loaded revisions once
-        await step("remark_backfill", () => remarkBackfill(ldeps.filings, (k) => getText(env.RAW, k), 40)); // owner #334: submission type + revision remark, once
-        // D50/D51: primary basis + basis-switch breaks for the focus companies, once per IST day
-        const day = istDay(now);
-        const [pb] = (await env.DB_FILINGS.prepare("SELECT detail FROM daily_refresh WHERE day=?1 AND slot='primary_basis_v2'").bind(day).all<{ detail: string }>()).results;
-        const pbCur = pb ? JSON.parse(pb.detail) as { after: number; done: boolean; companies: number } : { after: 0, done: false, companies: 0 };
-        if (!pbCur.done && ldeps.focus) await step("primary_basis", async () => {
-          // 25 companies per run (per-run query and R2 limits), resumed from the saved position
-          const sids = (await env.DB_MARKET.prepare("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) AND security_id > ?2 ORDER BY security_id LIMIT 25").bind(JSON.stringify(ldeps.focus), pbCur.after).all<{ security_id: number }>()).results.map((r) => r.security_id);
-          // NSE's own results lists per company (for coverage gaps and to tell a missing file from a real basis switch)
-          const lists = async (sid: number) => {
-            const syms = (await env.DB_MARKET.prepare("SELECT DISTINCT value FROM security_identifier WHERE id_type='nse_symbol' AND security_id=?1").bind(sid).all<{ value: string }>()).results.map((r) => r.value);
-            const keys = (await env.DB_FILINGS.prepare("SELECT r2_key FROM fetch_job WHERE status='done' AND kind IN ('results_quarterly','integrated_financials') AND symbol IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(syms)).all<{ r2_key: string }>()).results;
-            return (await Promise.all(keys.map((k) => getText(env.RAW, k.r2_key)))).filter((t): t is string => !!t);
-          };
-          const n = await runPrimaryBasis(ldeps.filings, sids, now, lists);
-          const next = { after: sids.length ? sids[sids.length - 1]! : pbCur.after, done: sids.length < 25, companies: pbCur.companies + n };
-          await env.DB_FILINGS.prepare("INSERT INTO daily_refresh (day, slot, at, detail) VALUES (?1, 'primary_basis_v2', ?2, ?3) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail").bind(day, now.toISOString(), JSON.stringify(next)).run();
+        // P0 (audit 4 Nov): the one-off version pass (versionBackfill) and revision-remark pass (remarkBackfill) are OFF in
+        // the cron. Each read whole tables on every run (the remark UPDATE scanned all of filing per row; the version pass
+        // read each company's whole fin_value six times per period). New filings are still versioned as they load
+        // (versionPeriod, now one indexed read). The two passes return as bounded, explicitly started jobs (P1).
+        // D50/D51: primary basis + basis-switch breaks, only for focus companies with newly loaded filings (P0: was all
+        // 250 companies from scratch every day, with a lists query that read every 'done' row of fetch_job per company).
+        if (ldeps.focus) await step("primary_basis", async () => {
+          const sids = new Set((await market.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(ldeps.focus)])).map((r) => r.security_id));
+          await primaryBasisStep(ldeps.filings, market, ldeps.getText, sids, now);
         });
+        })();
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
+        await chargeReads(d1Sql(env.DB_MARKET), new Date(), meter.reads ?? 0).catch(() => {});
       }
       if (meter.rows > 0) await env.DB_MARKET.prepare("INSERT INTO write_budget (day, rows) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET rows = rows + excluded.rows").bind(istDay(new Date()), meter.rows).run();
       const by: Record<string, number> = {};
@@ -92,7 +86,9 @@ export default {
     })());
   },
   async fetch(req: Request, env: Env) {
-    // read-only pages: an exception is returned as its message (no data, no secrets) instead of a bare 1101
+    // Every page here is a diagnostic that can scan large tables; their addresses are in this public repo, so they answer
+    // only with the status token (audit 4 Nov). Read-only pages: an exception is returned as its message.
+    if (!statusAuthorized(req, env.STATUS_TOKEN)) return new Response(FORBIDDEN_TEXT, { status: 403, headers: { "cache-control": "no-store" } });
     try { return await this.page(req, env); } catch (e) { return Response.json({ error: String(e).slice(0, 300) }, { status: 500, headers: { "cache-control": "no-store" } }); }
   },
 
