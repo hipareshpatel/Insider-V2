@@ -112,3 +112,62 @@ export async function primaryBasisStep(filings: Sql, market: Sql, getText: (k: s
     [now.toISOString(), JSON.stringify({ after, companies: cur.companies + n })]);
   return { companies: n, after };
 }
+
+/** Work list item 2 (owner #343): (quarter end|basis) → XBRL links on NSE's own results lists for one company. */
+export function nseListedFiles(listJsons: string[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const t of listJsons) {
+    let rows: Record<string, unknown>[] = [];
+    try { const d = JSON.parse(t); rows = Array.isArray(d) ? d : (d.data ?? []); } catch { continue; }
+    for (const r of rows) {
+      const end = iso(r.qe_Date ?? r.toDate), c = String(r.consolidated ?? "").toLowerCase();
+      if (!end || (r.period && !/quarter/i.test(String(r.period)))) continue;
+      const k = `${end}|${c.startsWith("consol") ? "consolidated" : "standalone"}`;
+      const urls = out.get(k) ?? [];
+      for (const u of JSON.stringify(r).match(/https:\/\/nsearchives\.nseindia\.com\/corporate\/[^"\s\\]+?\.xml/gi) ?? []) if (!urls.includes(u)) urls.push(u);
+      out.set(k, urls);
+    }
+  }
+  return out;
+}
+
+/** Why one coverage gap is not loaded, from its file's ledger row and load outcome (best outcome over its links). */
+export function gapClass(files: { url: string; job?: { status: string; http_status: number | null; kind: string } | null; load?: { status: string; detail: string | null } | null }[]): string {
+  if (!files.length) return "no XBRL link on NSE's list";
+  const rank = (f: (typeof files)[number]): [number, string] => {
+    if (!f.job) return [1, "linked file never queued"];
+    if (f.job.status === "todo") return [2, "queued, not downloaded yet"];
+    if (f.job.status === "failed" || f.job.status === "empty") return [3, `download ${f.job.status} (HTTP ${f.job.http_status ?? "?"})`];
+    if (!f.load) return [4, "downloaded, not read yet"];
+    if (f.load.status === "loaded") return [9, "loaded, but under another period or basis"];
+    return [5, `${f.load.status}: ${String(f.load.detail ?? "").replace(/[\d,.×]+/g, "#").slice(0, 60)}`];
+  };
+  return files.map(rank).sort((a, b) => b[0] - a[0])[0]![1];
+}
+
+/** One bounded batch: classify the gaps of `perCall` companies (cursor 'once','coverage_classify'), write coverage_gap.status. */
+export async function classifyGaps(db: Sql, market: Sql, getText: (k: string) => Promise<string | null>, perCall = 10): Promise<{ after: number; done: boolean; companies: number }> {
+  const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='coverage_classify'");
+  const cur = st ? JSON.parse(st.detail) as { after: number; companies: number } : { after: 0, companies: 0 };
+  const sids = (await db.all<{ security_id: number }>("SELECT DISTINCT security_id FROM coverage_gap WHERE security_id > ? ORDER BY security_id LIMIT ?", [cur.after, perCall])).map((r) => r.security_id);
+  for (const sid of sids) {
+    const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND id_type='nse_symbol'", [sid])).map((r) => r.value);
+    const keys = await db.all<{ r2_key: string }>(SQL_BASIS_LISTS, [JSON.stringify(syms)]);
+    const listed = nseListedFiles((await Promise.all(keys.map((k) => getText(k.r2_key)))).filter((t): t is string => !!t));
+    const gaps = await db.all<{ period_end: string; basis: string }>("SELECT period_end, basis FROM coverage_gap WHERE security_id=?", [sid]);
+    const stmts: { sql: string; params: unknown[] }[] = [];
+    for (const g of gaps) {
+      const files = [];
+      for (const url of listed.get(`${g.period_end}|${g.basis}`) ?? []) {
+        const [job] = await db.all<{ job_id: number; status: string; http_status: number | null; kind: string }>("SELECT job_id, status, http_status, kind FROM fetch_job WHERE url=?", [url]);
+        const [load] = job ? await db.all<{ status: string; detail: string | null }>("SELECT status, detail FROM fin_load WHERE job_id=?", [job.job_id]) : [];
+        files.push({ url, job: job ?? null, load: load ?? null });
+      }
+      stmts.push({ sql: "UPDATE coverage_gap SET status=? WHERE security_id=? AND period_end=? AND basis=?", params: [gapClass(files), sid, g.period_end, g.basis] });
+    }
+    if (stmts.length) await batchAll(db, stmts);
+    cur.after = sid; cur.companies++;
+  }
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','coverage_classify',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
+  return { after: cur.after, done: sids.length < perCall, companies: cur.companies };
+}
