@@ -4,7 +4,7 @@ import { auditJumps } from "./audit.js";
 import { RESULT_KINDS, backfillBsCf, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
-import { primaryBasisStep } from "./basis.js";
+import { classifyGaps, primaryBasisStep } from "./basis.js";
 import { caLists } from "./calists.js";
 import { BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
@@ -109,6 +109,7 @@ export default {
         const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
         r = await versionBackfillFocus(db, sids, 25); // gate (#343): first call read 30k rows (28.6k of them the focus lookup, fixed), wrote 7
       }
+      else if (name === "coverage_classify") r = await classifyGaps(db, mk, (k) => getText(env.RAW, k), 10); // work list item 2
       else if (name === "remark_backfill") r = await remarkBackfill(db, (k) => getText(env.RAW, k), 200, focus); // lists outside the focus are skipped without an R2 read
       else return new Response("unknown pass", { status: 404 });
       const now = new Date();
@@ -171,6 +172,17 @@ export default {
         return Response.json(inst.facts.filter((f) => f.contextRef === one).map((f) => ({ tag: f.tag, value: masked.test(f.tag) ? "(masked)" : f.value?.slice(0, 200) ?? null, unit: f.unitRef, decimals: f.decimals })), { headers: { "cache-control": "no-store" } });
       }
       return Response.json({ facts: inst.facts.length, contexts: ctx.filter((c) => c.facts > 0).sort((a, b) => b.facts - a.facts), undefined_refs: undefinedRefs }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/coverage-gaps") {
+      // Work list item 2: coverage gaps of the focus companies by class (coverage_gap.status, set by /maint/coverage_classify)
+      const q = async (sql: string) => (await env.DB_FILINGS.prepare(sql).all()).results as Record<string, unknown>[];
+      const classes = await q("SELECT coalesce(status, '(not classified yet)') AS class, count(*) AS gaps, count(DISTINCT security_id) AS companies FROM coverage_gap GROUP BY 1 ORDER BY 2 DESC");
+      const sample = await q("SELECT coalesce(status, '(not classified yet)') AS class, security_id, period_end, basis FROM coverage_gap ORDER BY status, security_id, period_end LIMIT 400");
+      const ids = [...new Set(sample.map((r) => Number(r.security_id)))];
+      const sym = new Map(((await env.DB_MARKET.prepare("SELECT security_id, min(value) AS symbol FROM security_identifier WHERE id_type='nse_symbol' AND security_id IN (SELECT value FROM json_each(?1)) GROUP BY security_id").bind(JSON.stringify(ids)).all<{ security_id: number; symbol: string }>()).results).map((x) => [x.security_id, x.symbol]));
+      const byClass: Record<string, string[]> = {};
+      for (const r of sample) (byClass[String(r.class)] ??= []).length < 12 && byClass[String(r.class)]!.push(`${sym.get(Number(r.security_id)) ?? r.security_id} ${r.period_end} ${r.basis}`);
+      return Response.json({ classes, examples: byClass }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/primary-basis") {
       // Read-only (D50/D51): primary basis per focus company, with the reason, and basis-switch breaks.
