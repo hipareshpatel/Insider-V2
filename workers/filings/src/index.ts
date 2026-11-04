@@ -113,6 +113,12 @@ export default {
       for (const f of inst.facts) { const a = n.get(f.contextRef) ?? []; a.push(f.tag.split(":")[1] ?? f.tag); n.set(f.contextRef, a); }
       const ctx = [...inst.contexts.values()].map((c) => ({ id: c.id, start: c.start, end: c.end, instant: c.instant, dims: c.dims, facts: n.get(c.id)?.length ?? 0, sample: (n.get(c.id) ?? []).slice(0, 6) }));
       const undefinedRefs = [...n.keys()].filter((k) => !inst.contexts.has(k)).map((k) => ({ id: k, facts: n.get(k)!.length, sample: n.get(k)!.slice(0, 6) }));
+      const one = new URL(req.url).searchParams.get("ctx");
+      if (one) {
+        // values of one context; identity fields (PAN, DIN, CIN, address, contact) are never returned (public endpoint)
+        const masked = /Identification|PAN\b|Pan[A-Z]|Din\b|DIN|CIN|Address|Email|Phone|Contact|Mobile/i;
+        return Response.json(inst.facts.filter((f) => f.contextRef === one).map((f) => ({ tag: f.tag, value: masked.test(f.tag) ? "(masked)" : f.value?.slice(0, 200) ?? null, unit: f.unitRef, decimals: f.decimals })), { headers: { "cache-control": "no-store" } });
+      }
       return Response.json({ facts: inst.facts.length, contexts: ctx.filter((c) => c.facts > 0).sort((a, b) => b.facts - a.facts), undefined_refs: undefinedRefs }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/restatements") {
