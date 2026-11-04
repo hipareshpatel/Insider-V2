@@ -5,7 +5,7 @@
   "workers_dev": true,
   "observability": { "enabled": true },
   "limits": { "cpu_ms": 60000 },
-  "triggers": { "crons": ["* * * * *"] },
+  "triggers": { "crons": ["*/5 * * * *"] },
   "vars": { "ENVIRONMENT": "production", "MONTHLY_WRITE_CAP": "54000000", "BSCF_LOAD": "1", "FOCUS_INDICES": "NIFTY 50,NIFTY NEXT 50,NIFTY MIDCAP 150" },
   "d1_databases": [
     { "binding": "DB_FILINGS", "database_name": "disclo-filings", "database_id": "${filings}" },

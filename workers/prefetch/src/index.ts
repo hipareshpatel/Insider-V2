@@ -35,9 +35,10 @@ async function discover(env: Env, db: Sql): Promise<number> {
   for (const l of lists) {
     const obj = await env.RAW.get(l.r2_key);
     if (!obj) continue;
-    for (const u of attachments(l.kind, await readText(obj), "2021-04-01")) rows.push([`xbrl_${l.kind}`, l.symbol, u, attachmentKey(u), l.job_id]);
+    for (const u of attachments(l.kind, await readText(obj), "2021-04-01")) rows.push([`xbrl_${l.kind}`, l.symbol, u, attachmentKey(u), l.job_id, 1]);
   }
-  const stmts = insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key, parent_id)", 5, rows);
+  // attachments are files, not lists: born discovered=1, so this every-minute query only sees lists (C56)
+  const stmts = insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key, parent_id, discovered)", 6, rows);
   for (let i = 0; i < lists.length; i += 90) {
     const ids = lists.slice(i, i + 90).map((l) => l.job_id);
     stmts.push({ sql: `UPDATE fetch_job SET discovered=1 WHERE job_id IN (${ids.map(() => "?").join(",")})`, params: ids }); // D1: <= 100 params
