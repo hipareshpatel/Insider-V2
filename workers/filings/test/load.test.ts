@@ -86,6 +86,26 @@ describe("FY22 old-format March-quarter file (contexts referenced but undefined)
   });
 });
 
+describe("revised filing of a half year: balance sheet and cash flow versioned and flagged (owner #336)", () => {
+  it("INFY Sep 2026 filed twice, the second with every balance-sheet figure 2% larger: H-period rows original/restated, BS lines flagged", async () => {
+    const UA = "https://nsearchives.nseindia.com/corporate/xbrl/IF_A.xml", UB = "https://nsearchives.nseindia.com/corporate/xbrl/IF_B.xml";
+    const filings = sqlite("filings"), market = sqlite("market");
+    market.raw.exec("DELETE FROM job_lock; INSERT INTO security (security_id,name) VALUES (7,'Infosys'); INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (7,'nse_symbol','INFY','2024-01-01','t')");
+    const list = JSON.stringify({ data: [{ symbol: "INFY", broadcast_Date: "16-Oct-2026 16:40:00", xbrl: UA }, { symbol: "INFY", broadcast_Date: "20-Oct-2026 10:00:00", xbrl: UB }] });
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES (1,'integrated_financials','INFY','u1','api/l.json','done');
+      INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status,parent_id) VALUES (2,'xbrl_integrated_financials','INFY','${UA}','att/A.xml','done',1), (3,'xbrl_integrated_financials','INFY','${UB}','att/B.xml','done',1)`);
+    const a = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_IF_Q2FY27_cons_full.xml"), "utf8");
+    const b = a.replace(/(<in-capmkt:[A-Za-z]+\b[^>]*contextRef="OneI"[^>]*unitRef="INR"[^>]*>)(-?\d+(?:\.\d+)?)/g, (_m, h, v) => h + String(Math.round(Number(v) * 1.02)));
+    const files: Record<string, string> = { "att/A.xml": a, "att/B.xml": b, "api/l.json": list };
+    await loadBatch({ filings, market, bscf: true, getText: async (k: string) => files[k] ?? null, now: () => new Date("2026-11-03T02:00:00Z") });
+    const v = await filings.all<{ version: string }>("SELECT DISTINCT version FROM fin_value WHERE statement='bs' AND line='total_assets' AND period_kind='H' ORDER BY disclosed_at");
+    expect(v.map((x) => x.version)).toEqual(["original", "restated"]);
+    const flags = await filings.all<{ statement: string; period_kind: string; change_pct: string }>("SELECT statement, period_kind, change_pct FROM restatement_flag WHERE statement='bs'");
+    expect(flags.length).toBeGreaterThan(5);
+    expect(flags.every((f) => f.period_kind === "H" && Math.abs(Math.abs(Number(f.change_pct)) - 2) < 0.1)).toBe(true);
+  });
+});
+
 describe("complete statements (D154): every reported balance-sheet and cash-flow line", () => {
   it("INFY Sep 2026 consolidated: ~59 balance-sheet and 88 cash-flow detail lines stored next to the named lines", async () => {
     const URLH = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_INDAS_INFY_H1FY27_WEB.xml";

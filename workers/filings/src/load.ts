@@ -184,7 +184,7 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
  *  the original and a restatement are recorded in restatement_flag. Uses the PK prefix (no scans). */
 export async function versionPeriod(db: Sql, sid: number, periodEnd: string, periodKind: string, basis: string): Promise<number> {
   const at = await db.all<{ disclosed_at: string }>(
-    "SELECT DISTINCT disclosed_at FROM fin_value WHERE security_id=? AND statement='pl' AND line IN ('revenue','total_income','pat','interest_earned') AND period_end=? AND period_kind=? AND basis=? ORDER BY disclosed_at", [sid, periodEnd, periodKind, basis]);
+    "SELECT DISTINCT disclosed_at FROM fin_value WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? ORDER BY disclosed_at", [sid, periodEnd, periodKind, basis]);
   if (at.length < 2) return 0;
   const first = at[0]!.disclosed_at;
   await db.run("UPDATE fin_value SET version='original' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at=? AND version<>'original'", [sid, periodEnd, periodKind, basis, first]);
@@ -214,7 +214,8 @@ export async function versionBackfill(db: Sql, limit = 150): Promise<{ done: boo
   const g = await db.all<{ k: string; security_id: number; period_end: string; period_kind: string; basis: string }>(
     `SELECT security_id || '|' || period_end || '|' || period_kind || '|' || basis AS k, security_id, period_end, period_kind, basis FROM filing
      WHERE kind <> 'shareholding' GROUP BY security_id, period_end, period_kind, basis HAVING count(*) > 1 AND k > ? ORDER BY k LIMIT ?`, [cur.after, limit]);
-  for (const x of g) await versionPeriod(db, x.security_id, x.period_end, x.period_kind, x.basis);
+  // every period kind stored at that date (quarter P&L, half-year / nine-month / full-year balance sheet and cash flow)
+  for (const x of g) for (const k of new Set([x.period_kind, "Q", "H", "9M", "FY"])) await versionPeriod(db, x.security_id, x.period_end, k, x.basis);
   const next = { after: g.length ? g[g.length - 1]!.k : cur.after, done: g.length < limit, groups: cur.groups + g.length };
   await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','version_backfill',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(next)]);
   return next;
@@ -254,6 +255,10 @@ export async function loadBsCf(inst: XbrlInstance, sid: number, template: string
   }
   if (rows.length) await batchAll(deps.filings, insertRows(
     "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, rows, "ON CONFLICT DO NOTHING"));
+  // owner #336: version + flag the balance-sheet / cash-flow periods too, after their rows exist (H and 9M periods
+  // were never checked, and Q/FY were checked before these rows were written)
+  const periods = new Set(rows.map((r) => `${r[5]}|${r[6]}`));
+  for (const pk of periods) { const [end, k] = pk.split("|"); await versionPeriod(deps.filings, sid, end!, k!, basis); }
   return { rows: rows.length, note: notes.length ? `; ${notes.join("; ")}` : "" };
 }
 
