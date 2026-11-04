@@ -42,6 +42,17 @@ describe("D1 migrations (§5: one database per domain)", () => {
     ins.run(null, "not_reported");
   });
 
+  it("filings: a derived figure can never be stored (owner #347)", () => {
+    const db = apply("filings");
+    db.exec("INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (1,1,'results_xbrl','2026-10-23T14:49:37Z','u')");
+    const ins = db.prepare(`INSERT INTO fin_value (security_id,template,statement,line,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,origin,extractor_version)
+      VALUES (1,'industrial','pl',?,'2026-09-30','Q','consolidated','original','1',NULL,'2026-10-23T14:49:37Z',1,?,'x1')`);
+    expect(() => ins.run("revenue", "computed")).toThrow(/never stored/);
+    ins.run("revenue", "reported");
+    ins.run("pat", "extracted");
+    expect(() => db.exec("UPDATE fin_value SET origin='computed' WHERE line='pat'")).toThrow(/never stored/);
+  });
+
   it("market: corporate actions dedupe across series (§5.2)", () => {
     const db = apply("market");
     db.exec("INSERT INTO security (security_id, name) VALUES (1,'A')");
