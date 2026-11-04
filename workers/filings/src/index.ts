@@ -82,6 +82,24 @@ export default {
         board_meetings: await one("SELECT count(*) AS n FROM board_meeting WHERE symbol=?1 AND coalesce(meeting_d, 0) BETWEEN ?2 AND ?3"),
       }, { headers: { "cache-control": "no-store" } });
     }
+    if (path === "/raw-probe") {
+      // C53 read-only: shape of a stored probe answer (kind pit_gg_probe): bytes, top-level keys, row count, first row,
+      // broadcast-date range. Public filing metadata only.
+      const jobs = (await env.DB_FILINGS.prepare("SELECT job_id, url, r2_key, status, http_status, bytes FROM fetch_job WHERE kind='pit_gg_probe' ORDER BY job_id").all<{ job_id: number; url: string; r2_key: string; status: string; http_status: number | null; bytes: number | null }>()).results;
+      const out = [];
+      for (const j of jobs) {
+        const text = j.status === "done" ? await getText(env.RAW, j.r2_key) : null;
+        let info: Record<string, unknown> = {};
+        if (text) try {
+          const o = JSON.parse(text) as unknown;
+          const rows = (Array.isArray(o) ? o : ((o as Record<string, unknown>).data ?? [])) as Record<string, unknown>[];
+          const dates = rows.map((r) => String(r.broadcastDateTime ?? r.date ?? "")).filter(Boolean);
+          info = { top: Array.isArray(o) ? "array" : Object.keys(o as object).slice(0, 10), rows: rows.length, first: rows[0] ?? null, broadcast_first: dates[0] ?? null, broadcast_last: dates[dates.length - 1] ?? null };
+        } catch (e) { info = { err: String(e).slice(0, 80), head: text.slice(0, 120) }; }
+        out.push({ job: j.job_id, url: j.url.replace(/^https:\/\/[^/]+\/api\//, ""), status: j.status, http: j.http_status, bytes: j.bytes, ...info });
+      }
+      return Response.json(out, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/pit-files") {
       // Read-only diagnosis: every stored insider-trade (PIT) list for one company — request, status, rows, date range.
       const sym = new URL(req.url).searchParams.get("symbol") ?? "";
