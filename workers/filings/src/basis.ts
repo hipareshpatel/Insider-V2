@@ -62,7 +62,8 @@ export async function runPrimaryBasis(db: Sql, sids: number[], now: Date, lists?
     const d = decideBasis({ template: rows.some((r) => r.template === "bank") ? "bank" : rows[0]!.template, quarters: rows.map((r) => ({ period_end: r.period_end, basis: r.basis, income: r.income === null ? null : Number(r.income) })), nseConsolidated });
     // coverage (D90, 5 years from 2021-04): listed by NSE but not loaded
     const loaded = new Set(rows.map((r) => `${r.period_end}|${r.basis}`));
-    const gaps = new Set([...listed].filter((k) => !loaded.has(k) && k >= "2021-06-30"));
+    // D168: coverage is required from 2024-01-01 only (was 2021-06-30); older listed quarters are never flagged
+    const gaps = new Set([...listed].filter((k) => !loaded.has(k) && k >= "2024-01-01"));
     const oldGaps = new Set((await db.all<{ period_end: string; basis: string }>("SELECT period_end, basis FROM coverage_gap WHERE security_id=?", [sid])).map((r) => `${r.period_end}|${r.basis}`));
     for (const k of oldGaps) if (!gaps.has(k)) stmts.push({ sql: "DELETE FROM coverage_gap WHERE security_id=? AND period_end=? AND basis=?", params: [sid, ...k.split("|")] });
     stmts.push(...insertRows("INSERT OR IGNORE INTO coverage_gap (security_id, period_end, basis)", 3, [...gaps].filter((k) => !oldGaps.has(k)).map((k) => [sid, ...k.split("|")])));
@@ -149,12 +150,12 @@ export function gapClass(files: { url: string; job?: { status: string; http_stat
 export async function classifyGaps(db: Sql, market: Sql, getText: (k: string) => Promise<string | null>, perCall = 10): Promise<{ after: number; done: boolean; companies: number }> {
   const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='coverage_classify'");
   const cur = st ? JSON.parse(st.detail) as { after: number; companies: number } : { after: 0, companies: 0 };
-  const sids = (await db.all<{ security_id: number }>("SELECT DISTINCT security_id FROM coverage_gap WHERE security_id > ? ORDER BY security_id LIMIT ?", [cur.after, perCall])).map((r) => r.security_id);
+  const sids = (await db.all<{ security_id: number }>("SELECT DISTINCT security_id FROM coverage_gap WHERE security_id > ? AND period_end >= '2024-01-01' ORDER BY security_id LIMIT ?", [cur.after, perCall])).map((r) => r.security_id);
   for (const sid of sids) {
     const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND id_type='nse_symbol'", [sid])).map((r) => r.value);
     const keys = await db.all<{ r2_key: string }>(SQL_BASIS_LISTS, [JSON.stringify(syms)]);
     const listed = nseListedFiles((await Promise.all(keys.map((k) => getText(k.r2_key)))).filter((t): t is string => !!t));
-    const gaps = await db.all<{ period_end: string; basis: string }>("SELECT period_end, basis FROM coverage_gap WHERE security_id=?", [sid]);
+    const gaps = await db.all<{ period_end: string; basis: string }>("SELECT period_end, basis FROM coverage_gap WHERE security_id=? AND period_end >= '2024-01-01'", [sid]); // D168
     const stmts: { sql: string; params: unknown[] }[] = [];
     for (const g of gaps) {
       const files = [];

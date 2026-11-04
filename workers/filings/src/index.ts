@@ -176,13 +176,16 @@ export default {
     if (path === "/coverage-gaps") {
       // Work list item 2: coverage gaps of the focus companies by class (coverage_gap.status, set by /maint/coverage_classify)
       const q = async (sql: string) => (await env.DB_FILINGS.prepare(sql).all()).results as Record<string, unknown>[];
-      const classes = await q("SELECT coalesce(status, '(not classified yet)') AS class, count(*) AS gaps, count(DISTINCT security_id) AS companies FROM coverage_gap GROUP BY 1 ORDER BY 2 DESC");
-      const sample = await q("SELECT coalesce(status, '(not classified yet)') AS class, security_id, period_end, basis FROM coverage_gap ORDER BY status, security_id, period_end LIMIT 400");
+      // D168: only quarters from 2024-01-01 are active gaps; older rows are reported as one out-of-scope count
+      const classes = await q("SELECT coalesce(status, '(not classified yet)') AS class, count(*) AS gaps, count(DISTINCT security_id) AS companies FROM coverage_gap WHERE period_end >= '2024-01-01' GROUP BY 1 ORDER BY 2 DESC");
+      const outOfScope = (await q("SELECT count(*) AS gaps, count(DISTINCT security_id) AS companies FROM coverage_gap WHERE period_end < '2024-01-01'"))[0];
+      const active = (await q("SELECT count(*) AS gaps, count(DISTINCT security_id) AS companies FROM coverage_gap WHERE period_end >= '2024-01-01'"))[0];
+      const sample = await q("SELECT coalesce(status, '(not classified yet)') AS class, security_id, period_end, basis FROM coverage_gap WHERE period_end >= '2024-01-01' ORDER BY status, security_id, period_end LIMIT 400");
       const ids = [...new Set(sample.map((r) => Number(r.security_id)))];
       const sym = new Map(((await env.DB_MARKET.prepare("SELECT security_id, min(value) AS symbol FROM security_identifier WHERE id_type='nse_symbol' AND security_id IN (SELECT value FROM json_each(?1)) GROUP BY security_id").bind(JSON.stringify(ids)).all<{ security_id: number; symbol: string }>()).results).map((x) => [x.security_id, x.symbol]));
       const byClass: Record<string, string[]> = {};
-      for (const r of sample) (byClass[String(r.class)] ??= []).length < 12 && byClass[String(r.class)]!.push(`${sym.get(Number(r.security_id)) ?? r.security_id} ${r.period_end} ${r.basis}`);
-      return Response.json({ classes, examples: byClass }, { headers: { "cache-control": "no-store" } });
+      for (const r of sample) (byClass[String(r.class)] ??= []).push(`${sym.get(Number(r.security_id)) ?? r.security_id} ${r.period_end} ${r.basis}`);
+      return Response.json({ floor: "2024-01-01", active, out_of_scope_before_floor: outOfScope, classes, gaps: byClass }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/primary-basis") {
       // Read-only (D50/D51): primary basis per focus company, with the reason, and basis-switch breaks.

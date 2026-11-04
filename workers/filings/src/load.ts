@@ -11,12 +11,16 @@ export interface Deps {
   now: () => Date;
   /** D155: load only these NSE symbols' filings (all symbols a focus security has had); undefined = everything. */
   focus?: string[];
+  /** D168 coverage floor (default COVERAGE_FLOOR); a reader test of old-format files sets an earlier one. */
+  floor?: string;
   /** P1: wall-clock deadline (ms since epoch) for this run; no new file is started after it. */
   deadline?: number;
 }
 /** SQL fragment + params restricting fetch_job rows aliased `j` to the focus symbols (one JSON parameter, D1-safe). */
 const focusSql = (deps: Deps) => (deps.focus ? { sql: " AND j.symbol IN (SELECT value FROM json_each(?))", params: [JSON.stringify(deps.focus)] } : { sql: "", params: [] as unknown[] });
 
+/** D168 (owner #344): missing financial statements are chased only from this date (periods ending on/after it). */
+export const COVERAGE_FLOOR = "2024-01-01";
 export const RESULT_KINDS = ["xbrl_results_quarterly", "xbrl_results_annual", "xbrl_integrated_financials"];
 export const SHP_KINDS = ["xbrl_shareholding"];
 const MON: Record<string, string> = { JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06", JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12" };
@@ -96,6 +100,20 @@ export interface LoadOutcome { jobId: number; status: "loaded" | "review" | "ski
   newest?: string }
 
 /** Shareholding pattern (FMEA B3, B4, C1–C3): loaded only when the top-level categories sum exactly to total shares. */
+/** Security of a file: by the symbol written in the file, else (work list item 2, owner #343) by the company whose NSE
+ *  list linked it. Files filed before a rename carry the old symbol (ADANITRANS, LTI, SRTRANSFIN, MOTHERSUMI …), which
+ *  the market identity (from 2024) never saw: 79 coverage gaps in 9 focus companies. Lists are per company, so the
+ *  linking company is the filer. */
+async function securityFor(deps: Deps, fileSymbol: string | null | undefined, listSymbol: string | null): Promise<{ security_id: number } | undefined> {
+  const q = "SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=? ORDER BY valid_to IS NULL DESC, valid_from DESC LIMIT 1";
+  for (const s of [fileSymbol, listSymbol]) {
+    if (!s) continue;
+    const [sec] = await deps.market.all<{ security_id: number }>(q, [s]);
+    if (sec) return sec;
+  }
+  return undefined;
+}
+
 export async function loadShp(job: { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }, deps: Deps, listCache: Map<string, string | null>): Promise<LoadOutcome> {
   const xml = await deps.getText(job.r2_key);
   if (!xml) return { jobId: job.job_id, status: "failed", detail: "file not in R2" };
@@ -106,9 +124,11 @@ export async function loadShp(job: { job_id: number; kind: string; symbol: strin
   try { r = parseShareholding(inst); } catch (e) { parseErr = String(e); }
   if (parseErr && !/total shares not found/.test(parseErr)) return { jobId: job.job_id, status: "review", detail: `not a supported shareholding file: ${parseErr.slice(0, 140)}` };
   const sumCheck = "promoter + public + non-promoter-non-public = total shares";
-  const symbol = (r ?? (() => { try { return parseShareholding(inst, { totalOverride: 1 }); } catch { return null; } })())?.symbol ?? job.symbol;
-  const [sec] = await deps.market.all<{ security_id: number }>(
-    "SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=? ORDER BY valid_to IS NULL DESC, valid_from DESC LIMIT 1", [symbol]);
+  const head = r ?? (() => { try { return parseShareholding(inst, { totalOverride: 1 }); } catch { return null; } })();
+  const floor = deps.floor ?? COVERAGE_FLOOR;
+  if (head?.asOf && head.asOf < floor) return { jobId: job.job_id, status: "excluded", detail: `as of ${head.asOf}, before the ${floor} coverage floor (D168)` };
+  const symbol = head?.symbol ?? job.symbol;
+  const sec = await securityFor(deps, symbol, job.symbol);
   if (!sec) return { jobId: job.job_id, status: "skipped", detail: `symbol ${symbol} not in market identity yet` };
   let note: string | null = null;
   if (!r || r.checks.some((c) => c.name === sumCheck && !c.ok)) {
@@ -160,6 +180,10 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
     if (/reporting period not found/.test(String(e))) return { jobId: job.job_id, status: "excluded", detail: "no reporting period in the file (D145)" };
     return { jobId: job.job_id, status: "review", detail: `not a supported results file: ${String(e).slice(0, 140)}` };
   }
+  // D168 (owner #344): statements before 2024-01-01 are not chased — a file for an earlier period that is not loaded yet
+  // (new, or retried after a skip, hold or error) is excluded for good; files already loaded stay as they are
+  const floor = deps.floor ?? COVERAGE_FLOOR;
+  if (r.periodEnd < floor) return { jobId: job.job_id, status: "excluded", detail: `period ${r.periodEnd} before the ${floor} coverage floor (D168)` };
   const missingCore = CORE[r.template].filter((k) => r.lines[k] === undefined);
   if (missingCore.length) return { jobId: job.job_id, status: "review", detail: `${r.template}: core lines missing ${missingCore.join(",")}` };
   const failed = r.checks.filter((c) => !c.ok);
@@ -174,8 +198,7 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   if (!r.checks.length) return { jobId: job.job_id, status: "review", detail: "no identity check could run" };
 
   const symbol = r.symbol ?? job.symbol;
-  const [sec] = await deps.market.all<{ security_id: number }>(
-    "SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=? ORDER BY valid_to IS NULL DESC, valid_from DESC LIMIT 1", [symbol]);
+  const sec = await securityFor(deps, symbol, job.symbol);
   if (!sec) return { jobId: job.job_id, status: "skipped", detail: `symbol ${symbol} not in market identity yet` };
 
   // B7 scale guard: revenue-type core line vs this company's latest earlier value for the same basis and period kind.
