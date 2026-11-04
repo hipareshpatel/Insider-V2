@@ -82,6 +82,19 @@ export default {
         board_meetings: await one("SELECT count(*) AS n FROM board_meeting WHERE symbol=?1 AND coalesce(meeting_d, 0) BETWEEN ?2 AND ?3"),
       }, { headers: { "cache-control": "no-store" } });
     }
+    if (path === "/contexts") {
+      // Read-only (owner #337): every context of one stored XBRL file — id, dates, dimensions, number of facts, sample tags.
+      const key = new URL(req.url).searchParams.get("key") ?? "";
+      if (!/^att\/xbrl\/[A-Za-z0-9_.-]+\.xml$/.test(key)) return new Response("bad key", { status: 400 });
+      const xml = await getText(env.RAW, key);
+      if (!xml) return new Response("not stored", { status: 404 });
+      const inst = parseXbrl(xml);
+      const n = new Map<string, string[]>();
+      for (const f of inst.facts) { const a = n.get(f.contextRef) ?? []; a.push(f.tag.split(":")[1] ?? f.tag); n.set(f.contextRef, a); }
+      const ctx = [...inst.contexts.values()].map((c) => ({ id: c.id, start: c.start, end: c.end, instant: c.instant, dims: c.dims, facts: n.get(c.id)?.length ?? 0, sample: (n.get(c.id) ?? []).slice(0, 6) }));
+      const undefinedRefs = [...n.keys()].filter((k) => !inst.contexts.has(k)).map((k) => ({ id: k, facts: n.get(k)!.length, sample: n.get(k)!.slice(0, 6) }));
+      return Response.json({ facts: inst.facts.length, contexts: ctx.filter((c) => c.facts > 0).sort((a, b) => b.facts - a.facts), undefined_refs: undefinedRefs }, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/restatements") {
       // Read-only (owner #336): restatement flags — one company (?symbol=) or a summary of all.
       const sym = new URL(req.url).searchParams.get("symbol");
