@@ -100,19 +100,23 @@ export interface LoadOutcome { jobId: number; status: "loaded" | "review" | "ski
   newest?: string }
 
 /** Shareholding pattern (FMEA B3, B4, C1–C3): loaded only when the top-level categories sum exactly to total shares. */
-/** Security of a file: by the symbol written in the file, else (work list item 2, owner #343) by the company whose NSE
- *  list linked it. Files filed before a rename carry the old symbol (ADANITRANS, LTI, SRTRANSFIN, MOTHERSUMI …), which
- *  the market identity (from 2024) never saw: 79 coverage gaps in 9 focus companies. Lists are per company, so the
- *  linking company is the filer. */
-async function securityFor(deps: Deps, fileSymbol: string | null | undefined, listSymbol: string | null): Promise<{ security_id: number } | undefined> {
-  const q = "SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=? ORDER BY valid_to IS NULL DESC, valid_from DESC LIMIT 1";
-  for (const s of [fileSymbol, listSymbol]) {
-    if (!s) continue;
-    const [sec] = await deps.market.all<{ security_id: number }>(q, [s]);
+/** Security of a file. Order (C61, work list item 2): (1) the ISIN written in the file, when the market identity knows it;
+ *  (2) the company whose NSE list linked the file — lists are per company, so the linking company is the filer;
+ *  (3) the symbol written in the file. The file's symbol is the least reliable: files filed before a rename carry the
+ *  old symbol (ADANITRANS, LTI, SRTRANSFIN, MOTHERSUMI …; 79 gaps in 9 companies, owner #343), and a filer can type
+ *  another company's symbol (COFORGE Q3 FY26 filed with Symbol NUCLEUS, its own ISIN and BSE code — stored under
+ *  Nucleus Software until this fix). */
+const SQL_SEC_BY = (idType: "nse_symbol" | "isin") => `SELECT security_id FROM security_identifier WHERE id_type='${idType}' AND value=? ORDER BY valid_to IS NULL DESC, valid_from DESC LIMIT 1`;
+async function securityFor(deps: Deps, fileSymbol: string | null | undefined, listSymbol: string | null, isin?: string | null): Promise<{ security_id: number } | undefined> {
+  const tries: ["nse_symbol" | "isin", string | null | undefined][] = [["isin", isin], ["nse_symbol", listSymbol], ["nse_symbol", fileSymbol]];
+  for (const [t, v] of tries) {
+    if (!v) continue;
+    const [sec] = await deps.market.all<{ security_id: number }>(SQL_SEC_BY(t), [v]);
     if (sec) return sec;
   }
   return undefined;
 }
+const fileIsin = (inst: XbrlInstance) => inst.facts.find((f) => /:ISIN$/.test(f.tag) && /^IN[A-Z0-9]{10}$/.test(f.value ?? ""))?.value ?? null;
 
 export async function loadShp(job: { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }, deps: Deps, listCache: Map<string, string | null>): Promise<LoadOutcome> {
   const xml = await deps.getText(job.r2_key);
@@ -128,7 +132,7 @@ export async function loadShp(job: { job_id: number; kind: string; symbol: strin
   const floor = deps.floor ?? COVERAGE_FLOOR;
   if (head?.asOf && head.asOf < floor) return { jobId: job.job_id, status: "excluded", detail: `as of ${head.asOf}, before the ${floor} coverage floor (D168)` };
   const symbol = head?.symbol ?? job.symbol;
-  const sec = await securityFor(deps, symbol, job.symbol);
+  const sec = await securityFor(deps, symbol, job.symbol, fileIsin(inst));
   if (!sec) return { jobId: job.job_id, status: "skipped", detail: `symbol ${symbol} not in market identity yet` };
   let note: string | null = null;
   if (!r || r.checks.some((c) => c.name === sumCheck && !c.ok)) {
@@ -198,7 +202,7 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   if (!r.checks.length) return { jobId: job.job_id, status: "review", detail: "no identity check could run" };
 
   const symbol = r.symbol ?? job.symbol;
-  const sec = await securityFor(deps, symbol, job.symbol);
+  const sec = await securityFor(deps, symbol, job.symbol, fileIsin(inst));
   if (!sec) return { jobId: job.job_id, status: "skipped", detail: `symbol ${symbol} not in market identity yet` };
 
   // B7 scale guard: revenue-type core line vs this company's latest earlier value for the same basis and period kind.
@@ -602,4 +606,37 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8, scan = 20
   for (const [feed, w] of Object.entries(fresh)) await markFresh(deps.filings, feed, w.newest, w.rows, deps.now());
   if (after !== saved?.after || fp !== saved?.focus) await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','loader_cursor',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [deps.now().toISOString(), JSON.stringify({ after, focus: fp })]);
   return out;
+}
+
+/** C61 (work list item 2): filings stored under another company than the focus company whose NSE list linked them — the
+ *  loader used to trust the symbol written in the file before the linking company (COFORGE Q3 FY26 filed with Symbol
+ *  NUCLEUS). Read-only unless fix: then each such filing and its rows move to the linking company, except when that
+ *  company already has rows for the same period and basis (reported as a conflict, nothing moved). */
+export const SQL_MISATTR = `SELECT j.symbol, f.filing_id, f.security_id, f.kind, f.period_end, f.period_kind, f.basis
+  FROM fetch_job j JOIN filing f ON f.source_url = j.url WHERE j.symbol IN (SELECT value FROM json_each(?)) AND j.kind LIKE 'xbrl_%'`;
+export async function misattributed(deps: Deps, fix: boolean): Promise<{ done: true; found: number; moved: number; conflicts: number; sids: number[]; items: string[] }> {
+  const focus = deps.focus ?? [];
+  const ids = await deps.market.all<{ security_id: number; value: string }>(
+    "SELECT security_id, value FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(focus)]);
+  const sidOf = new Map(ids.map((r) => [r.value, r.security_id]));
+  const rows = await deps.filings.all<{ symbol: string; filing_id: number; security_id: number; kind: string; period_end: string | null; period_kind: string | null; basis: string | null }>(SQL_MISATTR, [JSON.stringify(focus)]);
+  const wrong = rows.filter((r) => sidOf.has(r.symbol) && sidOf.get(r.symbol) !== r.security_id);
+  let moved = 0, conflicts = 0;
+  const items: string[] = [], sids = new Set<number>();
+  for (const w of wrong) {
+    const to = sidOf.get(w.symbol)!;
+    let tag = "found";
+    if (fix) {
+      const [clash] = w.period_end ? await deps.filings.all<{ x: number }>(
+        "SELECT 1 AS x FROM fin_value WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND filing_id<>? LIMIT 1", [to, w.period_end, w.period_kind, w.basis, w.filing_id]) : [];
+      if (clash) { conflicts++; tag = "conflict: the company already has this period"; }
+      else {
+        await batchAll(deps.filings, ["filing", "fin_value", "shareholding", "promoter_encumbrance"].map((t) => ({
+          sql: `UPDATE ${t} SET security_id=? WHERE filing_id=?`, params: [to, w.filing_id] })));
+        moved++; sids.add(to); tag = "moved";
+      }
+    }
+    items.push(`${w.symbol}: filing ${w.filing_id} ${w.kind} ${w.period_end ?? ""} ${w.period_kind ?? ""} ${w.basis ?? ""} stored under ${w.security_id}, list company ${to} — ${tag}`);
+  }
+  return { done: true, found: wrong.length, moved, conflicts, sids: [...sids], items: items.slice(0, 60) };
 }
