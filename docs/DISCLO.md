@@ -3035,6 +3035,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 348 | "blanket ban. We already have XBRL for quarter and year, if those are missing we will download it later" | TTM (sum of four quarters) banned outright, stored or shown (D170). D38, D52, D66 and the feature-table `*_ttm` columns lose their TTM base; proposed replacement = latest filed full-year column, pending owner. Missing quarter/year files stay gaps until fetched; nothing is filled by arithmetic; moved to the to-do list as pending, later (#349) | ✅ |
 | 349 | "TTM : add it as pending items for later in to do" | Part 2 row "TTM — pending, later" (⏭): TTM stays banned; the TTM-based rules and feature columns are not built until the owner decides | ✅ |
 | 350 | "Ok, Keep TTM. As it is being used multiple places as you mentioned" | Reverses #348/#349: TTM kept for D38, D52, D66 and the feature columns, as a computed view only — four filed quarters, same basis, never stored in `fin_value`; unavailable when any quarter is missing (no substitute). D170 stored-fact rule unchanged | ✅ |
+| 351 | "go ahead, fix COFORGE and continue with the gaps, download only missing XBRL if needed." + all four half-year filers released quarterly results | COFORGE Q3 FY26 moved from Nucleus Software (C61). Checked COFORGE Mar 2025 "half-year" file: its 6-month-dated column holds Q4 FY25 figures (revenue ₹3,410 cr) — filer mis-tagged the dates; relabelling proposal put to the owner (C62, not built). 404 class: 16 standalone XBRL files failed once with 404 and were never retried; `/maint/requeue_404?jobs=…` re-queues named failed-404 focus jobs once for the next attachment run | ⚠ |
 
 ### Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -3043,7 +3044,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-04 after entry #350: all checks pass (170 decisions, 350 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
+*Last run 2026-11-04 after entry #351: all checks pass (170 decisions, 351 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); one open ⚠: #351 relabelling of mis-tagged half-year files (website conflicts listed in `docs/website.md` §11).*
 
 ### Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
