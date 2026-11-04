@@ -699,3 +699,13 @@ export async function requeue404(deps: Deps, jobIds: number[]): Promise<{ done: 
   const r = ids.length ? await deps.filings.run(SQL_REQUEUE_404, [JSON.stringify(ids), JSON.stringify(deps.focus ?? [])]) : { changes: 0 };
   return { done: true, asked: ids.length, requeued: r.changes };
 }
+
+/** Work list item 2: re-read named files of the focus companies after a reader fix (a 'review' outcome is final for
+ *  the loader). Puts them on the retry queue, due now; the next filings run reads them. Bounded by job id. */
+export const SQL_RELOAD = `UPDATE fin_load SET retry_after=? WHERE job_id IN (SELECT j.job_id FROM fetch_job j WHERE j.job_id IN (SELECT value FROM json_each(?))
+  AND j.symbol IN (SELECT value FROM json_each(?))) AND status IN ('review','skipped','failed')`;
+export async function reloadJobs(deps: Deps, jobIds: number[]): Promise<{ done: true; asked: number; queued: number }> {
+  const ids = jobIds.filter((n) => Number.isInteger(n) && n > 0).slice(0, 50);
+  const r = ids.length ? await deps.filings.run(SQL_RELOAD, [deps.now().toISOString(), JSON.stringify(ids), JSON.stringify(deps.focus ?? [])]) : { changes: 0 };
+  return { done: true, asked: ids.length, queued: r.changes };
+}

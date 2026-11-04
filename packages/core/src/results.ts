@@ -220,7 +220,7 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
   if (!pStart || !end) throw new Error("results: reporting period not found");
   const ytd = opts.span === "ytd";
   const fyStartMeta = meta("DateOfStartOfFinancialYear");
-  const start = ytd ? (fyStartMeta ?? (() => { throw new Error("results: financial-year start not found"); })()) : (opts.periodStart ?? pStart);
+  let start = ytd ? (fyStartMeta ?? (() => { throw new Error("results: financial-year start not found"); })()) : (opts.periodStart ?? pStart);
   // Current-period context: entity level (no dimensions) spanning exactly the reporting period.
   // V1 hint (C29): the year-to-date context (FourD) can carry the quarter's own dates; prefer the quarter (OneD)
   // explicitly instead of relying on document order (20,437 files had both).
@@ -230,6 +230,13 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
       ?? (opts.undefinedYtd && inst.facts.some((f) => f.contextRef === "FourD") ? { id: "FourD", entity: meta("Symbol"), start, end, instant: null, dims: {} } : undefined))
     : spans.find((c) => c.id === "OneD") ?? spans.find((c) => !/^four/i.test(c.id)) ?? spans[0];
   if (ytd && !ctx) throw new Error(`results: no year-to-date context for ${start}..${end}`);
+  // C64: the filer typed the start date wrong (HDFCLIFE / ICICILIFE Q3 FY26: DateOfStartOfReportingPeriod 2025-01-10 for
+  // 2025-10-01). The current-period context's own dates rule — only when that context (OneD, no dimensions) ends on the
+  // reporting end date, so a file whose content is another period (SIEMENS "Q3 FY26" holding Apr–Jun 2025) still fails.
+  if (!ctx && !ytd && !opts.periodStart) {
+    const one = inst.contexts.get("OneD");
+    if (one && one.start && one.end === end && Object.keys(one.dims).length === 0) { ctx = one; start = one.start; }
+  }
   if (!ctx && !opts.periodStart) {
     // Some filings (seen: 2021 in-bse-fin files) reference a context id they never define. The filing's own
     // DateOfStart/EndOfReportingPeriod facts sit in that same context id, so they define its period (FMEA C4).
