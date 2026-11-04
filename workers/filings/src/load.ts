@@ -178,11 +178,16 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   if (!xml) return { jobId: job.job_id, status: "failed", detail: "file not in R2" };
   if (!/<\/(?:[\w-]+:)?xbrl>\s*$/.test(xml.trim())) return { jobId: job.job_id, status: "failed", detail: "truncated XML (root not closed)" }; // FMEA B11
   let r: CanonicalResult;
-  let inst: XbrlInstance;
+  let inst!: XbrlInstance;
+  let misdated = false;
   try { inst = parseXbrl(xml); r = canonicalResult(inst); } catch (e) {
     // D145 (owner #278): files with no reporting period in them (old bank format) are excluded, not reviewed.
     if (/reporting period not found/.test(String(e))) return { jobId: job.job_id, status: "excluded", detail: "no reporting period in the file (D145)" };
-    return { jobId: job.job_id, status: "review", detail: `not a supported results file: ${String(e).slice(0, 140)}` };
+    // C65 (owner #353): a "Quarterly" file whose own contexts carry mis-typed dates (SIEMENS Q2 FY25: OneD dated
+    // 2024-01-01..2025-03-31). Read as the quarter ending on the reporting date; loaded only if the C62 proof passes below.
+    const q = /-month period/.test(String(e)) && inst ? quarterlyEnd(inst) : null;
+    try { if (!q) throw e; r = canonicalResult(inst, { quarterFrom: quarterBounds(q).start }); misdated = true; }
+    catch { return { jobId: job.job_id, status: "review", detail: `not a supported results file: ${String(e).slice(0, 140)}` }; }
   }
   // D168 (owner #344): statements before 2024-01-01 are not chased — a file for an earlier period that is not loaded yet
   // (new, or retried after a skip, hold or error) is excluded for good; files already loaded stay as they are
@@ -204,6 +209,10 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   const symbol = r.symbol ?? job.symbol;
   const sec = await securityFor(deps, symbol, job.symbol, fileIsin(inst));
   if (!sec) return { jobId: job.job_id, status: "skipped", detail: `symbol ${symbol} not in market identity yet` };
+  if (misdated) {
+    const m = await mistaggedQuarter(inst, r, sec.security_id, deps);
+    if (!m.ok) return { jobId: job.job_id, status: "review", detail: `period dates mis-typed in the file; quarter not proven (C65: ${m.why})` };
+  }
 
   // B7 scale guard: revenue-type core line vs this company's latest earlier value for the same basis and period kind.
   const core = CORE[r.template][0]!;
@@ -220,7 +229,7 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   const prev = mags.length ? { value: String(mags.length % 2 ? mags[(mags.length - 1) / 2] : (mags[mags.length / 2 - 1]! + mags[mags.length / 2]!) / 2) } : undefined;
   if (prev && dec(prev.value).units !== 0n && dec(r.lines[core]!).units !== 0n) {
     const ratio = Math.abs(Number(toText(div(dec(r.lines[core]!), dec(prev.value), 6))));
-    if (ratio >= 10 || ratio <= 0.1) {
+    if ((ratio >= 10 || ratio <= 0.1) && !epsConsistent(inst, r)) {
       await deps.filings.run("INSERT OR REPLACE INTO fin_held (security_id,line,basis,period_kind,period_end,value,job_id) VALUES (?,?,?,?,?,?,?)",
         [sec.security_id, core, r.basis, r.periodKind, r.periodEnd, r.lines[core]!, job.job_id]);
       return { jobId: job.job_id, status: "review", detail: `scale guard: ${core} ${r.lines[core]} vs median of ${mags.length} nearest periods ${prev.value} (×${ratio.toFixed(2)})` };
@@ -708,4 +717,26 @@ export async function reloadJobs(deps: Deps, jobIds: number[]): Promise<{ done: 
   const ids = jobIds.filter((n) => Number.isInteger(n) && n > 0).slice(0, 50);
   const r = ids.length ? await deps.filings.run(SQL_RELOAD, [deps.now().toISOString(), JSON.stringify(ids), JSON.stringify(deps.focus ?? [])]) : { changes: 0 };
   return { done: true, asked: ids.length, queued: r.changes };
+}
+
+/** C65 (owner #353): the reporting end date of a file that says it is quarterly ("TypeOfReportingPeriod" Quarterly) and
+ *  ends on a month end — null otherwise. */
+function quarterlyEnd(inst: XbrlInstance): string | null {
+  const meta = (t: string) => inst.facts.find((f) => f.tag.endsWith(":" + t))?.value ?? null;
+  const end = meta("DateOfEndOfReportingPeriod");
+  return /quarter/i.test(meta("TypeOfReportingPeriod") ?? "") && end && /^\d{4}-(03-31|06-30|09-30|12-31)$/.test(end) ? end : null;
+}
+
+/** Scale-guard release (owner #353): the amounts are in the right unit when the file's own profit ÷ shares (paid-up
+ *  capital ÷ face value) equals its filed basic EPS within 2% — EPS is filed per share in rupees, so an amount filed
+ *  in the wrong unit (lakh for rupee, …) misses by ×100 or more. A check only: nothing is computed into fin_value. */
+export function epsConsistent(inst: XbrlInstance, r: CanonicalResult): boolean {
+  const ctxIds = new Set([...inst.contexts.values()].filter((c) => c.end === r.periodEnd && Object.keys(c.dims).length === 0 && (c.start === r.periodStart || c.id === "OneD")).map((c) => c.id));
+  const fact = (t: string) => { const f = inst.facts.find((x) => x.tag.endsWith(":" + t) && ctxIds.has(x.contextRef) && !x.nil && x.value); const n = f ? Number(f.value) : NaN; return Number.isFinite(n) ? n : null; };
+  const anyFact = (t: string) => { const f = inst.facts.find((x) => x.tag.endsWith(":" + t) && !x.nil && x.value); const n = f ? Number(f.value) : NaN; return Number.isFinite(n) ? n : null; };
+  const eps = fact("BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations") ?? fact("BasicEarningsLossPerShareFromContinuingOperations");
+  const paidUp = anyFact("PaidUpValueOfEquityShareCapital"), face = anyFact("FaceValueOfEquityShareCapital");
+  if (!eps || !paidUp || !face || Math.abs(eps) < 0.01) return false;
+  const shares = paidUp / face;
+  return [fact("ProfitOrLossAttributableToOwnersOfParent"), fact("ProfitLossForPeriod")].some((p) => p !== null && p !== 0 && Math.abs(p / shares / eps - 1) <= 0.02);
 }

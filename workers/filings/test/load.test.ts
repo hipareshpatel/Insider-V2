@@ -20,6 +20,9 @@ function sqlite(domain: string): Sql & { raw: DatabaseSync } {
 const xml = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_Q3FY25.xml"), "utf8");
 const URL1 = "https://nsearchives.nseindia.com/corporate/xbrl/INDAS_117294_1348219_16012025074210.xml";
 const list = JSON.stringify([{ broadCastDate: "16-Jan-2025 19:42:10", resultDetailedDataLink: URL1 }]);
+// owner #353: a scale-guard hold now stands only when the file's own profit ÷ shares does not match its EPS (an amount
+// filed in the wrong unit). These tests hold, so their file carries an EPS ×100 off, as a units error would leave it.
+const xmlUnits = xml.replace(/(BasicEarningsLossPerShareFromContinuingOperations contextRef="OneD"[^>]*>)15\.31/, "$11531.00").replace(/(BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations contextRef="OneD"[^>]*>)15\.31/, "$11531.00");
 
 function setup(files: Record<string, string>) {
   const filings = sqlite("filings"), market = sqlite("market");
@@ -47,7 +50,7 @@ describe("results loader (M2)", () => {
     expect((await loadBatch(cut.deps))[0]).toMatchObject({ status: "failed" });
     const noTime = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": "[]" });
     expect((await loadBatch(noTime.deps))[0]).toMatchObject({ status: "review" });
-    const jump = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    const jump = setup({ "att/xbrl/a.xml": xmlUnits, "api/results_quarterly/INFY/x.json": list });
     jump.filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (99,7,'results_quarterly','2024-10-17T00:00:00Z','old');
       INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version)
       VALUES (7,'industrial','pl','revenue','','2024-09-30','Q','standalone','original','3409000000','2024-10-17T00:00:00Z',99,'reported','t')`);
@@ -178,6 +181,44 @@ describe("shareholding loader", () => {
   });
 });
 
+describe("scale-guard release by the file's own EPS (owner #353)", () => {
+  it("a 100x jump against history loads when profit ÷ shares matches the filed EPS (a real step, e.g. a dividend quarter)", async () => {
+    const { epsConsistent } = await import("../src/load.js");
+    expect(epsConsistent(parseXbrl(xml), canonicalResult(parseXbrl(xml)))).toBe(true);
+    expect(epsConsistent(parseXbrl(xmlUnits), canonicalResult(parseXbrl(xmlUnits)))).toBe(false);
+    const jump = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    jump.filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (99,7,'results_quarterly','2024-10-17T00:00:00Z','old');
+      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version)
+      VALUES (7,'industrial','pl','revenue','','2024-09-30','Q','standalone','original','3409000000','2024-10-17T00:00:00Z',99,'reported','t')`);
+    expect((await loadBatch(jump.deps))[0]).toMatchObject({ status: "loaded" });
+  });
+});
+
+describe("C65: a quarterly file whose own contexts carry mis-typed dates (SIEMENS Q2 FY25, owner #353)", () => {
+  const F = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_IF_Q2FY27_cons_full.xml"), "utf8");
+  // OneD and the reporting-start fact both say 2025-07-01: a 15-month "quarter"
+  const bad = F.replace('DateOfStartOfReportingPeriod contextRef="OneD">2026-07-01', 'DateOfStartOfReportingPeriod contextRef="OneD">2025-07-01')
+    .replace(/(<xbrli:context id="OneD">.*?<xbrli:startDate>)2026-07-01/s, "$12025-07-01");
+  const run = async (q1: (k: string) => string) => {
+    const { filings, deps } = setup({ "att/xbrl/a.xml": bad, "api/results_quarterly/INFY/x.json": list });
+    filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (49,7,'integrated_financials','2026-07-17T00:00:00Z','q1');
+      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version) VALUES
+      (7,'industrial','pl','revenue','','2026-06-30','Q','consolidated','original','${q1("revenue")}','2026-07-17T00:00:00Z',49,'reported','t'),
+      (7,'industrial','pl','pat','','2026-06-30','Q','consolidated','original','${q1("pat")}','2026-07-17T00:00:00Z',49,'reported','t')`);
+    return { filings, out: (await loadBatch(deps))[0]! };
+  };
+  const inst = parseXbrl(F), q = canonicalResult(inst), y = canonicalResult(inst, { span: "ytd" });
+  it("is loaded as the quarter when the filed Q1 + this column = the file's year to date", async () => {
+    const { filings, out } = await run((k) => String(BigInt(y.lines[k]!) - BigInt(q.lines[k]!))); // fixture: the consistent filed Q1
+    expect(out).toMatchObject({ status: "loaded" });
+    expect(await filings.all("SELECT value, period_kind FROM fin_value WHERE line='revenue' AND period_end='2026-09-30'")).toEqual([{ value: q.lines.revenue, period_kind: "Q" }]);
+  });
+  it("stays in review when the proof fails", async () => {
+    const { out } = await run(() => "1");
+    expect(out).toMatchObject({ status: "review", detail: expect.stringContaining("C65") });
+  });
+});
+
 describe("scale guard anchor (FMEA C6)", () => {
   it("a held value anchors the next filing, so a lasting step change holds only its first period", async () => {
     const { filings, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
@@ -192,7 +233,7 @@ describe("scale guard anchor (FMEA C6)", () => {
 
 describe("scale-guard holds are re-checked (C45)", () => {
   it("held against too few neighbours; after 6 hours, with its neighbouring periods on record, it loads and the hold is dropped", async () => {
-    const { filings, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    const { filings, deps } = setup({ "att/xbrl/a.xml": xmlUnits, "api/results_quarterly/INFY/x.json": list });
     filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (99,7,'results_quarterly','2024-07-17T00:00:00Z','old');
       INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version)
       VALUES (7,'industrial','pl','revenue','','2024-06-30','Q','standalone','original','3409000000','2024-07-17T00:00:00Z',99,'reported','t')`);
@@ -205,7 +246,7 @@ describe("scale-guard holds are re-checked (C45)", () => {
     expect((await filings.all<{ n: number }>("SELECT count(*) AS n FROM fin_held WHERE period_end='2024-12-31'"))[0]!.n).toBe(0);
   });
   it("an isolated outlier stays held when re-checked", async () => {
-    const { deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    const { deps } = setup({ "att/xbrl/a.xml": xmlUnits, "api/results_quarterly/INFY/x.json": list });
     const f = deps.filings as unknown as { raw: { exec(s: string): void } };
     f.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (99,7,'results_quarterly','2024-07-17T00:00:00Z','old');
       INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version)
