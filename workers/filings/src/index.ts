@@ -109,7 +109,7 @@ export default {
         const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
         r = await versionBackfillFocus(db, sids, 5);
       }
-      else if (name === "remark_backfill") r = await remarkBackfill(db, (k) => getText(env.RAW, k), 10, focus);
+      else if (name === "remark_backfill") r = await remarkBackfill(db, (k) => getText(env.RAW, k), 200, focus); // lists outside the focus are skipped without an R2 read
       else return new Response("unknown pass", { status: 404 });
       const now = new Date();
       if (meter.rows > 0) await env.DB_MARKET.prepare("INSERT INTO write_budget (day, rows) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET rows = rows + excluded.rows").bind(istDay(now), meter.rows).run();

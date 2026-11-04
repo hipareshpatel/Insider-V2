@@ -13,6 +13,7 @@ import { SQL_EVENTS_NEXT, SQL_PITX_NEXT } from "../../workers/filings/src/events
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
 import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
+import { SQL_FOCUS } from "../../packages/core/src/focus.js";
 
 const root = join(import.meta.dirname, "..", "migrations");
 function schema(domain: string): DatabaseSync {
@@ -45,6 +46,16 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: insider count check (/fresh)", "SELECT count(DISTINCT did) AS filings, count(*) AS trades FROM insider_trade WHERE key >= 'pitx:' AND key < 'pitx;'", [], /PRIMARY KEY \(key>\? AND key<\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
+
+const M = schema("market");
+describe("market: the focus list (every filings run) starts from the index members", () => {
+  it("index_membership by index, then identifiers by security (not every identifier)", () => {
+    const p = plan(M, SQL_FOCUS, ['["NIFTY 50"]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p[0], p.join("\n")).toMatch(/SEARCH m USING INDEX sqlite_autoindex_index_membership_1 \(index_name=\?\)/);
+    expect(p.some((l) => /ix_sid_security \(security_id=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
 
 describe("recurring queries read only what they need (C56)", () => {
   it.each(cases)("%s", (_name, sql, params, want) => {
