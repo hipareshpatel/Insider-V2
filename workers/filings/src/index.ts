@@ -82,6 +82,16 @@ export default {
         board_meetings: await one("SELECT count(*) AS n FROM board_meeting WHERE symbol=?1 AND coalesce(meeting_d, 0) BETWEEN ?2 AND ?3"),
       }, { headers: { "cache-control": "no-store" } });
     }
+    if (path === "/cf-totals") {
+      // Read-only comparison aid (owner #331): stored full-year cash-flow totals for one company, both bases, ₹ crore.
+      const sym = new URL(req.url).searchParams.get("symbol") ?? "";
+      const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
+      if (!sid) return Response.json({ error: "unknown symbol" }, { status: 404 });
+      const rows = (await env.DB_FILINGS.prepare(`SELECT period_end, basis, line, value, disclosed_at, period_kind FROM fin_value WHERE security_id=?1 AND statement='cf' AND period_end LIKE '%-03-31'
+          AND line IN ('x:CashFlowsFromUsedInOperatingActivities','x:CashFlowsFromUsedInInvestingActivities','x:CashFlowsFromUsedInFinancingActivities','cfo','cfi','cff','CashFlowsFromUsedInOperatingActivities','CashFlowsFromUsedInInvestingActivities','CashFlowsFromUsedInFinancingActivities')
+          ORDER BY period_end DESC, basis, line, disclosed_at DESC`).bind(sid).all<{ period_end: string; basis: string; line: string; value: string; disclosed_at: string; period_kind: string }>()).results;
+      return Response.json(rows.map((r) => ({ ...r, crore: Math.round(Number(r.value) / 1e5) / 100 })), { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/raw-probe") {
       // C53 read-only: shape of a stored probe answer (kind pit_gg_probe): bytes, top-level keys, row count, first row,
       // broadcast-date range. Public filing metadata only.
