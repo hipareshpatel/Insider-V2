@@ -533,6 +533,14 @@ describe("feed watermarks and the focus version pass (owner #343)", () => {
 });
 
 describe("renamed companies (work list item 2)", () => {
+  it("reload puts named focus files left in review back on the retry queue, due now", async () => {
+    const { reloadJobs } = await import("../src/load.js");
+    const { deps, filings } = setup({});
+    filings.raw.exec("INSERT INTO fin_load (job_id, status, detail, at, tries, retry_after) VALUES (2,'review','no context','2026-11-01T00:00:00Z',1,NULL)");
+    expect(await reloadJobs({ ...deps, focus: ["TCS"] }, [2])).toMatchObject({ queued: 0 });
+    expect(await reloadJobs({ ...deps, focus: ["INFY"] }, [2, 99])).toMatchObject({ asked: 2, queued: 1 });
+    expect(await filings.all("SELECT retry_after FROM fin_load WHERE job_id=2")).toEqual([{ retry_after: "2026-11-03T02:00:00.000Z" }]);
+  });
   it("requeue_404 resets only named failed-404 XBRL jobs of the focus companies", async () => {
     const { requeue404 } = await import("../src/load.js");
     const { deps, filings } = setup({});

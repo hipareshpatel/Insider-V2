@@ -56,6 +56,20 @@ describe("canonical results from a SEBI Integrated Filing (in-capmkt, INFY Q2 FY
   });
 });
 
+describe("C64: a mistyped reporting-start date (HDFCLIFE / ICICILIFE Q3 FY26: 2025-01-10 for 2025-10-01)", async () => {
+  const { canonicalResult } = await import("../src/index.js");
+  const raw = readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_INFY_IF_Q2FY27_trim.xml"), "utf8");
+  it("uses the current-period context's own dates when it ends on the reporting end date", () => {
+    const typo = raw.replace(/(DateOfStartOfReportingPeriod[^>]*>)2026-07-01</, "$12026-01-07<");
+    expect(typo).not.toBe(raw);
+    expect(canonicalResult(parseXbrl(typo))).toMatchObject({ periodStart: "2026-07-01", periodEnd: "2026-09-30", periodKind: "Q", lines: { revenue: "407190000000" } });
+  });
+  it("still fails when the file's content is another period (SIEMENS: OneD ends before the reporting end date)", () => {
+    const other = raw.replace(/(DateOfStartOfReportingPeriod[^>]*>)2026-07-01</, "$12026-10-01<").replace(/(DateOfEndOfReportingPeriod[^>]*>)2026-09-30</, "$12026-12-31<");
+    expect(() => canonicalResult(parseXbrl(other))).toThrow(/no context/);
+  });
+});
+
 describe("bank template (HDFCBANK Q2 FY27 consolidated, trimmed real file)", async () => {
   const { canonicalResult } = await import("../src/index.js");
   const r = canonicalResult(parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_HDFCBANK_IF_Q2FY27_trim.xml"), "utf8")));
