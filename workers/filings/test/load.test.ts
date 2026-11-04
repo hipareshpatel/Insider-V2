@@ -500,3 +500,19 @@ describe("robustness (audit P1)", () => {
     expect(c["fin_load:loaded"]).toBe(1); expect(c["filing:results"]).toBe(1); expect(c["fin_value:pl"]).toBeGreaterThan(10);
   });
 });
+
+describe("feed watermarks and the focus version pass (owner #343)", () => {
+  it("a loaded file moves the results watermark; reading it needs no scan", async () => {
+    const { filings, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    await loadBatch(deps);
+    expect(await filings.all("SELECT feed, newest, rows FROM feed_fresh WHERE feed='results'")).toEqual([{ feed: "results", newest: "2025-01-16T14:12:10.000Z", rows: 1 }]);
+  });
+  it("version pass goes company by company over the focus list and saves its position after each", async () => {
+    const { versionBackfillFocus } = await import("../src/load.js");
+    const filings = sqlite("filings");
+    filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,period_end,period_kind,basis,disclosed_at,source_url) VALUES
+      (1,7,'integrated_financials','2026-09-30','Q','consolidated','2026-10-16T00:00:00Z','a'), (2,7,'integrated_financials','2026-09-30','Q','consolidated','2026-10-20T00:00:00Z','b'), (3,9,'results_quarterly','2026-09-30','Q','standalone','2026-10-16T00:00:00Z','c')`);
+    expect(await versionBackfillFocus(filings, [9, 7], 1)).toMatchObject({ after: 7, done: false, companies: 1, groups: 1 });
+    expect(await versionBackfillFocus(filings, [9, 7], 1)).toMatchObject({ after: 9, done: true, companies: 2, groups: 1 });
+  });
+});

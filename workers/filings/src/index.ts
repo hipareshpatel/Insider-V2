@@ -1,12 +1,12 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { RESULT_KINDS, backfillBsCf, loadBatch, remarkBackfill, versionBackfill } from "./load.js";
+import { RESULT_KINDS, backfillBsCf, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
 import { primaryBasisStep } from "./basis.js";
 import { caLists } from "./calists.js";
-import { BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
+import { BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; WRITE_SOFT_CAP?: string; WRITE_HARD_CAP?: string; WRITE_CAP_MONTH?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string; STATUS_TOKEN?: string; DAILY_READ_CAP?: string }
 
@@ -97,14 +97,24 @@ export default {
     // D163 (P1): one-off passes started explicitly (ops workflow), one bounded batch per call; each saves its position
     if (path.startsWith("/maint/") && req.method === "POST") {
       if ((await capLevel(env, new Date())) !== "ok") return Response.json({ done: false, refused: "monthly soft write cap reached (D166): one-off passes wait" }, { status: 429 });
-      const db = d1Sql(env.DB_FILINGS), focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES), name = path.slice(7);
-      const ldeps = { filings: db, market: d1Sql(env.DB_MARKET), getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: true, focus };
+      // owner #343 cost gate: every call is metered (D1 rows read / billed rows written), returned in the answer and
+      // charged to the day's read and write budgets like a cron run
+      const meter: D1Meter = { rows: 0, reads: 0 };
+      const db = d1Sql(env.DB_FILINGS, meter), mk = d1Sql(env.DB_MARKET, meter), focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES, meter), name = path.slice(7);
+      const ldeps = { filings: db, market: mk, getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: true, focus };
       let r: unknown;
       if (name === "bscf_backfill") r = await backfillBsCf(ldeps, 60, 20_000);
-      else if (name === "version_backfill") r = await versionBackfill(db, 10);
+      else if (name === "version_backfill") {
+        // focus companies only (owner #343), company by company over ix_filing_sec (was: a GROUP BY over all of filing per call)
+        const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
+        r = await versionBackfillFocus(db, sids, 5);
+      }
       else if (name === "remark_backfill") r = await remarkBackfill(db, (k) => getText(env.RAW, k), 10, focus);
       else return new Response("unknown pass", { status: 404 });
-      return Response.json(r ?? { done: true }, { headers: { "cache-control": "no-store" } });
+      const now = new Date();
+      if (meter.rows > 0) await env.DB_MARKET.prepare("INSERT INTO write_budget (day, rows) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET rows = rows + excluded.rows").bind(istDay(now), meter.rows).run();
+      await chargeReads(d1Sql(env.DB_MARKET), now, meter.reads ?? 0);
+      return Response.json({ cost: { rows_read: meter.reads ?? 0, rows_written: meter.rows }, ...((r ?? { done: true }) as object) }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/revisions") {
       // Read-only (D48): periods with more than one results filing for the same security and basis, with key figures.
@@ -275,17 +285,30 @@ export default {
       return Response.json(out, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/fresh") {
-      // Plan item 2 check (read-only): filings and events disclosed in the last 4 days (IST dates), as loaded now.
-      const q = async (sql: string) => (await env.DB_FILINGS.prepare(sql).all()).results;
+      // Work list item 1 (owner #333, #343): freshness of every feed from watermark rows only — no table scan. Filings
+      // feeds: feed_fresh (written by the loaders); market feeds: the newest loaded session / ms_day per source
+      // (primary-key lookups in the market database); daily slots: the latest daily_refresh rows.
+      const q = async (db: D1Database, sql: string, ...p: unknown[]) => (await db.prepare(sql).bind(...p).all()).results as Record<string, unknown>[];
+      const now = new Date();
+      const feeds: Record<string, unknown>[] = [];
+      for (const r of await q(env.DB_FILINGS, "SELECT feed, newest, rows, at FROM feed_fresh ORDER BY feed")) feeds.push({ ...r, ...staleness(String(r.feed), (r.newest as string | null) ?? null, now) });
+      const dIso = (d: unknown) => (d ? `${String(d).slice(0, 4)}-${String(d).slice(4, 6)}-${String(d).slice(6, 8)}` : null);
+      const [px] = await q(env.DB_MARKET, "SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session=1 AND universe_rows IS NOT NULL");
+      feeds.push({ feed: "prices", newest: px?.d ?? null, ...staleness("prices", (px?.d as string | null) ?? null, now) });
+      for (const src of ["bulk", "block", "fii_dii"]) {
+        const [m] = await q(env.DB_MARKET, "SELECT max(d) AS d FROM ms_day WHERE source=?1 AND rows >= 0", src);
+        feeds.push({ feed: src, newest: dIso(m?.d), ...staleness(src, dIso(m?.d), now) });
+      }
       return Response.json({
-        filings: await q("SELECT substr(datetime(disclosed_at, '+330 minutes'), 1, 10) AS ist_day, kind, count(*) AS n FROM filing WHERE disclosed_at >= datetime('now', '-4 days') GROUP BY 1, 2 ORDER BY 1 DESC, 2"),
-        newest: await q("SELECT kind, max(disclosed_at) AS latest FROM filing GROUP BY kind ORDER BY 2 DESC"),
-        insider_trades_latest: await q("SELECT max(disclosed_at) AS latest FROM insider_trade"),
-        // C53 count check: new-system filings loaded (distinct NSE appId) and trades, vs files downloaded
-        insider_new_system: await q("SELECT count(DISTINCT did) AS filings, count(*) AS trades, min(disclosed_at) AS first, max(disclosed_at) AS last FROM insider_trade WHERE key >= 'pitx:' AND key < 'pitx;'"),
-        insider_files: await q("SELECT status, count(*) AS n FROM fetch_job WHERE kind IN ('xbrl_pit_gg','xbrl_pit_gg_probe') GROUP BY status"),
-        insider_cursor: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='pitx_cursor'"),
-        sast_latest: await q("SELECT max(disclosed_at) AS latest FROM sast_disclosure"),
+        stale: feeds.filter((f) => f.stale).map((f) => f.feed),
+        feeds,
+        // C53 count check: new-system insider filings loaded (distinct NSE appId, key range 'pitx:') vs XBRL files
+        // downloaded (ledger by kind, ix_fetch_kind_job)
+        insider_new_system: (await q(env.DB_FILINGS, "SELECT count(DISTINCT did) AS filings, count(*) AS trades FROM insider_trade WHERE key >= 'pitx:' AND key < 'pitx;'"))[0],
+        insider_files: await q(env.DB_FILINGS, "SELECT kind, status, count(*) AS n FROM fetch_job WHERE kind IN ('xbrl_pit_gg','xbrl_pit_gg_probe') GROUP BY kind, status"),
+        insider_failures: await q(env.DB_FILINGS, "SELECT substr(detail, 1, 40) AS reason, count(*) AS n FROM event_load WHERE kind='xbrl_pit_gg' GROUP BY 1"),
+        insider_cursor: await q(env.DB_FILINGS, "SELECT detail FROM daily_refresh WHERE day='once' AND slot='pitx_cursor'"),
+        daily_slots: await q(env.DB_FILINGS, "SELECT day, slot, at, substr(detail, 1, 300) AS detail FROM daily_refresh WHERE day >= ?1 AND day < 'once' ORDER BY day DESC, slot", new Date(now.getTime() + 330 * 60_000 - 2 * 86_400_000).toISOString().slice(0, 10)),
       }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/fy-check") {

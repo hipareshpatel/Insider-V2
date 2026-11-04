@@ -41,6 +41,8 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: companies with new filings (primary basis)", SQL_BASIS_NEW, [0, 2000], /INTEGER PRIMARY KEY \(rowid>\?\)/],
   ["filings: one company's results lists (primary basis)", SQL_BASIS_LISTS, ['["INFY"]'], /ix_fetch_symbol_kind/],
   ["market: new announcement lists for the sector job (every 10 min)", SQL_SECTOR_LISTS, ["announcements_daily", 0, 200], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
+  ["filings: periods filed more than once, one company (version pass, manual)", "SELECT period_end, period_kind, basis FROM filing WHERE security_id=? AND kind <> 'shareholding' GROUP BY period_end, period_kind, basis HAVING count(*) > 1", [7], /ix_filing_sec \(security_id=\?\)/],
+  ["filings: insider count check (/fresh)", "SELECT count(DISTINCT did) AS filings, count(*) AS trades FROM insider_trade WHERE key >= 'pitx:' AND key < 'pitx;'", [], /PRIMARY KEY \(key>\? AND key<\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 

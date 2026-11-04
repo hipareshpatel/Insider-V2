@@ -87,7 +87,9 @@ export default {
     // D163 (P1): one-off passes started explicitly (ops workflow), one bounded batch per call; each saves its position
     if (url.pathname.startsWith("/maint/") && req.method === "POST") {
       if (writeLevel(await writesThisMonth(d1Sql(env.DB_MARKET), new Date()), writeCaps(env, new Date())) !== "ok") return Response.json({ done: false, refused: "monthly soft write cap reached (D166): one-off passes wait" }, { status: 429 });
-      const m = d1Sql(env.DB_MARKET), name = url.pathname.slice(7), sd = { market: m, raw: env.RAW, now: () => new Date() };
+      // owner #343 cost gate: every call is metered, returned in the answer and charged to the day's budgets
+      const meter: D1Meter = { rows: 0, reads: 0 };
+      const m = d1Sql(env.DB_MARKET, meter), name = url.pathname.slice(7), sd = { market: m, raw: env.RAW, now: () => new Date() };
       let r: unknown;
       if (name === "deals_refill") { const x = await refillDealsCsv(sd, 60_000); r = { ...x, done: !x.refilled && !x.waiting }; }
       else if (name === "index_history") { const x = await loadIndexHistory(m, env.RAW, 60_000); r = { ...x, done: x.days === 0 }; }
@@ -95,9 +97,11 @@ export default {
       else if (name === "derive_jan2024") { const n = await deriveJanuary2024(m); r = { rows: n, done: n === 0 }; }
       else if (name === "repair_factors") {
         const deps = { market: m, app: d1Sql(env.DB_APP), raw: r2Raw(env.RAW), fetch: r2FirstFetcher(env.RAW, archiveFetcher(), env.CACHE_AUTHORITATIVE_UNTIL), now: () => new Date(), cachedFromR2: true };
-        r = (await maybeCaughtUp(deps)) ? ((await repairFactors(m, d1Sql(env.DB_APP), new Date())) ?? { done: true }) : { done: false, waiting: "prices not caught up" };
+        r = (await maybeCaughtUp(deps)) ? ((await repairFactors(m, d1Sql(env.DB_APP, meter), new Date())) ?? { done: true }) : { done: false, waiting: "prices not caught up" };
       } else return new Response("unknown pass", { status: 404 });
-      return Response.json(r, { headers: { "cache-control": "no-store" } });
+      await chargeBudget(d1Sql(env.DB_MARKET), new Date(), meter.rows);
+      await chargeReads(d1Sql(env.DB_MARKET), new Date(), meter.reads ?? 0);
+      return Response.json({ cost: { rows_read: meter.reads ?? 0, rows_written: meter.rows }, ...(r as object) }, { headers: { "cache-control": "no-store" } });
     }
     if (url.pathname === "/closes") {
       // D141 second cycle: one security's closes in a window (read-only).
