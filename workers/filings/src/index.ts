@@ -54,16 +54,22 @@ export default {
         await loadPitXbrl(ldeps.filings, ldeps.getText, 150); // C53: insider trades from NSE's system since 3 May 2026 (pit-gg XBRL)
         out = await loadBatch(ldeps, 300, 8);
         if (ldeps.bscf) await backfillBsCf(ldeps, out.length < 300 ? 200 : 60); // M2: BS/CF + FY (D90) for earlier filings; a small share every run (it never started while the backlog filled every run)
-        await versionBackfill(ldeps.filings, 150); // D48: label earlier-loaded revisions once
-        await remarkBackfill(ldeps.filings, (k) => getText(env.RAW, k), 40); // owner #334: submission type + revision remark, once
+        // One-off passes at the end of the run: each guarded, so one failing step (e.g. over the per-run query limit)
+        // cannot stop the steps after it (4 Nov: the widened version pass, 150 groups × 5 kinds, stalled everything after).
+        const step = async (name: string, f: () => Promise<unknown>) => { try { await f(); } catch (e) { console.log(JSON.stringify({ step: name, error: String(e).slice(0, 200) })); } };
+        await step("version_backfill", () => versionBackfill(ldeps.filings, 20)); // D48 + owner #334: label and flag earlier-loaded revisions once
+        await step("remark_backfill", () => remarkBackfill(ldeps.filings, (k) => getText(env.RAW, k), 40)); // owner #334: submission type + revision remark, once
         // D50/D51: primary basis + basis-switch breaks for the focus companies, once per IST day
         const day = istDay(now);
-        const [pb] = (await env.DB_FILINGS.prepare("SELECT 1 AS x FROM daily_refresh WHERE day=?1 AND slot='primary_basis'").bind(day).all()).results;
-        if (!pb && ldeps.focus) {
-          const sids = (await env.DB_MARKET.prepare("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(ldeps.focus)).all<{ security_id: number }>()).results.map((r) => r.security_id);
+        const [pb] = (await env.DB_FILINGS.prepare("SELECT detail FROM daily_refresh WHERE day=?1 AND slot='primary_basis'").bind(day).all<{ detail: string }>()).results;
+        const pbCur = pb ? JSON.parse(pb.detail) as { after: number; done: boolean; companies: number } : { after: 0, done: false, companies: 0 };
+        if (!pbCur.done && ldeps.focus) await step("primary_basis", async () => {
+          // 50 companies per run (per-run query limit), resumed from the saved position
+          const sids = (await env.DB_MARKET.prepare("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) AND security_id > ?2 ORDER BY security_id LIMIT 50").bind(JSON.stringify(ldeps.focus), pbCur.after).all<{ security_id: number }>()).results.map((r) => r.security_id);
           const n = await runPrimaryBasis(ldeps.filings, sids, now);
-          await env.DB_FILINGS.prepare("INSERT INTO daily_refresh (day, slot, at, detail) VALUES (?1, 'primary_basis', ?2, ?3)").bind(day, now.toISOString(), JSON.stringify({ companies: n })).run();
-        }
+          const next = { after: sids.length ? sids[sids.length - 1]! : pbCur.after, done: sids.length < 50, companies: pbCur.companies + n };
+          await env.DB_FILINGS.prepare("INSERT INTO daily_refresh (day, slot, at, detail) VALUES (?1, 'primary_basis', ?2, ?3) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail").bind(day, now.toISOString(), JSON.stringify(next)).run();
+        });
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
       }
