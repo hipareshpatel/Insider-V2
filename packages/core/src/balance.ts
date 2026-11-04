@@ -53,7 +53,9 @@ function near(name: string, l: Dec | null, r: Dec | null, out: Statement["checks
 }
 const sum = (v: (k: string) => Dec | null, ...ks: string[]): Dec | null => (ks.every((k) => v(k)) ? ks.map((k) => v(k)!).reduce((a, b) => add(a, b)) : null);
 
-export function balanceAndCash(inst: XbrlInstance): BalanceAndCash {
+/** opts.prior: read the PRIOR year-end balance sheet the filing also carries (context PY_I, the comparative column) —
+ *  used to detect balance-sheet restatements against what was stored when that year-end was first reported. */
+export function balanceAndCash(inst: XbrlInstance, opts: { prior?: boolean } = {}): BalanceAndCash {
   const pf = inst.facts.find((x) => /:DateOfEndOfReportingPeriod$/.test(x.tag))?.tag.split(":")[0] ?? "in-bse-fin";
   const P = pf + ":";
   const has = (t: string) => inst.facts.some((f) => f.tag === P + t);
@@ -70,8 +72,10 @@ export function balanceAndCash(inst: XbrlInstance): BalanceAndCash {
     return { lines, missing, checks: [] };
   };
   // Balance sheet: the instant context at the period end without dimensions (OneI).
-  const bsCtx = [...inst.contexts.values()].find((c) => c.instant === end && !Object.keys(c.dims).length && c.id === "OneI")
-    ?? [...inst.contexts.values()].find((c) => c.instant === end && !Object.keys(c.dims).length);
+  const prior = opts.prior ? inst.contexts.get("PY_I") ?? null : null;
+  const bsCtx = opts.prior ? (prior && !Object.keys(prior.dims).length ? prior : undefined)
+    : [...inst.contexts.values()].find((c) => c.instant === end && !Object.keys(c.dims).length && c.id === "OneI")
+      ?? [...inst.contexts.values()].find((c) => c.instant === end && !Object.keys(c.dims).length);
   let bs: BalanceAndCash["bs"] = null;
   if (bsCtx && end) {
     const st = read(template === "bank" ? BS_BANK : template === "oldgaap" ? BS_OLDGAAP : BS_INDAS, bsCtx.id);
@@ -92,7 +96,7 @@ export function balanceAndCash(inst: XbrlInstance): BalanceAndCash {
           near("current + non-current liabilities = liabilities", opt(sum(v, "current_liabilities", "noncurrent_liabilities"), "liabilities_held_for_sale", "regulatory_credit"), v("total_liabilities"), st.checks);
         }
       }
-      bs = { ...st, date: end };
+      bs = { ...st, date: opts.prior ? (bsCtx.instant ?? end) : end };
     }
   }
   // Cash flow: FourD is year-to-date by NSE convention, whatever dates it carries; else the FY-start → end context.

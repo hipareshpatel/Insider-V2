@@ -43,3 +43,11 @@ describe("assets held for sale shown outside current / non-current (census class
     expect(r.bs!.checks.filter((c) => !c.ok)).toEqual([]);
   });
 });
+
+describe("prior-year columns are NOT in NSE's results XBRL (owner #336)", () => {
+  it("INFY Q4 FY26: PY_I carries only the opening cash of the cash flow, so no prior-year balance sheet is readable", () => {
+    const inst = fx("xbrl_INFY_IF_Q4FY26_cons.xml");
+    expect(inst.facts.filter((f) => f.contextRef === "PY_I").map((f) => f.tag.split(":")[1])).toEqual(["CashAndCashEquivalentsCashFlowStatement"]);
+    expect(balanceAndCash(inst, { prior: true }).bs).toBeNull();
+  });
+});

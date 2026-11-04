@@ -1,11 +1,11 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { backfillBsCf, loadBatch, versionBackfill } from "./load.js";
+import { RESULT_KINDS, backfillBsCf, loadBatch, versionBackfill } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents } from "./events.js";
 import { caLists } from "./calists.js";
-import { BS_LINES, CF_LINES, parsePit, parseXbrl, statementDetail } from "@disclo/core";
+import { BS_LINES, CF_LINES, balanceAndCash, parsePit, parseXbrl, statementDetail } from "@disclo/core";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string }
 
@@ -81,6 +81,40 @@ export default {
         sast: await one("SELECT count(*) AS n FROM sast_disclosure WHERE symbol=?1 AND cast(replace(substr(disclosed_at,1,10),'-','') AS INTEGER) BETWEEN ?2 AND ?3"),
         board_meetings: await one("SELECT count(*) AS n FROM board_meeting WHERE symbol=?1 AND coalesce(meeting_d, 0) BETWEEN ?2 AND ?3"),
       }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/py-check") {
+      // Read-only (owner #336): balance-sheet restatements. Each stored results file of one company also carries the
+      // PRIOR year-end balance sheet (PY_I); compare it with what we stored when that year-end was first reported.
+      const sym = new URL(req.url).searchParams.get("symbol") ?? "";
+      const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
+      if (!sid) return Response.json({ error: "unknown symbol" }, { status: 404 });
+      const marks = RESULT_KINDS.map((_, i) => `?${i + 2}`).join(",");
+      const jobs = (await env.DB_FILINGS.prepare(`SELECT job_id, r2_key FROM fetch_job WHERE symbol=?1 AND status='done' AND kind IN (${marks}) ORDER BY job_id`).bind(sym, ...RESULT_KINDS).all<{ job_id: number; r2_key: string }>()).results;
+      const out = [];
+      for (const j of jobs.slice(0, 80)) {
+        const xml = await getText(env.RAW, j.r2_key);
+        if (!xml) continue;
+        let inst; try { inst = parseXbrl(xml); } catch { continue; }
+        const pyFacts = inst.facts.filter((f) => f.contextRef === "PY_I").map((f) => f.tag.split(":")[1]);
+        const durations = [...new Set([...inst.contexts.values()].filter((c) => c.start && !Object.keys(c.dims).length).map((c) => `${c.start}..${c.end}`))];
+        const py = balanceAndCash(inst, { prior: true });
+        if (!py.bs) { out.push({ file: j.r2_key.split("/").pop(), prior_year_facts: pyFacts, periods_in_file: durations, prior_balance_sheet: false }); continue; }
+        const basis = /consol/i.test(inst.facts.find((f) => f.tag.endsWith(":NatureOfReportStandaloneConsolidated"))?.value ?? "") ? "consolidated" : "standalone";
+        const filed = inst.facts.find((f) => f.tag.endsWith(":DateOfEndOfReportingPeriod"))?.value ?? null;
+        const stored = (await env.DB_FILINGS.prepare("SELECT line, value, disclosed_at, version FROM fin_value WHERE security_id=?1 AND statement='bs' AND period_end=?2 AND basis=?3 AND dims='' ORDER BY disclosed_at")
+          .bind(sid, py.bs.date, basis).all<{ line: string; value: string | null; disclosed_at: string; version: string }>()).results;
+        const first = new Map<string, { value: string | null; at: string }>();
+        for (const r of stored) if (!first.has(r.line)) first.set(r.line, { value: r.value, at: r.disclosed_at });
+        const diffs = [], same = [];
+        for (const [line, v] of Object.entries(py.bs.lines)) {
+          const o = first.get(line);
+          if (!o || o.value === null) continue;
+          const d = Number(v) - Number(o.value);
+          if (Math.abs(d) > 1e5) diffs.push({ line, stored: o.value, in_later_filing: v, change_cr: Math.round(d / 1e5) / 100, stored_from: o.at.slice(0, 10) }); else same.push(line);
+        }
+        out.push({ file: j.r2_key.split("/").pop(), filed_for: filed, basis, prior_year_end: py.bs.date, template: py.template, compared: diffs.length + same.length, same: same.length, restated: diffs });
+      }
+      return Response.json(out, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/cf-totals") {
       // Read-only comparison aid (owner #331): stored full-year cash-flow totals for one company, both bases, ₹ crore.
