@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
-import { backfillBsCf, broadcastFor, loadBatch, nseIstToUtc, submissionFor } from "../src/load.js";
+import { backfillBsCf, broadcastFor, loadBatch, nseIstToUtc, submissionFor, versionPeriod } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 function sqlite(domain: string): Sql & { raw: DatabaseSync } {
@@ -426,5 +426,20 @@ describe("submission type and revision remark (owner #334)", () => {
     expect(submissionFor(list, U)).toEqual({ submission: "Revision", remark: expect.stringContaining("Informed by BSE to insert the figures of cash") });
     expect(submissionFor(list, "https://nsearchives.nseindia.com/corporate/xbrl/X.xml")).toEqual({ submission: "Original", remark: null });
     expect(broadcastFor(list, U)).toBe("2026-09-29T11:38:12.000Z"); // revisions carry no broadcast time: the revision date (IST → UTC)
+  });
+});
+
+describe("version pass with twin rows (4 Nov: UNIQUE constraint stopped the pass)", () => {
+  it("a figure stored under both labels for the same filing is kept once, correctly labelled", async () => {
+    const filings = sqlite("filings");
+    filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url, status) VALUES (1, 7, 'integrated_financials', '2026-09-30', 'H', 'consolidated', '2026-10-16T11:10:00Z', 'u', 'loaded')");
+    const ins = (version: string, at: string, value: string) => filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version)
+      VALUES (7,'industrial','bs','total_assets','','2026-09-30','H','consolidated','${version}','${value}','${at}',1,'reported','t')`);
+    ins("original", "2026-10-16T11:10:00Z", "1000000000"); ins("restated", "2026-10-16T11:10:00Z", "1000000000"); // twin of the first filing
+    ins("restated", "2026-10-20T04:30:00Z", "1100000000"); ins("original", "2026-10-20T04:30:00Z", "1100000000"); // twin of the revision
+    await versionPeriod(filings, 7, "2026-09-30", "H", "consolidated");
+    expect(await filings.all("SELECT version, disclosed_at, value FROM fin_value ORDER BY disclosed_at")).toEqual([
+      { version: "original", disclosed_at: "2026-10-16T11:10:00Z", value: "1000000000" }, { version: "restated", disclosed_at: "2026-10-20T04:30:00Z", value: "1100000000" }]);
+    expect(await filings.all("SELECT statement, change_pct FROM restatement_flag")).toEqual([{ statement: "bs", change_pct: "10.00" }]);
   });
 });

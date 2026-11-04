@@ -223,8 +223,14 @@ export async function versionPeriod(db: Sql, sid: number, periodEnd: string, per
     "SELECT DISTINCT disclosed_at FROM fin_value WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? ORDER BY disclosed_at", [sid, periodEnd, periodKind, basis]);
   if (at.length < 2) return 0;
   const first = at[0]!.disclosed_at;
-  await db.run("UPDATE fin_value SET version='original' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at=? AND version<>'original'", [sid, periodEnd, periodKind, basis, first]);
-  await db.run("UPDATE fin_value SET version='restated' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at>? AND version='original'", [sid, periodEnd, periodKind, basis, first]);
+  // version is part of the key: a filing re-written after an earlier pass labelled it can hold the same figure under both
+  // labels (4 Nov: UNIQUE constraint stopped the pass). Relabel where no twin exists, then drop the twin copies (same
+  // filing, same disclosed_at, same figure — derived rows only, nothing downloaded is touched).
+  const k = [sid, periodEnd, periodKind, basis];
+  await db.run("UPDATE OR IGNORE fin_value SET version='original' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at=? AND version<>'original'", [...k, first]);
+  await db.run("DELETE FROM fin_value WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at=? AND version<>'original'", [...k, first]);
+  await db.run("UPDATE OR IGNORE fin_value SET version='restated' WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at>? AND version='original'", [...k, first]);
+  await db.run("DELETE FROM fin_value WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND disclosed_at>? AND version='original'", [...k, first]);
   // Owner #334: every line of every statement (P&L, balance sheet, cash flow, detail lines) is compared with its first
   // disclosure; a change of more than 0.5% and more than ₹1 lakh is flagged (was: 4 core P&L lines only).
   const vals = await db.all<{ statement: string; line: string; value: string | null; disclosed_at: string }>(
