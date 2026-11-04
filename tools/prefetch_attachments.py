@@ -3,8 +3,9 @@ Usage: python3 tools/prefetch_attachments.py <worker base url> <minutes>   (env 
 Reads batches from D1 via wrangler (filings DB), downloads 16 in parallel from the archive (0 refusals seen from
 GitHub runners), PUTs bytes to /ingest which writes R2 and marks the job."""
 import concurrent.futures as cf, json, os, subprocess, sys, time, urllib.error, urllib.request
+from nse_session import NseSession  # D160: browser-session headers, one cookie jar per run
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+NSE = NseSession()
 BASE, MINUTES = sys.argv[1].rstrip("/"), float(sys.argv[2])
 TOKEN = os.environ["INGEST_TOKEN"]
 
@@ -41,15 +42,11 @@ def batch(limit=1500):
 
 def fetch(url):
     for i in range(4):
-        try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"}), timeout=60) as r:
-                return 200, r.read()
-        except urllib.error.HTTPError as e:
-            if e.code in (403, 429, 503) and i < 3: time.sleep(2 * (i + 1)); continue
-            return e.code, b""
-        except Exception:
-            if i < 3: time.sleep(2 * (i + 1)); continue
-            return 0, b""
+        code, data = NSE.get(url)
+        if code == 200: return 200, data
+        if code in (403, 429, 503, 0) and i < 3: time.sleep(2 * (i + 1)); continue
+        return code, b""
+    return 0, b""
 
 def ingest(job_id, status, http, data):
     req = urllib.request.Request(f"{BASE}/ingest?job={job_id}&status={status}&http={http}", data=data, method="PUT",
@@ -73,11 +70,10 @@ t0 = time.time(); total = {"done": 0, "failed": 0, "bytes": 0, "ingest_errors": 
 while time.time() - t0 < MINUTES * 60:
     jobs = batch()
     if not jobs:
-        idle = globals().get("idle", 0) + 1; globals()["idle"] = idle
-        print(f"queue empty ({idle} min); waiting for discovery", flush=True); time.sleep(60)
-        if idle >= 20: break  # 20 quiet minutes: discovery has finished
-        continue
-    globals()["idle"] = 0
+        # audit P1: stop at once (was: polled D1 every minute for 20 quiet minutes); the next scheduled run picks up
+        # whatever the daily slots queue later
+        print("queue empty; done", flush=True)
+        break
     with cf.ThreadPoolExecutor(max_workers=16) as ex:
         for st, n, ok in ex.map(work, jobs):
             total[st] += 1; total["bytes"] += n; total["ingest_errors"] += (not ok)

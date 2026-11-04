@@ -24,3 +24,23 @@ export async function chargeReads(market: Sql, now: Date, rows: number): Promise
 
 /** Meter shared by the D1 adapters: billed rows written (write cap, D136) and rows read (this breaker). */
 export interface D1Meter { rows: number; reads?: number }
+
+/** D166 (owner #342): two-tier monthly write caps on billed D1 rows written (market + filings, D136 counter).
+ *  For the month WRITE_CAP_MONTH (IST, "2026-11"): soft cap (optional passes, one-off passes and back-fills stop) and a
+ *  higher hard cap (only the live daily filings + events loading and the market's daily job run up to it). Any other
+ *  month: both caps = MONTHLY_WRITE_CAP (54M, the $10 ceiling) — the November raise ends by itself. */
+export interface WriteCapEnv { MONTHLY_WRITE_CAP?: string; WRITE_SOFT_CAP?: string; WRITE_HARD_CAP?: string; WRITE_CAP_MONTH?: string }
+export function writeCaps(env: WriteCapEnv, now: Date): { soft: number; hard: number } {
+  const base = Number(env.MONTHLY_WRITE_CAP ?? 54_000_000);
+  if (env.WRITE_CAP_MONTH && istDate(now).slice(0, 7) === env.WRITE_CAP_MONTH)
+    return { soft: Number(env.WRITE_SOFT_CAP ?? base), hard: Number(env.WRITE_HARD_CAP ?? base) };
+  return { soft: base, hard: base };
+}
+export function writeLevel(used: number, caps: { soft: number; hard: number }): ReadLevel {
+  return used >= caps.hard ? "hard" : used >= caps.soft ? "soft" : "ok";
+}
+/** Billed rows written this IST month (write_budget rows for the month, incl. the baseline row 'YYYY-MM-00'). */
+export async function writesThisMonth(market: Sql, now: Date): Promise<number> {
+  const [r] = await market.all<{ rows: number | null }>("SELECT sum(rows) AS rows FROM write_budget WHERE day LIKE ?", [istDate(now).slice(0, 7) + "-%"]);
+  return r?.rows ?? 0;
+}

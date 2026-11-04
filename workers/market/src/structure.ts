@@ -140,16 +140,30 @@ export async function refillDealsCsv(deps: StructureDeps, budgetMs: number, limi
 /** Load market-structure sessions within `budgetMs`. Returns days loaded per source. */
 export async function loadStructure(deps: StructureDeps, budgetMs: number): Promise<Record<string, number>> {
   const t0 = Date.now(), m = deps.market, today = istNow(deps.now()).date;
-  const sessions = (await m.all<{ trade_date: string }>("SELECT trade_date FROM trading_calendar WHERE is_session=1 AND universe_rows IS NOT NULL AND trade_date >= '2024-01-01' ORDER BY trade_date")).map((r) => r.trade_date);
-  if (!sessions.length) return {};
-  const ids = await m.all<{ security_id: number; value: string; valid_from: string; valid_to: string | null }>("SELECT security_id, value, valid_from, valid_to FROM security_identifier WHERE id_type='nse_symbol'");
-  const bySym = new Map<string, typeof ids>();
-  for (const r of ids) { const l = bySym.get(r.value) ?? []; l.push(r); bySym.set(r.value, l); }
-  const ctx: Ctx = { m, raw: deps.raw, sid: (s, iso) => bySym.get(s)?.find((r) => r.valid_from <= iso && (!r.valid_to || r.valid_to >= iso))?.security_id ?? bySym.get(s)?.[0]?.security_id ?? null };
-  const done: Record<string, number> = {};
+  // P1 (audit 4 Nov): progress first (one primary-key lookup per source). Only when a source is behind the latest
+  // session are the calendar (from the furthest-behind source on) and, if a deals source needs them, the symbols read;
+  // both were read in full every 10 minutes.
+  const [top] = await m.all<{ d: string | null }>("SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session=1 AND universe_rows IS NOT NULL");
+  if (!top?.d) return {};
+  const lastOf = new Map<string, string | null>();
   for (const src of SOURCES) {
     const [last] = await m.all<{ d: number | null }>("SELECT max(d) AS d FROM ms_day WHERE source=?", [src.name]);
-    const lastIso = last?.d ? `${String(last.d).slice(0, 4)}-${String(last.d).slice(4, 6)}-${String(last.d).slice(6, 8)}` : null;
+    lastOf.set(src.name, last?.d ? `${String(last.d).slice(0, 4)}-${String(last.d).slice(4, 6)}-${String(last.d).slice(6, 8)}` : null);
+  }
+  const behind = SOURCES.filter((src) => (lastOf.get(src.name) ?? "") < top.d! && top.d! >= src.from);
+  if (!behind.length) return {};
+  const from = behind.map((src) => lastOf.get(src.name) ?? src.from).reduce((a, b) => (a < b ? a : b));
+  const sessions = (await m.all<{ trade_date: string }>("SELECT trade_date FROM trading_calendar WHERE is_session=1 AND universe_rows IS NOT NULL AND trade_date >= ? ORDER BY trade_date", [from < "2024-01-01" ? "2024-01-01" : from])).map((r) => r.trade_date);
+  if (!sessions.length) return {};
+  const bySym = new Map<string, { security_id: number; value: string; valid_from: string; valid_to: string | null }[]>();
+  if (behind.some((src) => ["bulk", "block", "short"].includes(src.name))) {
+    const ids = await m.all<{ security_id: number; value: string; valid_from: string; valid_to: string | null }>("SELECT security_id, value, valid_from, valid_to FROM security_identifier WHERE id_type='nse_symbol'");
+    for (const r of ids) { const l = bySym.get(r.value) ?? []; l.push(r); bySym.set(r.value, l); }
+  }
+  const ctx: Ctx = { m, raw: deps.raw, sid: (s, iso) => bySym.get(s)?.find((r) => r.valid_from <= iso && (!r.valid_to || r.valid_to >= iso))?.security_id ?? bySym.get(s)?.[0]?.security_id ?? null };
+  const done: Record<string, number> = {};
+  for (const src of behind) {
+    const lastIso = lastOf.get(src.name) ?? null;
     let i = sessions.findIndex((s) => s > (lastIso ?? "") && s >= src.from);
     if (i < 0) continue;
     for (; i < sessions.length && Date.now() - t0 < budgetMs; i++) {

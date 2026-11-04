@@ -52,7 +52,7 @@ describe("daily freshness (plan item 2)", () => {
     expect(ref[0]!.url).toContain("from_date=29-10-2026&to_date=03-11-2026");
     expect((await db.all("SELECT 1 FROM fetch_job WHERE kind LIKE 'bulk_%' OR kind='announcements_daily'")).length).toBe(3);
     expect(await db.all("SELECT url FROM fetch_job WHERE kind='pit_gg'")).toEqual([{ url: expect.stringContaining("corporates-pit-gg?index=equities&from_date=31-10-2026&to_date=03-11-2026") as unknown as string }]);
-    expect(r2.size).toBe(7); expect(calls).toBe(7); // + insider list (C53) + ASM, GSM, FII/DII snapshots (evening)
+    expect(r2.size).toBe(10); expect(calls).toBe(10); // + insider list (C53) + SAST, board meetings, credit ratings (audit P1) + ASM, GSM, FII/DII snapshots (evening)
     const { seedStructureHistory } = await import("../src/daily.js");
     expect(await seedStructureHistory(db, now)).toBeGreaterThan(2000); // ~700 weekdays × 3
     expect(await seedStructureHistory(db, now)).toBe(0); // once

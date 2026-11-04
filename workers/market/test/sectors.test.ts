@@ -114,3 +114,20 @@ describe("plan", () => {
     expect(plan({ today: "2026-11-03", pairs: [], map, existing: [], member: false, ended: null })).toEqual([]);
   });
 });
+
+describe("buildSectors from the download ledger (audit P1: no R2 listing, no full sector_file read)", () => {
+  it("reads only new announcement lists after its cursor, waits at one still downloading, never lists R2", async () => {
+    const m = sqlite(); await seed(m);
+    const FMIG = join(import.meta.dirname, "..", "..", "..", "db", "migrations", "filings");
+    const fdb = new DatabaseSync(":memory:");
+    for (const f of readdirSync(FMIG).sort()) fdb.exec(readFileSync(join(FMIG, f), "utf8"));
+    const filings: Sql = { async all<T>(sql: string, p: unknown[] = []) { return fdb.prepare(sql).all(...(p as (string | number | null)[])) as T[]; }, async run() { return { changes: 0 }; }, async batch() { return 0; } };
+    fdb.exec(`INSERT INTO fetch_job (job_id,kind,url,r2_key,status) VALUES (5,'announcements','u5','api/announcements/2026-10/2026-11-02.json','done'),
+      (6,'announcements_daily','u6','api/bulk/announcements/2026-11-04-evening.json','todo')`);
+    const raw = { ...bucket({ "api/announcements/2026-10/2026-11-02.json": SAMPLE }), async list() { throw new Error("R2 list must not be called"); } } as unknown as R2Bucket;
+    const r = await buildSectors({ market: m, raw, today: "2026-11-03", filings }, 60_000);
+    expect(r).toMatchObject({ files: 1, pairs: 2, inserted: 2 });
+    expect(await m.all("SELECT v FROM kv_state WHERE k='sector_cursor'")).toEqual([{ v: "5" }]); // waits before job 6
+    expect(await buildSectors({ market: m, raw, today: "2026-11-03", filings }, 60_000)).toMatchObject({ files: 0 });
+  });
+});

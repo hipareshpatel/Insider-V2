@@ -11,6 +11,8 @@ export interface Deps {
   now: () => Date;
   /** D155: load only these NSE symbols' filings (all symbols a focus security has had); undefined = everything. */
   focus?: string[];
+  /** P1: wall-clock deadline (ms since epoch) for this run; no new file is started after it. */
+  deadline?: number;
 }
 /** SQL fragment + params restricting fetch_job rows aliased `j` to the focus symbols (one JSON parameter, D1-safe). */
 const focusSql = (deps: Deps) => (deps.focus ? { sql: " AND j.symbol IN (SELECT value FROM json_each(?))", params: [JSON.stringify(deps.focus)] } : { sql: "", params: [] as unknown[] });
@@ -53,13 +55,18 @@ export function submissionFor(listJson: string, url: string): { submission: stri
 }
 
 /** One-off (owner #334): fill submission type and revision remark of already-loaded filings from their stored lists. */
-export async function remarkBackfill(db: Sql, getText: (k: string) => Promise<string | null>, limit = 40): Promise<{ after: number; done: boolean; updated: number } | null> {
+/** P1: started explicitly (POST /maint/remark_backfill), one bounded batch per call, focus companies only (D161), lists by
+ *  (kind, job_id) ranges; each UPDATE is one ix_filing_source_url lookup (it scanned every filing before index 0034). */
+export const SQL_REMARK_LISTS = "SELECT job_id, symbol, r2_key FROM fetch_job WHERE kind = ? AND job_id > ? ORDER BY job_id LIMIT ?";
+export async function remarkBackfill(db: Sql, getText: (k: string) => Promise<string | null>, limit = 10, focus?: string[]): Promise<{ after: number; done: boolean; updated: number } | null> {
   const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='remark_backfill'");
   const cur = st ? JSON.parse(st.detail) as { after: number; done: boolean; updated: number } : { after: 0, done: false, updated: 0 };
   if (cur.done) return null;
-  const lists = await db.all<{ job_id: number; r2_key: string }>("SELECT job_id, r2_key FROM fetch_job WHERE job_id > ? AND +status='done' AND +kind IN ('integrated_financials','results_quarterly','results_annual') ORDER BY job_id LIMIT ?", [cur.after, limit]);
+  const lists = await byKindAfter<{ job_id: number; symbol: string | null; r2_key: string }>(db, SQL_REMARK_LISTS, ["integrated_financials", "results_quarterly", "results_annual"], cur.after, limit);
+  const f = focus ? new Set(focus) : null;
   const stmts: { sql: string; params: unknown[] }[] = [];
   for (const l of lists) {
+    if (f && !(l.symbol && f.has(l.symbol))) continue;
     const text = await getText(l.r2_key).catch(() => null);
     if (!text) continue;
     let rows: Record<string, unknown>[] = [];
@@ -81,7 +88,10 @@ export async function remarkBackfill(db: Sql, getText: (k: string) => Promise<st
 const TEMPLATE: Record<CanonicalResult["template"], string> = { industrial: "industrial", bank: "bank", life_insurance: "insurance", general_insurance: "insurance" }; // life and general share the stored value; their line names differ
 const CORE: Record<CanonicalResult["template"], string[]> = { industrial: ["revenue", "pat"], bank: ["interest_earned", "pat"], life_insurance: ["gross_premium", "pat"], general_insurance: ["gross_premium", "pat"] };
 
-export interface LoadOutcome { jobId: number; status: "loaded" | "review" | "skipped" | "failed" | "excluded"; detail: string; rows?: number }
+export interface LoadOutcome { jobId: number; status: "loaded" | "review" | "skipped" | "failed" | "excluded"; detail: string; rows?: number;
+  /** Rows offered to the tables (per statement / 'shareholding') and whether the filing row was new — for the cached
+   *  /status counters (audit P1; approximate only when a file is re-read). */
+  counts?: Record<string, number> }
 
 /** Shareholding pattern (FMEA B3, B4, C1–C3): loaded only when the top-level categories sum exactly to total shares. */
 export async function loadShp(job: { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }, deps: Deps, listCache: Map<string, string | null>): Promise<LoadOutcome> {
@@ -116,7 +126,7 @@ export async function loadShp(job: { job_id: number; kind: string; symbol: strin
   if (job.parent_key && !listCache.has(job.parent_key)) listCache.set(job.parent_key, await deps.getText(job.parent_key));
   const disclosedAt = (job.parent_key && broadcastFor(listCache.get(job.parent_key) ?? "", job.url)) ?? null;
   if (!disclosedAt) return { jobId: job.job_id, status: "review", detail: "broadcast time not found in its list (D32 needs disclosed_at)" };
-  await deps.filings.run(
+  const ins = await deps.filings.run(
     `INSERT INTO filing (security_id, kind, period_end, period_kind, basis, disclosed_at, source_url, status) VALUES (?,?,?,'event','na',?,?,'loaded')
      ON CONFLICT (kind, source_url) DO NOTHING`, [sec.security_id, "shareholding", r.asOf, disclosedAt, job.url]);
   const [f] = await deps.filings.all<{ filing_id: number }>("SELECT filing_id FROM filing WHERE kind='shareholding' AND source_url=?", [job.url]);
@@ -134,7 +144,7 @@ export async function loadShp(job: { job_id: number; kind: string; symbol: strin
     { sql: `INSERT INTO promoter_encumbrance (filing_id,security_id,as_of,encumbered,pledged,non_disposal,other,pct_of_promoter_holding) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
       params: [fid, sec.security_id, r.asOf, r.promoterEncumbrance.encumbered, r.promoterEncumbrance.pledged, r.promoterEncumbrance.nonDisposal, r.promoterEncumbrance.other, r.promoterEncumbrance.pctOfPromoterHolding] },
   ]);
-  return { jobId: job.job_id, status: "loaded", detail: `shareholding ${r.asOf}${note ? `; ${note}` : ""}`, rows: rows.length + 1 };
+  return { jobId: job.job_id, status: "loaded", detail: `shareholding ${r.asOf}${note ? `; ${note}` : ""}`, rows: rows.length + 1, counts: { "filing:shareholding": ins.changes ? 1 : 0, shareholding: rows.length } };
 }
 
 export async function loadOne(job: { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }, deps: Deps, listCache: Map<string, string | null>): Promise<LoadOutcome> {
@@ -195,7 +205,7 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   if (!disclosedAt) return { jobId: job.job_id, status: "review", detail: "broadcast time not found in its list (D32 needs disclosed_at)" };
 
   const sub = submissionFor(listCache.get(job.parent_key!) ?? "", job.url);
-  await deps.filings.run(
+  const ins = await deps.filings.run(
     `INSERT INTO filing (security_id, kind, period_end, period_kind, basis, disclosed_at, source_url, status, submission, revision_remark) VALUES (?,?,?,?,?,?,?,'loaded',?,?)
      ON CONFLICT (kind, source_url) DO NOTHING`,
     [sec.security_id, job.kind.replace(/^xbrl_/, ""), r.periodEnd, r.periodKind, r.basis, disclosedAt, job.url, sub.submission, sub.remark]);
@@ -212,7 +222,7 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   await versionPeriod(deps.filings, sec.security_id, r.periodEnd, r.periodKind, r.basis);
   const extra = deps.bscf ? await loadBsCf(inst!, sec.security_id, TEMPLATE[r.template], r.basis, disclosedAt, f!.filing_id, deps) : { rows: 0, note: "" };
   const fyx = await loadFy(inst!, r, sec.security_id, disclosedAt, f!.filing_id, deps);
-  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}${extra.note}${fyx.note}`, rows: rows.length + extra.rows + fyx.rows };
+  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}${extra.note}${fyx.note}`, rows: rows.length + extra.rows + fyx.rows , counts: { "filing:results": ins.changes ? 1 : 0, pl: rows.length + fyx.rows, bs: extra.by?.bs ?? 0, cf: extra.by?.cf ?? 0 } };
 }
 
 /** D48: for one company, period and basis, the earliest disclosure is 'original' and every later one 'restated'
@@ -275,7 +285,14 @@ export async function versionBackfill(db: Sql, limit = 150): Promise<{ done: boo
     `SELECT security_id || '|' || period_end || '|' || period_kind || '|' || basis AS k, security_id, period_end, period_kind, basis FROM filing
      WHERE kind <> 'shareholding' GROUP BY security_id, period_end, period_kind, basis HAVING count(*) > 1 AND k > ? ORDER BY k LIMIT ?`, [cur.after, limit]);
   // every period kind stored at that date (quarter P&L, half-year / nine-month / full-year balance sheet and cash flow)
-  for (const x of g) for (const k of new Set([x.period_kind, "Q", "H", "9M", "FY"])) await versionPeriod(db, x.security_id, x.period_end, k, x.basis);
+  // P1: position saved after every group (was: only after the batch, so a failing batch was redone forever)
+  const save = (n: { after: string; done: boolean; groups: number }) => db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','version_backfill',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(n)]);
+  let done = 0;
+  for (const x of g) {
+    for (const k of new Set([x.period_kind, "Q", "H", "9M", "FY"])) await versionPeriod(db, x.security_id, x.period_end, k, x.basis);
+    done++;
+    await save({ after: x.k, done: false, groups: cur.groups + done });
+  }
   const next = { after: g.length ? g[g.length - 1]!.k : cur.after, done: g.length < limit, groups: cur.groups + g.length };
   await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','version_backfill',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(next)]);
   return next;
@@ -284,7 +301,7 @@ export async function versionBackfill(db: Sql, limit = 150): Promise<{ done: boo
 const months = (a: string, b: string) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7)) + 1;
 const ytdKind = (start: string, end: string) => ({ 3: "Q", 6: "H", 9: "9M", 12: "FY" } as Record<number, string>)[months(start, end)] ?? null;
 /** M2: balance sheet + cash flow rows, each statement only when all of its own checks pass (else noted, not loaded). */
-export async function loadBsCf(inst: XbrlInstance, sid: number, template: string, basis: string, disclosedAt: string, filingId: number, deps: Deps): Promise<{ rows: number; note: string }> {
+export async function loadBsCf(inst: XbrlInstance, sid: number, template: string, basis: string, disclosedAt: string, filingId: number, deps: Deps): Promise<{ rows: number; note: string; by?: { bs: number; cf: number } }> {
   const b = balanceAndCash(inst);
   const rows: unknown[][] = [];
   const notes: string[] = [];
@@ -319,7 +336,7 @@ export async function loadBsCf(inst: XbrlInstance, sid: number, template: string
   // were never checked, and Q/FY were checked before these rows were written)
   const periods = new Set(rows.map((r) => `${r[5]}|${r[6]}`));
   for (const pk of periods) { const [end, k] = pk.split("|"); await versionPeriod(deps.filings, sid, end!, k!, basis); }
-  return { rows: rows.length, note: notes.length ? `; ${notes.join("; ")}` : "" };
+  return { rows: rows.length, note: notes.length ? `; ${notes.join("; ")}` : "", by: { bs: rows.filter((r) => r[2] === "bs").length, cf: rows.filter((r) => r[2] === "cf").length } };
 }
 
 /** D90: full-year P&L from a March-quarter (fiscal-year-end) file's year-to-date context, loaded only when its own
@@ -394,7 +411,7 @@ export const SQL_LOADER_NEW = `SELECT j.job_id, j.kind, j.symbol, j.url, j.r2_ke
      (SELECT l.job_id FROM fin_load l WHERE l.job_id = j.job_id) AS seen
    FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
    WHERE j.kind = ? AND j.job_id > ? ORDER BY j.job_id LIMIT ?`;
-export const SQL_LOADER_RETRY = `SELECT l.job_id, l.tries, j.kind, j.symbol, j.url, j.r2_key, p.r2_key AS parent_key
+export const SQL_LOADER_RETRY = `SELECT l.job_id, l.tries, l.status AS prior, j.kind, j.symbol, j.url, j.r2_key, p.r2_key AS parent_key
    FROM fin_load l JOIN fetch_job j ON j.job_id = l.job_id LEFT JOIN fetch_job p ON p.job_id = j.parent_id
    WHERE l.retry_after IS NOT NULL AND l.retry_after <= ? ORDER BY l.retry_after LIMIT ?`;
 /** C43/C45/C48/C50 retryable outcomes: identity not there yet, a scale-guard hold (re-judged with more neighbours),
@@ -413,7 +430,7 @@ export function focusPrint(focus?: string[]): string {
 }
 
 export async function loadBatch(deps: Deps, limit = 150, parallel = 8, scan = 2000): Promise<LoadOutcome[]> {
-  type Job = { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null; tries: number };
+  type Job = { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null; tries: number; prior?: string | null };
   const kinds = [...RESULT_KINDS, ...SHP_KINDS];
   const focus = deps.focus ? new Set(deps.focus) : null;
   const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='loader_cursor'");
@@ -431,7 +448,7 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8, scan = 20
     const pending = ours && !settled(r);
     if (ours && r.status === "done" && r.seen === null) {
       if (jobs.length >= limit) break; // the cursor stops before the first file not taken this run
-      jobs.push({ ...r, tries: 0 });
+      jobs.push({ ...r, tries: 0, prior: null });
     }
     if (pending) blocked = true; // not downloaded yet: later files may load, the cursor waits here
     if (!blocked) after = r.job_id;
@@ -444,13 +461,18 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8, scan = 20
   }
   const cache = new Map<string, string | null>();
   const out: LoadOutcome[] = [];
+  const delta: Record<string, number> = {};
   let i = 0;
   const worker = async () => {
     while (i < jobs.length) {
+      if (deps.deadline && Date.now() > deps.deadline) break; // P1 run budget: the rest waits for the next run
       const j = jobs[i++]!;
       let o: LoadOutcome;
       try { o = SHP_KINDS.includes(j.kind) ? await loadShp(j, deps, cache) : await loadOne(j, deps, cache); } catch (e) { o = { jobId: j.job_id, status: "failed", detail: String(e).slice(0, 200) }; }
       out.push(o);
+      delta[`fin_load:${o.status}`] = (delta[`fin_load:${o.status}`] ?? 0) + 1;
+      if (j.prior) delta[`fin_load:${j.prior}`] = (delta[`fin_load:${j.prior}`] ?? 0) - 1;
+      for (const [k, n] of Object.entries(o.counts ?? {})) if (n) { const key = k.includes(":") ? k : `fin_value:${k}`; delta[key] = (delta[key] ?? 0) + n; }
       const tries = j.tries + 1, now = deps.now();
       const retryAt = retryable(o) && tries < MAX_TRIES ? new Date(now.getTime() + 6 * 3600_000 * 2 ** (tries - 1)).toISOString() : null;
       await deps.filings.run("INSERT INTO fin_load (job_id, status, detail, at, tries, retry_after) VALUES (?,?,?,?,?,?) ON CONFLICT (job_id) DO UPDATE SET status=excluded.status, detail=excluded.detail, at=excluded.at, tries=excluded.tries, retry_after=excluded.retry_after",
@@ -458,6 +480,13 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8, scan = 20
     }
   };
   await Promise.all(Array.from({ length: Math.min(parallel, jobs.length || 1) }, worker)); // jobs are independent files
+  // stopped by the deadline: the cursor must not pass a new file that was selected but not read
+  const firstLeft = jobs.slice(i).find((j) => !j.prior && j.tries === 0);
+  if (firstLeft && firstLeft.job_id <= after) after = firstLeft.job_id - 1;
+  // cached counters for /status (audit P1: the page never counts fin_value); one batch per run
+  const at = deps.now().toISOString();
+  const ups = Object.entries(delta).filter(([, n]) => n).map(([k, n]) => ({ sql: "INSERT INTO stat_counter (name, n, at) VALUES (?,?,?) ON CONFLICT (name) DO UPDATE SET n = n + excluded.n, at = excluded.at", params: [k, n, at] }));
+  if (ups.length) await deps.filings.batch(ups);
   if (after !== saved?.after || fp !== saved?.focus) await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','loader_cursor',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [deps.now().toISOString(), JSON.stringify({ after, focus: fp })]);
   return out;
 }

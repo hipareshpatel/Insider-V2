@@ -6,10 +6,11 @@
   "observability": { "enabled": true },
   "limits": { "cpu_ms": 60000 },
   "triggers": { "crons": ["*/10 * * * *"] },
-  "vars": { "ENVIRONMENT": "production", "MONTHLY_WRITE_CAP": "54000000", "CACHE_AUTHORITATIVE_UNTIL": "2026-11-02" },
+  "vars": { "ENVIRONMENT": "production", "MONTHLY_WRITE_CAP": "54000000", "WRITE_CAP_MONTH": "2026-11", "WRITE_SOFT_CAP": "60000000", "WRITE_HARD_CAP": "68000000", "CACHE_AUTHORITATIVE_UNTIL": "2026-11-02" },
   "d1_databases": [
     { "binding": "DB_MARKET", "database_name": "disclo-market", "database_id": "${market}" },
-    { "binding": "DB_APP", "database_name": "disclo-app", "database_id": "${app}" }
+    { "binding": "DB_APP", "database_name": "disclo-app", "database_id": "${app}" },
+    { "binding": "DB_FILINGS", "database_name": "disclo-filings", "database_id": "${filings}" }
   ],
   "r2_buckets": [{ "binding": "RAW", "bucket_name": "disclo-raw" }],
   "env": {
@@ -19,7 +20,8 @@
       "vars": { "ENVIRONMENT": "staging", "BACKFILL_FROM": "2026-10-20" },
       "d1_databases": [
         { "binding": "DB_MARKET", "database_name": "disclo-market-staging", "database_id": "${market-staging}" },
-        { "binding": "DB_APP", "database_name": "disclo-app-staging", "database_id": "${app-staging}" }
+        { "binding": "DB_APP", "database_name": "disclo-app-staging", "database_id": "${app-staging}" },
+        { "binding": "DB_FILINGS", "database_name": "disclo-filings-staging", "database_id": "${filings-staging}" }
       ],
       "r2_buckets": [{ "binding": "RAW", "bucket_name": "disclo-raw-staging" }, { "binding": "CACHE_RO", "bucket_name": "disclo-raw" }]
     }
