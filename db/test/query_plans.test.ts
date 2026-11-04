@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
-import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_Q_EXISTS, SQL_VERSION_ROWS } from "../../workers/filings/src/load.js";
+import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_Q_EXISTS, SQL_VERSION_ROWS } from "../../workers/filings/src/load.js";
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT } from "../../workers/filings/src/events.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
@@ -47,6 +47,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: quarter already stored? (D169, per half-year file)", SQL_Q_EXISTS, [1, "2026-09-30", "consolidated"], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
   ["filings: half-year filing of one gap (D169, manual)", "SELECT filing_id, kind, source_url, disclosed_at FROM filing WHERE security_id=? AND period_end=? AND period_kind='H' AND basis=?", [1, "2025-03-31", "consolidated"], /ix_filing_sec/],
   ["filings: filings stored under another company than their list (C61, manual)", SQL_MISATTR, ['["INFY"]'], /ix_filing_source_url \(source_url=\?\)/],
+  ["filings: move one filing's rows to the linking company (C61, manual)", SQL_MOVE_FIN_VALUE, [783, 2215, 22294], /SEARCH fin_value USING INDEX \w+ \(security_id=\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 

@@ -614,6 +614,7 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8, scan = 20
  *  company already has rows for the same period and basis (reported as a conflict, nothing moved). */
 export const SQL_MISATTR = `SELECT j.symbol, f.filing_id, f.security_id, f.kind, f.period_end, f.period_kind, f.basis
   FROM fetch_job j JOIN filing f ON f.source_url = j.url WHERE j.symbol IN (SELECT value FROM json_each(?)) AND j.kind LIKE 'xbrl_%'`;
+export const SQL_MOVE_FIN_VALUE = "UPDATE fin_value SET security_id=? WHERE security_id=? AND filing_id=?";
 export async function misattributed(deps: Deps, fix: boolean): Promise<{ done: true; found: number; moved: number; conflicts: number; sids: number[]; items: string[] }> {
   const focus = deps.focus ?? [];
   const ids = await deps.market.all<{ security_id: number; value: string }>(
@@ -631,8 +632,12 @@ export async function misattributed(deps: Deps, fix: boolean): Promise<{ done: t
         "SELECT 1 AS x FROM fin_value WHERE security_id=? AND period_end=? AND period_kind=? AND basis=? AND filing_id<>? LIMIT 1", [to, w.period_end, w.period_kind, w.basis, w.filing_id]) : [];
       if (clash) { conflicts++; tag = "conflict: the company already has this period"; }
       else {
-        await batchAll(deps.filings, ["filing", "fin_value", "shareholding", "promoter_encumbrance"].map((t) => ({
-          sql: `UPDATE ${t} SET security_id=? WHERE filing_id=?`, params: [to, w.filing_id] })));
+        // fin_value has no filing_id index: bound by the old company (primary-key prefix), else every move reads the
+        // whole table (the first COFORGE run read 4.0M rows for 2 filings)
+        await batchAll(deps.filings, [
+          { sql: SQL_MOVE_FIN_VALUE, params: [to, w.security_id, w.filing_id] },
+          ...["filing", "shareholding", "promoter_encumbrance"].map((t) => ({ sql: `UPDATE ${t} SET security_id=? WHERE filing_id=?`, params: [to, w.filing_id] })),
+        ]);
         moved++; sids.add(to); tag = "moved";
       }
     }
