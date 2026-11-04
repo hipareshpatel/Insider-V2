@@ -136,7 +136,7 @@ async function load(date: string, deps: Deps): Promise<DayReport> {
   const wrongDate = bhavAll.filter((r) => r.tradeDate !== date).length;
   if (wrongDate) return { date, status: "rejected", reasons: [`${wrongDate} bhavcopy rows dated other than ${date}`] };
   // Store everything (D127); the universe (D4, D126: EQ/BE/BZ, no INF fund units) is what the gates judge and what is analysed.
-  const inUniverse = (r: BhavRow) => EQUITY_SERIES.has(r.series) && !r.isin.startsWith("INF") && !isRightsEntitlement(r.isin);
+  const inUniverse = (r: BhavRow) => EQUITY_SERIES.has(r.series) && !r.isin.startsWith("INF") && !isRightsEntitlement(r.isin) && !isDummySymbol(r.symbol);
   const equity = bhavAll.filter(inUniverse);
   const reviews: ReviewItem[] = [];
   const reasons: string[] = [];
@@ -456,6 +456,11 @@ export const EQUITY_STORE_SERIES = new Set(["EQ", "BE", "BZ", "BL", "SM", "ST", 
 export function isRightsEntitlement(isin: string): boolean {
   return isin.length === 12 && isin.startsWith("INE") && isin.slice(7, 9) === "20";
 }
+/** Owner #339: NSE's "DUMMY…" symbols are test instruments for corporate-action processing, not companies. Stored as
+ *  'other' (nothing downloaded is deleted, #282), outside the universe, statistics, sectors and the site. */
+export function isDummySymbol(symbol: string): boolean {
+  return /^DUMMY/i.test(symbol.trim());
+}
 /** ETF unit split proposal from a price ratio (never applied without the owner: no ETF share count to confirm it). */
 export function cleanRatio(move: number): string | null {
   const f = 1 + move;
@@ -463,7 +468,8 @@ export function cleanRatio(move: number): string | null {
     if (Math.abs(f - k) / k < 0.03) return t;
   return null;
 }
-export function kindOf(r: { series: string; isin: string }): "equity" | "etf" | "reit" | "invit" | "other" | null {
+export function kindOf(r: { series: string; isin: string; symbol?: string }): "equity" | "etf" | "reit" | "invit" | "other" | null {
+  if (r.symbol && isDummySymbol(r.symbol) && (EQUITY_STORE_SERIES.has(r.series) || /^[EX][1-9]$/.test(r.series))) return "other";
   if (r.series === "RR") return "reit";
   if (r.series === "IV") return "invit";
   if (r.isin.startsWith("INF") && (EQUITY_STORE_SERIES.has(r.series) || r.series === "MF")) return "etf";

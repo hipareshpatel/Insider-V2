@@ -162,6 +162,7 @@ export default {
       written_month: (await q("SELECT substr(day,1,7) AS month, sum(rows) AS rows FROM write_budget GROUP BY 1 ORDER BY 1 DESC LIMIT 1"))[0],
       factors: (await q("SELECT status, count(*) AS n FROM adj_factor GROUP BY status")),
       last_runs: await q("SELECT run_key, status, started_at, substr(detail,1,300) AS detail FROM pipeline_run ORDER BY run_id DESC LIMIT 10"),
+      dummy_symbols: (await q("SELECT count(*) AS n, group_concat(value, ' ') AS symbols FROM (SELECT DISTINCT value FROM security_identifier WHERE id_type='nse_symbol' AND upper(value) LIKE 'DUMMY%' LIMIT 40)"))[0],
       failed_or_rejected: (await q("SELECT count(*) AS n FROM pipeline_run WHERE status='failed'"))[0],
       failed_runs: await q("SELECT pipeline, run_key, started_at, substr(detail,1,160) AS detail FROM pipeline_run WHERE status='failed' ORDER BY run_id DESC LIMIT 10"),
       open_reviews: (await (env.DB_APP.prepare("SELECT kind, count(*) AS n FROM review_item WHERE status='open' GROUP BY kind").all())).results,
