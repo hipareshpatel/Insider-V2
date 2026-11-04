@@ -182,12 +182,18 @@ export default {
     if (path === "/raw-probe") {
       // C53 read-only: shape of a stored probe answer (kind pit_gg_probe): bytes, top-level keys, row count, first row,
       // broadcast-date range. Public filing metadata only.
-      const jobs = (await env.DB_FILINGS.prepare("SELECT job_id, url, r2_key, status, http_status, bytes FROM fetch_job WHERE kind='pit_gg_probe' ORDER BY job_id").all<{ job_id: number; url: string; r2_key: string; status: string; http_status: number | null; bytes: number | null }>()).results;
+      const pk = new URL(req.url).searchParams.get("kind") ?? "pit_gg_probe";
+      const jobs = (await env.DB_FILINGS.prepare("SELECT job_id, url, r2_key, status, http_status, bytes FROM fetch_job WHERE kind=?1 AND kind LIKE '%probe' ORDER BY job_id").bind(pk).all<{ job_id: number; url: string; r2_key: string; status: string; http_status: number | null; bytes: number | null }>()).results;
       const out = [];
       for (const j of jobs) {
         const text = j.status === "done" ? await getText(env.RAW, j.r2_key) : null;
         let info: Record<string, unknown> = {};
-        if (text) try {
+        if (text && !/^\s*[[{]/.test(text)) {
+          // CSV answer: line count, header and the dates column range
+          const lines = text.split(/\r?\n/).filter((l) => l.trim());
+          const dates = lines.slice(1).map((l) => /"?(\d{2}-[A-Za-z]{3}-\d{4})"?/.exec(l)?.[1]).filter(Boolean);
+          info = { csv_rows: lines.length - 1, header: lines[0]?.slice(0, 200), first_date: dates[0] ?? null, last_date: dates[dates.length - 1] ?? null, distinct_dates: new Set(dates).size };
+        } else if (text) try {
           const o = JSON.parse(text) as unknown;
           const rows = (Array.isArray(o) ? o : ((o as Record<string, unknown>).data ?? [])) as Record<string, unknown>[];
           const dates = rows.map((r) => String(r.broadcastDateTime ?? r.date ?? "")).filter(Boolean);

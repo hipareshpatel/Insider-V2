@@ -106,9 +106,12 @@ export async function runBatch(env: Env, now = new Date()) {
         const sha = await sha256Hex(bytes);
         const head = new TextDecoder().decode(bytes.subarray(0, 64));
         // V1 lesson #280: an error page is not data. NSE can answer 200 with HTML; only JSON counts as fetched.
-        if (!/^\s*[[{]/.test(head)) { failed++; results.push([j.job_id, "failed", j.attempts + 1, r.status, bytes.length, null, now.toISOString(), "not JSON (HTML/error page)"]); continue; }
+        // Calls that ask for CSV (csv=true) are accepted as CSV — a header line, not an HTML page (work list 1.8).
+        const wantsCsv = /[?&]csv=true\b/.test(j.url);
+        const isCsv = wantsCsv && !/^\s*</.test(head) && /,/.test(head);
+        if (!/^\s*[[{]/.test(head) && !isCsv) { failed++; results.push([j.job_id, "failed", j.attempts + 1, r.status, bytes.length, null, now.toISOString(), wantsCsv ? "not CSV (HTML/error page)" : "not JSON (HTML/error page)"]); continue; }
         const isEmpty = bytes.length <= 4 || /^\s*(\[\s*\]|\{\s*"data"\s*:\s*\[\s*\]\s*\})/.test(head);
-        await env.RAW.put(j.r2_key, await gzip(bytes), { httpMetadata: { contentType: r.headers.get("content-type") ?? "application/json" }, customMetadata: { url: j.url, fetched_at: now.toISOString(), enc: "gzip" } });
+        await env.RAW.put(j.r2_key, await gzip(bytes), { httpMetadata: { contentType: r.headers.get("content-type") ?? (isCsv ? "text/csv" : "application/json") }, customMetadata: { url: j.url, fetched_at: now.toISOString(), enc: "gzip" } });
         if (isEmpty) empty++; else ok++;
         results.push([j.job_id, isEmpty ? "empty" : "done", j.attempts + 1, 200, bytes.length, sha, now.toISOString(), null]);
       } catch (e) {
