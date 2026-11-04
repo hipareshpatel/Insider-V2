@@ -601,4 +601,20 @@ describe("half-year-only files (D169): the quarter from its own column, else hal
     expect(r.note).toContain("never derived");
     expect((await filings.all<{ n: number }>("SELECT count(*) AS n FROM fin_value WHERE period_end='2026-09-30'"))[0]!.n).toBe(0);
   });
+  it("(c) C62: a half-year-dated column proven to hold the quarter (filed Q1 + it = the file's year to date) is relabelled, not recomputed", async () => {
+    const { filings, deps } = prepare();
+    const inst = parseXbrl(halfOnly), h = canonicalResult(inst), y = canonicalResult(inst, { span: "ytd" });
+    const q1 = (k: string) => String(BigInt(y.lines[k]!) - BigInt(h.lines[k]!)); // fixture setup only: the filed Q1 that makes the file consistent
+    const hRows = Object.entries(h.lines).map(([l, v]) => `(7,'industrial','pl','${l}','','2026-09-30','H','consolidated','original','${v}','2026-10-16T11:10:00.000Z',50,'reported','results-v1')`).join(",");
+    filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (49,7,'integrated_financials','2026-07-17T00:00:00Z','q1');
+      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version) VALUES
+      (7,'industrial','pl','revenue','','2026-06-30','Q','consolidated','original','${q1("revenue")}','2026-07-17T00:00:00Z',49,'reported','t'),
+      (7,'industrial','pl','pat','','2026-06-30','Q','consolidated','original','${q1("pat")}','2026-07-17T00:00:00Z',49,'reported','t'), ${hRows}`);
+    const r = await loadQuarterOfHalf(inst, h, 7, "2026-10-16T11:10:00.000Z", 50, deps);
+    expect(r.note).toContain("relabelled as the quarter (C62)");
+    expect(r.rows).toBe(Object.keys(h.lines).length);
+    const rev = await filings.all<Record<string, unknown>>("SELECT value, period_kind, origin FROM fin_value WHERE line='revenue' AND period_end='2026-09-30'");
+    expect(rev).toEqual([{ value: h.lines.revenue, period_kind: "Q", origin: "reported" }]); // the filed cell, unchanged
+    expect(await filings.all("SELECT period_kind FROM filing WHERE filing_id=50")).toEqual([{ period_kind: "Q" }]);
+  });
 });

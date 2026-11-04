@@ -1,7 +1,7 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, statementDetail, type Sql, type XbrlInstance, balanceAndCash, batchAll, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, statementDetail, type Sql, type XbrlInstance, add, balanceAndCash, batchAll, cmp, sub, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
 
 export interface Deps {
   filings: Sql;
@@ -442,7 +442,44 @@ export async function loadQuarterOfHalf(inst: XbrlInstance, h: CanonicalResult, 
     await insert(rows);
     return { rows: rows.length, note: `; ${q.label} loaded from its own column` };
   }
-  return { rows: 0, note: "; no 3-month column in this half-year file: quarter not loaded (never derived, D169)" };
+  // (b) C62 (owner #352): a column dated as a half-year that holds the quarter's own figures (filer mis-tagged the dates;
+  // COFORGE Mar 2025: "Half Yearly" Oct–Mar, revenue ₹3,410 cr = Q4 FY25). Relabelled — never recomputed — only when the
+  // filer's own numbers prove it: the earlier filed quarters of the year + this column = the file's year-to-date column,
+  // for the core line and PAT, within ₹1 lakh. The sum is a check only; the stored values are the filed cells.
+  const m = await mistaggedQuarter(inst, h, sid, deps);
+  if (m.ok) {
+    const r = await deps.filings.run(SQL_RELABEL_Q, [sid, h.periodEnd, h.basis, filingId]);
+    await deps.filings.run("UPDATE filing SET period_kind='Q' WHERE filing_id=? AND period_kind='H'", [filingId]);
+    return { rows: r.changes, note: `; half-year-dated column holds the quarter (${m.why}): relabelled as the quarter (C62)` };
+  }
+  return { rows: 0, note: `; no 3-month column in this half-year file: quarter not loaded (never derived, D169; ${m.why})` };
+}
+
+export const SQL_RELABEL_Q = "UPDATE fin_value SET period_kind='Q', extractor_version='results-q-mistag-v1' WHERE security_id=? AND period_end=? AND period_kind='H' AND basis=? AND statement='pl' AND filing_id=?";
+export const SQL_EARLIER_Q = `SELECT period_end, line, value FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id=? AND period_end IN (SELECT value FROM json_each(?))
+  AND period_kind='Q' AND basis=? AND statement='pl' AND version='original' AND origin='reported' AND line IN (SELECT value FROM json_each(?))`;
+const LAKH = dec("100000");
+/** C62 proof (check only): Σ earlier filed quarters of the year + the half-year-dated column = the file's own YTD column. */
+export async function mistaggedQuarter(inst: XbrlInstance, h: CanonicalResult, sid: number, deps: Deps): Promise<{ ok: boolean; why: string }> {
+  let y: CanonicalResult;
+  try { y = canonicalResult(inst, { span: "ytd" }); } catch { return { ok: false, why: "no year-to-date column" }; }
+  const n = months(y.periodStart, h.periodEnd);
+  if (n % 3 !== 0 || n < 6) return { ok: false, why: `year to date is ${n} months` };
+  const ends: string[] = [];
+  for (let e = h.periodEnd, k = 1; k < n / 3; k++) { e = quarterBounds(e).prevEnd; ends.push(e); }
+  const lines = CORE[h.template];
+  const got = await deps.filings.all<{ period_end: string; line: string; value: string | null }>(SQL_EARLIER_Q, [sid, JSON.stringify(ends), h.basis, JSON.stringify(lines)]);
+  const parts: string[] = [];
+  for (const line of lines) {
+    const qs = ends.map((e) => got.find((g) => g.period_end === e && g.line === line && g.value !== null)?.value);
+    if (qs.some((v) => v === undefined)) return { ok: false, why: `earlier quarters not all stored (${line})` };
+    if (h.lines[line] === undefined || y.lines[line] === undefined) return { ok: false, why: `${line} missing in the file` };
+    const sum = [...qs, h.lines[line]!].reduce((a, v) => add(a, dec(v!)), dec("0"));
+    const d = sub(sum, dec(y.lines[line]!)), abs = d.units < 0n ? { units: -d.units, scale: d.scale } : d;
+    if (cmp(abs, LAKH) > 0) return { ok: false, why: `${line}: earlier quarters + this column ${toText(sum)} ≠ year to date ${y.lines[line]}` };
+    parts.push(`${line} ${toText(sum)} = year to date`);
+  }
+  return { ok: true, why: parts.join(", ") };
 }
 
 /** D169 one-off for the active "loaded, but under another period or basis" gaps (from the D168 floor): re-reads each
