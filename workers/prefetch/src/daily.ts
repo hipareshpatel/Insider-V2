@@ -34,7 +34,10 @@ export function resultsTriggers(text: string): string[] {
 }
 
 export type Get = (url: string) => Promise<{ status: number; bytes: Uint8Array }>;
-interface Deps { db: Sql; market: Sql; raw: R2Bucket; get: Get; gzip: (b: Uint8Array) => Promise<Uint8Array>; now: Date }
+/** `focus`: NSE symbols of the 250 focus companies (owner's universe lock, 4 Nov) — new per-company calls and XBRL
+ *  downloads are limited to them; undefined = everyone (no index snapshot yet, or FOCUS_INDICES=ALL). */
+interface Deps { db: Sql; market: Sql; raw: R2Bucket; get: Get; gzip: (b: Uint8Array) => Promise<Uint8Array>; now: Date; focus?: string[] }
+const inFocus = (d: Deps) => { const f = d.focus ? new Set(d.focus) : null; return (s: string | null | undefined) => !f || (!!s && f.has(s)); };
 
 /** Slot due now (each runs once per IST day), or null. */
 export async function dueSlot(db: Sql, now: Date): Promise<"evening" | "morning" | null> {
@@ -119,9 +122,11 @@ export async function dailyRefresh(d: Deps, slot: "evening" | "morning") {
   } else out.corp_actions = "fetch failed";
   // 2. Shareholding → XBRL attachments.
   const sh = await fetchKept(d, "bulk_shareholding", `${API}corporate-share-holdings-master?index=equities&from_date=${dmy(addDays(day, -3))}&to_date=${dmy(day)}`, `api/bulk/shareholding/${tag}.json`);
+  const ok = inFocus(d);
   if (sh.text && sh.jobId) {
-    const att = rowAttachments(sh.text).map(([s, u]) => ["xbrl_shareholding", s || null, u, attachmentKey(u), sh.jobId]);
-    await batchAll(d.db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key, parent_id)", 5, att));
+    // files, not lists: born discovered=1, or the every-minute discovery query keeps re-reading them (C56)
+    const att = rowAttachments(sh.text).filter(([s]) => ok(s)).map(([s, u]) => ["xbrl_shareholding", s || null, u, attachmentKey(u), sh.jobId, 1]);
+    await batchAll(d.db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key, parent_id, discovered)", 6, att));
     out.shareholding_attachments = att.length;
   } else out.shareholding_attachments = "fetch failed";
   // 2b. Insider trading (C53): NSE's system since 3 May 2026 (/api/corporates-pit-gg; the old corporates-pit is empty).
@@ -129,11 +134,19 @@ export async function dailyRefresh(d: Deps, slot: "evening" | "morning") {
   //     from the archive host (NSE refuses GitHub for the API host, so the list itself is fetched here).
   const pg = await fetchKept(d, "pit_gg", `${API}corporates-pit-gg?index=equities&from_date=${dmy(addDays(day, -3))}&to_date=${dmy(day)}`, `api/pit_gg/${tag}.json`);
   out.insider_list = pg.text ? (() => { try { return ((JSON.parse(pg.text!) as { data?: unknown[] }).data ?? []).length; } catch { return "unreadable"; } })() : "fetch failed";
+  // The list was kept with discovered=1 (fetchKept), so discover() never queued its XBRL: no insider filing after the
+  // one-off probe list was being downloaded (found 4 Nov). Queued here, like shareholding, for the focus companies.
+  if (pg.text && pg.jobId) {
+    const att = rowAttachments(pg.text).filter(([s]) => ok(s)).map(([s, u]) => ["xbrl_pit_gg", s || null, u, attachmentKey(u), pg.jobId, 1]);
+    await batchAll(d.db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key, parent_id, discovered)", 6, att));
+    out.insider_attachments = att.length;
+  }
   // 3. Integrated Filing: dated per-company refresh for companies with a results-type announcement.
   const an = await fetchKept(d, "announcements_daily", `${API}corporate-announcements?index=equities&from_date=${dmy(addDays(day, -1))}&to_date=${dmy(day)}`, `api/bulk/announcements/${tag}.json`);
   const sweep = slot === "evening" && new Date(Date.parse(day + "T00:00:00Z")).getUTCDay() === 0;
-  let symbols = an.text ? resultsTriggers(an.text) : [];
-  if (sweep) symbols = (await d.db.all<{ symbol: string }>("SELECT DISTINCT symbol FROM fetch_job WHERE kind='integrated_financials' AND symbol IS NOT NULL")).map((r) => r.symbol);
+  let symbols = an.text ? resultsTriggers(an.text).filter(ok) : [];
+  // Sunday sweep: the focus companies (was every company that ever had a list, ~2,636 calls a week)
+  if (sweep) symbols = d.focus ?? (await d.db.all<{ symbol: string }>("SELECT DISTINCT symbol FROM fetch_job WHERE kind='integrated_financials' AND symbol IS NOT NULL")).map((r) => r.symbol);
   const from = dmy(addDays(day, sweep ? -10 : -5)), to = dmy(day);
   const jobs = symbols.map((s) => ["integrated_financials", s, `${API}${PER_COMPANY.integrated_financials!(s)}&from_date=${from}&to_date=${to}`, `api/integrated_financials/${s}/${tag}${sweep ? "-sweep" : ""}.json`]);
   await batchAll(d.db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key)", 4, jobs)); // fetched by runBatch, then discover()

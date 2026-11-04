@@ -1,12 +1,12 @@
 // disclo-prefetch Worker (D128): fetch raw NSE API responses for every company into R2, as fast as NSE allows.
-import { EQUITY_SERIES, type Sql, batchAll, insertRows, parseEquityList, sha256Hex } from "@disclo/core";
+import { type D1Meter, EQUITY_SERIES, FOCUS_DEFAULT, FORBIDDEN_TEXT, type Sql, batchAll, chargeReads, focusSymbolsOf, insertRows, parseEquityList, readLevel, readsToday, sha256Hex, statusAuthorized } from "@disclo/core";
 import { d1Sql } from "./d1.js";
 import { attachmentKey, attachments } from "./discover.js";
 import { bulkJobs, companyJobs } from "./jobs.js";
 import { dailyRefresh, dueSlot, seedFullHistory, seedStructureHistory } from "./daily.js";
 import { compressStep } from "./compress.js";
 
-export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; PARALLEL?: string; PER_RUN?: string; INGEST_TOKEN?: string }
+export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; PARALLEL?: string; PER_RUN?: string; INGEST_TOKEN?: string; STATUS_TOKEN?: string; FOCUS_INDICES?: string; DAILY_READ_CAP?: string }
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
@@ -28,11 +28,16 @@ async function seed(db: Sql, raw: R2Bucket, today: string): Promise<number> {
 }
 
 /** Queue archive-hosted XML attachments found in downloaded lists (fetched by the GitHub runner, D128). */
+/** Every-minute discovery query (exported for the query-plan test). Only API lists are ever discovered=0 (attachments
+ *  and kinds without attachments are born or marked 1), so this reads only lists still to look at. */
+export const SQL_DISCOVER = "SELECT job_id, kind, symbol, url, r2_key FROM fetch_job WHERE status='done' AND discovered=0 LIMIT 300";
+const NO_ATTACHMENTS = new Set(["announcements", "credit_rating"]);
 async function discover(env: Env, db: Sql): Promise<number> {
-  const lists = await db.all<{ job_id: number; kind: string; symbol: string | null; r2_key: string }>(
-    "SELECT job_id, kind, symbol, r2_key FROM fetch_job WHERE status='done' AND discovered=0 AND url LIKE 'https://www.nseindia.com/%' AND kind NOT IN ('announcements','credit_rating') LIMIT 300");
+  const lists = await db.all<{ job_id: number; kind: string; symbol: string | null; url: string; r2_key: string }>(SQL_DISCOVER);
   const rows: unknown[][] = [];
   for (const l of lists) {
+    // marked discovered below either way, so a list kind without attachments never stays in this query (C56)
+    if (NO_ATTACHMENTS.has(l.kind) || !l.url.startsWith("https://www.nseindia.com/")) continue;
     const obj = await env.RAW.get(l.r2_key);
     if (!obj) continue;
     for (const u of attachments(l.kind, await readText(obj), "2021-04-01")) rows.push([`xbrl_${l.kind}`, l.symbol, u, attachmentKey(u), l.job_id, 1]);
@@ -74,17 +79,23 @@ export async function readText(obj: R2ObjectBody): Promise<string> {
   return new Response(obj.body.pipeThrough(new DecompressionStream("gzip"))).text();
 }
 
-export async function runBatch(env: Env, now = new Date()) {
-  const db = d1Sql(env.DB_FILINGS);
+/** NSE API jobs to fetch: waiting first, then retries (each one range of the partial index ix_fetch_api_pending; the URL
+ *  pattern must stay a literal for SQLite to use that index). Was one OR across two indexes plus a sort, every minute. */
+export const SQL_API_TODO = "SELECT job_id, url, r2_key, attempts FROM fetch_job WHERE url LIKE 'https://www.nseindia.com/%' AND status='todo' ORDER BY attempts, job_id LIMIT ?";
+export const SQL_API_RETRY = "SELECT job_id, url, r2_key, attempts FROM fetch_job WHERE url LIKE 'https://www.nseindia.com/%' AND status='failed' AND attempts < 4 ORDER BY attempts, job_id LIMIT ?";
+
+export async function runBatch(env: Env, now = new Date(), meter?: D1Meter) {
+  const db = d1Sql(env.DB_FILINGS, meter);
   const today = new Date(now.getTime() + 330 * 60_000).toISOString().slice(0, 10);
   const seeded = await seed(db, env.RAW, today);
   const perRun = Number(env.PER_RUN ?? 240);
   const parallel = Number(env.PARALLEL ?? 6);
-  const todo = await db.all<{ job_id: number; url: string; r2_key: string; attempts: number }>(
-    "SELECT job_id, url, r2_key, attempts FROM fetch_job WHERE url LIKE 'https://www.nseindia.com/%' AND (status='todo' OR (status='failed' AND attempts < 4)) ORDER BY attempts, job_id LIMIT ?", [perRun]);
+  type Job = { job_id: number; url: string; r2_key: string; attempts: number };
+  const todo = await db.all<Job>(SQL_API_TODO, [perRun]);
+  if (todo.length < perRun) todo.push(...await db.all<Job>(SQL_API_RETRY, [perRun - todo.length]));
   let discovered: number | string = 0;
   try { discovered = await discover(env, db); } catch (e) { discovered = `discover error: ${String(e).slice(0, 120)}`; }
-  if (!todo.length) return { seeded, discovered, done: 0, left: 0 };
+  if (!todo.length) return { seeded, discovered, done: 0 };
   const ck = await cookies();
   const headers = { "User-Agent": UA, Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", Referer: "https://www.nseindia.com/", Cookie: ck };
   let refusals = 0, ok = 0, empty = 0, failed = 0;
@@ -126,8 +137,8 @@ export async function runBatch(env: Env, now = new Date()) {
     sql: "UPDATE fetch_job SET status=?2, attempts=?3, http_status=?4, bytes=?5, sha256=?6, fetched_at=?7, error=?8 WHERE job_id=?1",
     params: r,
   })));
-  const [left] = await db.all<{ n: number }>("SELECT count(*) AS n FROM fetch_job WHERE url LIKE 'https://www.nseindia.com/%' AND (status='todo' OR (status='failed' AND attempts < 4))");
-  return { seeded, discovered, done: ok, empty, failed, refusals, left: left?.n ?? 0 };
+  // no count(*) of what is left (it re-read the whole queue every minute); a full batch means more is waiting
+  return { seeded, discovered, done: ok, empty, failed, refusals, batch: todo.length, more: todo.length >= perRun };
 }
 
 async function withLock<T>(db: D1Database, fn: () => Promise<T>): Promise<T | null> {
@@ -145,28 +156,39 @@ export default {
       let detail: unknown;
       try {
         detail = (await withLock(env.DB_FILINGS, async () => {
-          const b = await runBatch(env);
-          // Daily freshness (plan item 2): once per IST slot; NSE API answers Cloudflare.
-          const db = d1Sql(env.DB_FILINGS), now = new Date();
-          const compressed = await compressStep(db, env.RAW, gzip, gunzip); // D147: older objects → gzip, ~200/min until done
-          const full = await seedFullHistory(db, now); // C40: complete history for the 20-row-capped lists, once
-          if (full) return { ...b, full_history_queued: full };
-          const seeded = await seedStructureHistory(db, now); // D144: once; fetched by the normal runs
-          if (seeded) return { ...b, structure_history_queued: seeded, compressed };
-          const slot = await dueSlot(db, now);
-          if (!slot) return compressed ? { ...b, compressed } : b;
-          const ck = await cookies();
-          const headers = { "User-Agent": UA, Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", Referer: "https://www.nseindia.com/", Cookie: ck };
-          const get = async (url: string) => {
-            for (let i = 0; i < 3; i++) {
-              const r = await fetch(url, { headers });
-              const bytes = new Uint8Array(await r.arrayBuffer());
-              if (r.status === 200 || i === 2) return { status: r.status, bytes };
-              await new Promise((x) => setTimeout(x, 3000 * (i + 1)));
-            }
-            return { status: 0, bytes: new Uint8Array() };
-          };
-          return { ...b, daily: await dailyRefresh({ db, market: d1Sql(env.DB_MARKET), raw: env.RAW, get, gzip, now }, slot) };
+          // C56 read breaker: today's rows read by every worker. Essential work (NSE lists, daily slots) always runs;
+          // the optional compression pass stops above the daily cap.
+          const meter: D1Meter = { rows: 0, reads: 0 }, now = new Date();
+          const market = d1Sql(env.DB_MARKET, meter);
+          const level = readLevel(await readsToday(market, now), Number(env.DAILY_READ_CAP ?? 150_000_000));
+          try {
+            const b = await runBatch(env, now, meter);
+            // Daily freshness (plan item 2): once per IST slot; NSE API answers Cloudflare.
+            const db = d1Sql(env.DB_FILINGS, meter);
+            const compressed = level === "ok" ? await compressStep(db, env.RAW, gzip, gunzip) : null; // D147: older objects → gzip, ~200/min until done
+            const full = await seedFullHistory(db, now); // C40: complete history for the 20-row-capped lists, once
+            if (full) return { ...b, full_history_queued: full };
+            const seeded = await seedStructureHistory(db, now); // D144: once; fetched by the normal runs
+            if (seeded) return { ...b, structure_history_queued: seeded, compressed };
+            const slot = await dueSlot(db, now);
+            if (!slot) return compressed ? { ...b, compressed, reads: level } : level === "ok" ? b : { ...b, reads: level };
+            // owner's universe lock (4 Nov): new per-company downloads only for the 250 focus companies
+            const focus = await focusSymbolsOf(market, env.FOCUS_INDICES ?? FOCUS_DEFAULT);
+            const ck = await cookies();
+            const headers = { "User-Agent": UA, Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", Referer: "https://www.nseindia.com/", Cookie: ck };
+            const get = async (url: string) => {
+              for (let i = 0; i < 3; i++) {
+                const r = await fetch(url, { headers });
+                const bytes = new Uint8Array(await r.arrayBuffer());
+                if (r.status === 200 || i === 2) return { status: r.status, bytes };
+                await new Promise((x) => setTimeout(x, 3000 * (i + 1)));
+              }
+              return { status: 0, bytes: new Uint8Array() };
+            };
+            return { ...b, daily: await dailyRefresh({ db, market, raw: env.RAW, get, gzip, now, focus }, slot) };
+          } finally {
+            await chargeReads(market, new Date(), meter.reads ?? 0);
+          }
         })) ?? "locked";
       } catch (e) { detail = { error: String(e instanceof Error ? e.message : e) }; }
       if (detail !== "locked") await env.DB_FILINGS.prepare("INSERT INTO prefetch_log (at, detail) VALUES (?1, ?2)").bind(new Date().toISOString(), JSON.stringify(detail)).run();
@@ -194,6 +216,7 @@ export default {
       return new Response("ok");
     }
     if (url.pathname !== "/status") return new Response("not found", { status: 404 });
+    if (!statusAuthorized(req, env.STATUS_TOKEN)) return new Response(FORBIDDEN_TEXT, { status: 403, headers: { "cache-control": "no-store" } }); // scans the ledger: token only (audit 4 Nov)
     const q = async (s: string) => (await env.DB_FILINGS.prepare(s).all()).results;
     return Response.json({
       environment: env.ENVIRONMENT,

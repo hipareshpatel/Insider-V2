@@ -11,6 +11,7 @@ import { digestDay } from "./digest.js";
 import { WEEKEND_MARKER, loadIndexHistory, loadIndexWeekends } from "./indexhist.js";
 import { runDay } from "./daily.js";
 import { istNow } from "./dates.js";
+import { type D1Meter, FORBIDDEN_TEXT, chargeReads, readLevel, readsToday, statusAuthorized } from "@disclo/core";
 
 export interface Env {
   DB_MARKET: D1Database;
@@ -21,6 +22,8 @@ export interface Env {
   BACKFILL_FROM?: string; // staging loads recent dates only
   MONTHLY_WRITE_CAP?: string;  // owner #266: billed D1 rows per IST month (market + filings); bulk work stops at the cap
   CACHE_AUTHORITATIVE_UNTIL?: string; // D128: archive prefetch complete up to this date
+  STATUS_TOKEN?: string; // diagnostic pages answer only with this token (audit 4 Nov)
+  DAILY_READ_CAP?: string; // C56 read breaker: rows read per IST day, all workers
 }
 
 const LOCK = "market.daily";
@@ -41,14 +44,18 @@ async function withLock<T>(db: D1Database, ttlMs: number, fn: () => Promise<T>):
 export default {
   async scheduled(_ev: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil((async () => {
-      const meter = { rows: 0 }; // every billed row this run writes (owner #266 cap)
+      const meter: D1Meter = { rows: 0, reads: 0 }; // billed rows written (owner #266 cap) and rows read (C56 breaker)
       const deps = { market: d1Sql(env.DB_MARKET, meter), app: d1Sql(env.DB_APP, meter), raw: r2Raw(env.RAW), fetch: r2FirstFetcher(env.RAW, archiveFetcher(), env.CACHE_AUTHORITATIVE_UNTIL), now: () => new Date(), cachedFromR2: true };
       let structure: Record<string, number> | null = null;
       let sectors: unknown = null;
       let indexHist: unknown = null;
       const out = await withLock(env.DB_MARKET, 14 * 60_000, async () => {
         const t0 = Date.now();
+        // C56 read breaker (audit 4 Nov): the daily market load always runs; the optional passes after it stop once
+        // today's rows read (all workers) pass the daily cap.
+        const level = readLevel(await readsToday(deps.market, new Date()), Number(env.DAILY_READ_CAP ?? 150_000_000));
         const r = await runPending(deps, { maxDates: 40, budgetMs: 8 * 60_000, revisitSessions: 5, from: env.BACKFILL_FROM, monthlyCap: env.MONTHLY_WRITE_CAP ? Number(env.MONTHLY_WRITE_CAP) : undefined });
+        if (level !== "ok") { structure = { read_cap: 1 }; return r; }
         // M1 market structure (D144): R2 only, in date order, within what is left of this run.
         structure = await loadStructure({ market: deps.market, raw: env.RAW, now: deps.now }, Math.max(0, 11 * 60_000 - (Date.now() - t0)));
         // work list 1.8: capped bulk/block days replaced from NSE's uncapped CSV windows (no-op once none are left)
@@ -74,6 +81,7 @@ export default {
       // runPending already charged each date's price/factor rows; charge the rest (identity, ledger, reviews, snapshot).
       const charged = (out ?? []).reduce((n, r) => n + (r.written ?? 0), 0);
       if (out && meter.rows > charged) await chargeBudget(d1Sql(env.DB_MARKET), new Date(), meter.rows - charged);
+      if (out) await chargeReads(d1Sql(env.DB_MARKET), new Date(), meter.reads ?? 0).catch(() => {});
       console.log(JSON.stringify({ env: env.ENVIRONMENT, rows_written: meter.rows, structure, sectors, indexHist, ran: out?.map((r) => ({ d: r.date, s: r.status, c: r.counts, why: r.reasons?.slice(0, 3) })) ?? "locked" }));
     })());
   },
@@ -81,6 +89,8 @@ export default {
   // Read-only status (no data beyond counts and run states). Useful from a phone: /status
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
+    // every page here is a diagnostic over large tables, and the addresses are public: token only (audit 4 Nov)
+    if (!statusAuthorized(req, env.STATUS_TOKEN)) return new Response(FORBIDDEN_TEXT, { status: 403, headers: { "cache-control": "no-store" } });
     if (url.pathname === "/closes") {
       // D141 second cycle: one security's closes in a window (read-only).
       const rows = (await env.DB_MARKET.prepare("SELECT p.d, p.series, p.open, p.close, s.issue_size, s.face_value_paise FROM price_daily p LEFT JOIN shares_daily s ON s.security_id = p.security_id AND s.d = p.d WHERE p.security_id=?1 AND p.d BETWEEN ?2 AND ?3 ORDER BY p.d, p.series='EQ' DESC")

@@ -61,6 +61,15 @@ jobs:
       - name: Deploy filings
         working-directory: workers/filings
         run: set -o pipefail; npx wrangler deploy 2>&1 | mask | grep -E "Uploaded|Deployed|ERROR|✘"
+      - name: Status-page token (diagnostic pages answer only with it; audit 4 Nov)
+        env:
+          STATUS_TOKEN: ${{ secrets.STATUS_TOKEN }}
+        run: |
+          if [ -z "$STATUS_TOKEN" ]; then echo "GitHub secret STATUS_TOKEN not set: diagnostic pages stay closed (403)"; exit 0; fi
+          set -o pipefail
+          for w in disclo-market disclo-market-staging disclo-prefetch disclo-filings; do
+            printf '%s' "$STATUS_TOKEN" | npx wrangler secret put STATUS_TOKEN --name "$w" 2>&1 | mask | grep -E "Success|ERROR|✘" | sed "s/^/$w: /"
+          done
       - name: Build and deploy site v0 (D151)
         working-directory: workers/web
         run: set -o pipefail; npx vite build >/dev/null && npx wrangler deploy 2>&1 | mask | grep -E "Uploaded|Deployed|ERROR|✘"
