@@ -323,6 +323,12 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 
 ### E. Website brief (`docs/website.md`, owned by the planning chat)
 §10 (pending), §10b–§10c (accepted items), §11 (conflicts): design inputs, layering, card sections, coverage-depth display, launch checklist — folded into A4 and C; the brief stays the source.
+
+### Added 2026-11-04 (owner #333)
+| Item | Status | Next |
+|---|---|---|
+| NSE inventory + daily-workflow evidence: every dataset we take from NSE (endpoint/file, history range, daily workflow) and, per feed, proof the daily update ran and the newest row is recent | ⬜ | build `/fresh`-style freshness checks for every feed; table in Part 1 |
+| C53 insider trades from `corporates-pit-gg` (3 May 2026 →): GitHub bundle → R2 → loader | 🔶 download running | PIT XBRL reader + loader, then count check vs NSE |
 <!-- END docs/worklist.md -->
 
 # Part 3 — Plan: product, architecture, data, AI, quality, operations, budget, legal, milestones, decisions
@@ -2908,6 +2914,9 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 328 | "Why don't you check and compare a couple of them with screener.in?" (on the cash-flow residual a/b choice) | Agreed: a comparison against a second source is stronger than our own arithmetic. Screener's public page shows only the four cash-flow totals; sub-rows open on demand. Picking full-year failing files of large companies and comparing totals and sub-rows before choosing a/b. | 🔶 |
 | 329 | Shared NSE's insider-trading page; then "https://github.com/Pareshking/NSE-BSE-Insider-Tracker — check how they got insider trade data, repo is public." | NSE's page answers 503 to non-browser requests (not worked around). The public repo (read only, no code taken, #287): since **3 May 2026 NSE publishes insider filings on `/api/corporates-pit-gg`** (list of filings + one PIT XBRL per filing; the old `corporates-pit` answers an empty 28-byte list — exactly what our June/October all-company test returned). The list takes no date range (latest ≈2,000 filings), so history is built nightly; BSE's insider CSV is its other source, but it is reached through a disguised headless browser (bot-check circumvention) — not adopted. Probing `pit-gg` (latest + May date range) through our normal queue. | 🔶 C53 |
 | 330 | "Run every new thing on GitHub and save the required data to Cloudflare, as GitHub is way faster. E.g. download insider data on GitHub and pass one file to Cloudflare?" | Agreed with one limit: downloads and parsing on GitHub, bundled into **one file per run** in R2 (one upload, not thousands — per-file uploads are what make GitHub→R2 slow), loaded by the Worker in batched writes; the same readers on both sides (Node runs our TypeScript readers on GitHub). Limits: NSE may refuse GitHub's addresses for some pages (the archive host works; the repo notes the API does too), and the D1 write cap still applies. First use: insider filings (pit-gg list + XBRL). | 🔶 |
+| 331 | Pasted advice on NSE insider data (endpoint `corporates-pit`; proxies, cookie warm-up with a disguised browser, browser-header spoofing, self-hosted runner; BSE fallback). | Corrections: `corporates-pit` is the dead endpoint (proved: empty for June and October 2026); the live one is `corporates-pit-gg`, which our own fetcher already read (3,299 filings, 3 May → 3 Nov 2026). Not adopted: proxies to mask origin, disguised browsers, spoofed headers (bot-check circumvention). Acceptable if GitHub is refused: a self-hosted runner on the owner's own connection. | ✅ |
+| 332 | Shared 30 Screener exports (Tata Motors PV, Union Bank, Mankind, Vedanta, Ambuja, Paradeep, Tata Power, NHPC, Bajaj Holdings, ABCAP, BEL, Hindalco, Power Grid, M&M, UltraTech, IOC, JSW Steel, Adani Ports, Adani Green, NTPC, Coal India, Grasim, ONGC, LIC, Bajaj Finance, Infosys, SBI, ICICI Bank, Bharti, Reliance): "may be helpful". | Compared full-year consolidated cash-flow totals FY24–FY26 with ours (NSE filings): **163 of 255 match to ₹1 crore as filed; 189 once Screener's convention is applied** (Screener adds the exchange-rate effect on cash to investing — INFY FY26: filed +1,946 cr + FX 1,600 = Screener's 3,546). Remaining differences: equal-and-opposite moves between sections (classification / later annual-report figures: Ambuja, Coal India, NTPC, Bajaj Finance, Bajaj Holdings), banks and LIC (Screener's Union Bank FY25–26 values are off by ~100× — Screener's error, not ours), Paradeep not in our 250. Screener's export has no sub-rows, so it cannot check the adjustment breakdown. Rule for the site: show NSE's filed sections; label any Screener-style view. | ✅ |
+| 333 | "Add in to do: make a list of things we got from NSE and check that every daily update workflow is working, with evidence." | Added to the work list (Part 2): NSE inventory (dataset → endpoint/file → history range → daily workflow) + evidence per feed (last run, newest row date within N days — the check that would have caught C53). | ⬜ |
 
 ### Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -2916,7 +2925,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-04 after entry #330: all checks pass (159 decisions, 330 entries); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
+*Last run 2026-11-04 after entry #333: all checks pass (159 decisions, 333 entries); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
 
 ### Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
