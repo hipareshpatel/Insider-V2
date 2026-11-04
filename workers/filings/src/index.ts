@@ -1,10 +1,10 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { RESULT_KINDS, backfillBsCf, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { RESULT_KINDS, backfillBsCf, halfYearGaps, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
-import { SQL_BASIS_LISTS, classifyGaps, nseListedFiles, primaryBasisStep } from "./basis.js";
+import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
 import { BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
@@ -110,6 +110,13 @@ export default {
         r = await versionBackfillFocus(db, sids, 25); // gate (#343): first call read 30k rows (28.6k of them the focus lookup, fixed), wrote 7
       }
       else if (name === "coverage_classify") r = await classifyGaps(db, mk, (k) => getText(env.RAW, k), 10); // work list item 2
+      else if (name === "half_year_gaps") {
+        // D169 (work list item 2): quarter (+ full year at the year end) of the half-year-only files behind the active
+        // "under another period or basis" gaps, then the coverage check of those companies only (clears filled gaps)
+        const h = await halfYearGaps(ldeps);
+        const basis = h.sids.length ? await runPrimaryBasis(db, h.sids, new Date(), basisLists(db, mk, (k) => getText(env.RAW, k))) : 0;
+        r = { ...h, basis_companies: basis };
+      }
       else if (name === "remark_backfill") r = await remarkBackfill(db, (k) => getText(env.RAW, k), 200, focus); // lists outside the focus are skipped without an R2 read
       else return new Response("unknown pass", { status: 404 });
       const now = new Date();
@@ -192,7 +199,9 @@ export default {
           for (const url of listed.get(`${g.period_end}|${g.basis}`) ?? []) {
             const job = await env.DB_FILINGS.prepare("SELECT job_id, kind, status, http_status, attempts, r2_key FROM fetch_job WHERE url=?1").bind(url).first<Record<string, unknown>>();
             const load = job ? await env.DB_FILINGS.prepare("SELECT status, detail, tries, retry_after FROM fin_load WHERE job_id=?1").bind(job.job_id).first<Record<string, unknown>>() : null;
-            files.push({ url: url.replace("https://nsearchives.nseindia.com/corporate/", ""), job, load });
+            // where the file was actually stored (filing(source_url) index, one row): security, period and basis
+            const stored = job ? await env.DB_FILINGS.prepare("SELECT filing_id, security_id, period_end, period_kind, basis, disclosed_at FROM filing WHERE kind=?1 AND source_url=?2").bind(String(job.kind).replace(/^xbrl_/, ""), url).first<Record<string, unknown>>() : null;
+            files.push({ url: url.replace("https://nsearchives.nseindia.com/corporate/", ""), job, load, filing: stored });
           }
           detail.push({ ...g, files });
         }

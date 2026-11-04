@@ -89,6 +89,15 @@ export const SQL_BASIS_LISTS = "SELECT r2_key FROM fetch_job INDEXED BY ix_fetch
 
 /** D50/D51 incremental (P0): only companies whose filings changed since the last pass, at most `limit` per run, in
  *  filing order ('once','primary_basis_cursor'). The first pass after deploy walks every filing once (cursor 0). */
+/** One company's stored NSE results lists (every symbol it has had), for runPrimaryBasis. */
+export function basisLists(filings: Sql, market: Sql, getText: (k: string) => Promise<string | null>): (sid: number) => Promise<string[]> {
+  return async (sid: number) => {
+    const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND id_type='nse_symbol'", [sid])).map((r) => r.value);
+    const keys = await filings.all<{ r2_key: string }>(SQL_BASIS_LISTS, [JSON.stringify(syms)]);
+    return (await Promise.all(keys.map((k) => getText(k.r2_key)))).filter((t): t is string => !!t);
+  };
+}
+
 export async function primaryBasisStep(filings: Sql, market: Sql, getText: (k: string) => Promise<string | null>, focusSids: Set<number>, now: Date, limit = 25): Promise<{ companies: number; after: number }> {
   const [st] = await filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='primary_basis_cursor'");
   const cur = st ? JSON.parse(st.detail) as { after: number; companies: number } : { after: 0, companies: 0 };
@@ -103,11 +112,7 @@ export async function primaryBasisStep(filings: Sql, market: Sql, getText: (k: s
     }
     after = r.filing_id;
   }
-  const lists = async (sid: number) => {
-    const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND id_type='nse_symbol'", [sid])).map((r) => r.value);
-    const keys = await filings.all<{ r2_key: string }>(SQL_BASIS_LISTS, [JSON.stringify(syms)]);
-    return (await Promise.all(keys.map((k) => getText(k.r2_key)))).filter((t): t is string => !!t);
-  };
+  const lists = basisLists(filings, market, getText);
   const n = sids.length ? await runPrimaryBasis(filings, sids, now, lists) : 0;
   await filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','primary_basis_cursor',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail",
     [now.toISOString(), JSON.stringify({ after, companies: cur.companies + n })]);
