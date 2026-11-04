@@ -259,6 +259,10 @@ export default {
         filings: await q("SELECT substr(datetime(disclosed_at, '+330 minutes'), 1, 10) AS ist_day, kind, count(*) AS n FROM filing WHERE disclosed_at >= datetime('now', '-4 days') GROUP BY 1, 2 ORDER BY 1 DESC, 2"),
         newest: await q("SELECT kind, max(disclosed_at) AS latest FROM filing GROUP BY kind ORDER BY 2 DESC"),
         insider_trades_latest: await q("SELECT max(disclosed_at) AS latest FROM insider_trade"),
+        // C53 count check: new-system filings loaded (distinct NSE appId) and trades, vs files downloaded
+        insider_new_system: await q("SELECT count(DISTINCT did) AS filings, count(*) AS trades, min(disclosed_at) AS first, max(disclosed_at) AS last FROM insider_trade WHERE key >= 'pitx:' AND key < 'pitx;'"),
+        insider_files: await q("SELECT status, count(*) AS n FROM fetch_job WHERE kind IN ('xbrl_pit_gg','xbrl_pit_gg_probe') GROUP BY status"),
+        insider_cursor: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='pitx_cursor'"),
         sast_latest: await q("SELECT max(disclosed_at) AS latest FROM sast_disclosure"),
       }, { headers: { "cache-control": "no-store" } });
     }
