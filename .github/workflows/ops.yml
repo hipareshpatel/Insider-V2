@@ -41,7 +41,7 @@ jobs:
         run: |
           set -o pipefail
           mask() { sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email hidden>/g; s/│ [^│]*Account[^│]*│/│ <account hidden> │/g'; }
-          echo "$PATH_IN" | grep -Eq '^/[A-Za-z0-9/_?=&.-]*$' || { echo "bad path"; exit 1; }
+          echo "$PATH_IN" | grep -Eq '^/[A-Za-z0-9/_?=&.,-]*$' || { echo "bad path"; exit 1; }
           case "$WORKER" in filings|prefetch|market) ;; *) echo "bad worker"; exit 1;; esac
           T=$(openssl rand -hex 32); echo "::add-mask::$T"
           printf '%s' "$T" | wrangler secret put STATUS_TOKEN --name "disclo-$WORKER" 2>&1 | mask | grep -E "Success|ERROR|✘" || true
