@@ -244,6 +244,12 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
     if (ref && !inst.contexts.has(ref)) ctx = { id: ref, entity: meta("Symbol"), start, end, instant: null, dims: {} };
   }
   if (!ctx) throw new Error(`results: no context for ${start}..${end}`);
+  // C64 (SIEMENS Q2 FY25: start typed 2024-01-01 and the year-to-date context dated the same, so the 15-month YTD context
+  // was picked): a period that is no 3/6/9/12 months falls back to the current-period context when it ends on the date
+  if (!ytd && !opts.periodStart && ![3, 6, 9, 12].includes(months(start, end))) {
+    const one = inst.contexts.get("OneD");
+    if (one && one !== ctx && one.start && one.end === end && Object.keys(one.dims).length === 0 && [3, 6, 9, 12].includes(months(one.start, end))) { ctx = one; start = one.start; }
+  }
   const n = months(start, end);
   const kind: PeriodKind = n === 3 ? "Q" : n === 6 ? "H" : n === 9 ? "9M" : n === 12 ? "FY" : (() => { throw new Error(`results: ${n}-month period`); })();
   const fyEnd = meta("DateOfEndOfFinancialYear");
