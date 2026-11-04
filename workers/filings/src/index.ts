@@ -153,8 +153,12 @@ export default {
     if (path === "/if-list") {
       // Read-only (owner #334): every row of the stored NSE results lists for one company (period, basis, submission
       // type, revision remarks, dates, XBRL link) — to see whether a revised/restated filing exists for a period.
-      const sym = new URL(req.url).searchParams.get("symbol") ?? "";
-      const lists = (await env.DB_FILINGS.prepare("SELECT job_id, kind, url, r2_key, fetched_at FROM fetch_job WHERE symbol=?1 AND kind IN ('integrated_financials','results_quarterly','results_annual') AND status='done' ORDER BY job_id").bind(sym).all<{ job_id: number; kind: string; url: string; r2_key: string; fetched_at: string }>()).results;
+      const q = new URL(req.url).searchParams, sym = q.get("symbol") ?? "";
+      // optional filters (the full answer passes the 20 kB ops print limit): ?kind=integrated_financials, ?since=2026
+      // keeps rows that carry a date in that year or later
+      const onlyKind = q.get("kind"), since = Number(q.get("since") ?? 0);
+      const lists = (await env.DB_FILINGS.prepare("SELECT job_id, kind, url, r2_key, fetched_at FROM fetch_job WHERE symbol=?1 AND kind IN ('integrated_financials','results_quarterly','results_annual') AND status='done' ORDER BY job_id").bind(sym).all<{ job_id: number; kind: string; url: string; r2_key: string; fetched_at: string }>()).results
+        .filter((l) => !onlyKind || l.kind === onlyKind);
       const rows: Record<string, unknown>[] = [];
       for (const l of lists) {
         const text = await getText(env.RAW, l.r2_key);
@@ -164,6 +168,7 @@ export default {
         for (const r of arr) {
           const pick: Record<string, unknown> = { list: l.kind, list_fetched: l.fetched_at?.slice(0, 10) };
           for (const [k, v] of Object.entries(r)) if (v !== null && v !== "" && /period|qe_?date|todate|fromdate|audited|consol|cumulative|type|revis|remark|broadcast|filingdate|xbrl|date|nature|seq|relating/i.test(k)) pick[k] = typeof v === "string" ? v.slice(0, 140) : v;
+          if (since && !Object.values(pick).some((v) => typeof v === "string" && [...v.matchAll(/\b(20\d\d)\b/g)].some((m) => Number(m[1]) >= since))) continue;
           rows.push(pick);
         }
       }

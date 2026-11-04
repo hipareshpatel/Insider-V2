@@ -54,10 +54,14 @@ jobs:
               while [ "$n" -eq 0 ] || { [ "$(date +%s)" -lt "$end" ] && [ "$n" -lt "${MAX_CALLS:-1000}" ]; }; do
                 n=$((n+1))
                 out=$(curl -s -X POST -H "Authorization: Bearer $T" "$URL" || true)
-                echo "$(date -u +%H:%M:%S) $out" | cut -c1-1500 | mask
+                echo "$(date -u +%H:%M:%S) $out" | cut -c1-20000 | mask  # was 1,500 (cut the half-year pass notes)
                 echo "$out" | grep -q '"done":true' && break
                 echo "$out" | grep -q '^forbidden\|unknown pass\|not found\|"refused"' && exit 1
                 sleep 5
               done ;;
-            *) curl -s -H "Authorization: Bearer $T" "$URL" | head -c 20000 | mask; echo ;;
+            # read-only pages: the whole answer is fetched, then at most 500 kB is printed (was 20 kB, which cut the
+            # COFORGE results-list answer and failed the run with exit 23); a longer answer says so instead of failing
+            *) curl -s -H "Authorization: Bearer $T" "$URL" -o /tmp/answer || true
+               head -c 500000 /tmp/answer | mask; echo
+               n=$(wc -c < /tmp/answer); [ "$n" -gt 500000 ] && echo "[answer is $n bytes; printed the first 500000]" || true ;;
           esac
