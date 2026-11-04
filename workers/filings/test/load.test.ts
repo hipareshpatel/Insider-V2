@@ -478,6 +478,15 @@ describe("file selection without scanning the ledger (audit P0)", () => {
     expect(await row()).toEqual({ tries: MAX_TRIES, retry_after: null }); // given up: listed as skipped, never re-read
     t += 400 * 86400_000; expect(await loadBatch(at())).toEqual([]);
   });
+  it("C63: a due retry outside the focus leaves the retry queue instead of blocking focus retries behind it", async () => {
+    const { filings, market, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    market.raw.exec("DELETE FROM security_identifier"); // skipped: becomes a retry
+    let t = Date.parse("2026-11-03T02:00:00Z");
+    expect((await loadBatch({ ...deps, now: () => new Date(t) }))[0]).toMatchObject({ status: "skipped" });
+    t += 7 * 3600_000; // due now; INFY is not in this run's focus
+    expect(await loadBatch({ ...deps, now: () => new Date(t), focus: ["TCS"] })).toEqual([]);
+    expect(await filings.all("SELECT status, retry_after FROM fin_load")).toEqual([{ status: "skipped", retry_after: null }]);
+  });
 });
 
 describe("robustness (audit P1)", () => {

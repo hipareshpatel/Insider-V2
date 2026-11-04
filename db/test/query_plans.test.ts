@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
-import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_REQUEUE_404, SQL_VERSION_ROWS } from "../../workers/filings/src/load.js";
+import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_VERSION_ROWS } from "../../workers/filings/src/load.js";
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT } from "../../workers/filings/src/events.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
@@ -51,6 +51,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: re-queue named 404 jobs (manual, bounded)", SQL_REQUEUE_404, ["[1,2]", '["INFY"]'], /SEARCH fetch_job USING INTEGER PRIMARY KEY \(rowid=\?\)/],
   ["filings: earlier filed quarters of the year (C62 proof, per half-year file)", SQL_EARLIER_Q, [1, '["2026-06-30"]', "consolidated", '["revenue","pat"]'], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
   ["filings: relabel a proven quarter (C62, per half-year file)", SQL_RELABEL_Q, [1, "2026-09-30", "consolidated", 50], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
+  ["filings: out-of-focus due retries leave the queue (C63, every 5 min)", SQL_RETRY_OFF, ["[1,2]"], /SEARCH fin_load USING (INTEGER PRIMARY KEY|INDEX \w+) \(/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 

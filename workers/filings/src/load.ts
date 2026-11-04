@@ -568,6 +568,7 @@ export const SQL_LOADER_RETRY = `SELECT l.job_id, l.tries, l.status AS prior, j.
 /** C43/C45/C48/C50 retryable outcomes: identity not there yet, a scale-guard hold (re-judged with more neighbours),
  *  an infrastructure error. Retried after 6 h, 12 h, 24 h … (doubling), at most MAX_TRIES outcomes in all (~32 days). */
 export const MAX_TRIES = 8;
+export const SQL_RETRY_OFF = "UPDATE fin_load SET retry_after=NULL WHERE job_id IN (SELECT value FROM json_each(?))";
 const retryable = (o: LoadOutcome) => o.status === "skipped" || (o.status === "review" && o.detail.startsWith("scale guard:")) || (o.status === "failed" && o.detail.startsWith("Error: "));
 /** A download in a final state: done, empty, or failed with no more GitHub retries (attempts >= 3 or a 404). */
 const settled = (j: { status: string; attempts: number; http_status: number | null }) => j.status === "done" || j.status === "empty" || (j.status === "failed" && (j.attempts >= 3 || j.http_status === 404));
@@ -608,7 +609,12 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8, scan = 20
   // 2. Retries that are due, with what is left of the batch.
   if (jobs.length < limit) {
     const due = await deps.filings.all<Job>(SQL_LOADER_RETRY, [deps.now().toISOString(), limit - jobs.length]);
-    for (const r of due) if (!focus || (!!r.symbol && focus.has(r.symbol))) jobs.push(r);
+    // C63: a due retry outside the focus was skipped without being rescheduled, so the same earliest-due rows filled
+    // every run's retry slots and focus retries behind them never ran (BAJAJ-AUTO Mar 2026, due since 05:31 UTC 4 Nov).
+    // Out-of-scope rows are taken off the retry queue (universe lock: they are never loaded); nothing is deleted.
+    const outside: number[] = [];
+    for (const r of due) if (!focus || (!!r.symbol && focus.has(r.symbol))) jobs.push(r); else outside.push(r.job_id);
+    if (outside.length) await deps.filings.run(SQL_RETRY_OFF, [JSON.stringify(outside)]);
   }
   const cache = new Map<string, string | null>();
   const out: LoadOutcome[] = [];
