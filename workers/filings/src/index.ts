@@ -85,7 +85,7 @@ export default {
     if (path === "/pit-files") {
       // Read-only diagnosis: every stored insider-trade (PIT) list for one company — request, status, rows, date range.
       const sym = new URL(req.url).searchParams.get("symbol") ?? "";
-      const jobs = (await env.DB_FILINGS.prepare("SELECT job_id, url, r2_key, status, http_status, fetched_at, bytes FROM fetch_job WHERE kind='pit' AND symbol=?1 ORDER BY job_id").bind(sym).all<{ job_id: number; url: string; r2_key: string; status: string; http_status: number | null; fetched_at: string | null; bytes: number | null }>()).results;
+      const jobs = (await env.DB_FILINGS.prepare(sym === "ALL" ? "SELECT job_id, url, r2_key, status, http_status, fetched_at, bytes FROM fetch_job WHERE kind='pit' AND symbol IS NULL ORDER BY job_id" : "SELECT job_id, url, r2_key, status, http_status, fetched_at, bytes FROM fetch_job WHERE kind='pit' AND symbol=?1 ORDER BY job_id").bind(...(sym === "ALL" ? [] : [sym])).all<{ job_id: number; url: string; r2_key: string; status: string; http_status: number | null; fetched_at: string | null; bytes: number | null }>()).results;
       const out = [];
       for (const j of jobs.slice(0, 20)) {
         const text = j.status === "done" ? await getText(env.RAW, j.r2_key) : null;
