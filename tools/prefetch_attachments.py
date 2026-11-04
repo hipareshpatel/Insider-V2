@@ -25,7 +25,7 @@ FOCUS = os.environ.get("FOCUS_INDICES", "NIFTY 50,NIFTY NEXT 50,NIFTY MIDCAP 150
 def focus_symbols():
     if FOCUS.strip().upper() == "ALL": return None
     names = json.dumps([x.strip() for x in FOCUS.split(",") if x.strip()]).replace("'", "''")
-    rows = d1("DB_MARKET", "SELECT DISTINCT i.value FROM index_membership m JOIN security_identifier i ON i.security_id = m.security_id "
+    rows = d1("DB_MARKET", "SELECT DISTINCT i.value FROM index_membership m CROSS JOIN security_identifier i ON i.security_id = m.security_id "
               f"AND i.id_type = 'nse_symbol' WHERE m.valid_to IS NULL AND m.index_name IN (SELECT value FROM json_each('{names}'))")
     syms = sorted(r["value"] for r in rows if r.get("value"))
     if not syms: raise SystemExit("focus list empty (no index snapshot?) - refusing to download everything")

@@ -107,9 +107,9 @@ export default {
       else if (name === "version_backfill") {
         // focus companies only (owner #343), company by company over ix_filing_sec (was: a GROUP BY over all of filing per call)
         const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
-        r = await versionBackfillFocus(db, sids, 5);
+        r = await versionBackfillFocus(db, sids, 25); // gate (#343): first call read 30k rows (28.6k of them the focus lookup, fixed), wrote 7
       }
-      else if (name === "remark_backfill") r = await remarkBackfill(db, (k) => getText(env.RAW, k), 10, focus);
+      else if (name === "remark_backfill") r = await remarkBackfill(db, (k) => getText(env.RAW, k), 200, focus); // lists outside the focus are skipped without an R2 read
       else return new Response("unknown pass", { status: 404 });
       const now = new Date();
       if (meter.rows > 0) await env.DB_MARKET.prepare("INSERT INTO write_budget (day, rows) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET rows = rows + excluded.rows").bind(istDay(now), meter.rows).run();

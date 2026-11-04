@@ -4,13 +4,17 @@
 import type { Sql } from "./sql.js";
 
 export const FOCUS_DEFAULT = "NIFTY 50,NIFTY NEXT 50,NIFTY MIDCAP 150";
+/** CROSS JOIN fixes the join order (owner #343 cost gate): from the index members (primary-key range per index) to their
+ *  identifiers (ix_sid_security). The plain JOIN started from every nse_symbol identifier: ~28.6k rows read per call,
+ *  on every 5-minute filings run (~8M rows a day). */
+export const SQL_FOCUS = `SELECT DISTINCT i.value FROM index_membership m CROSS JOIN security_identifier i ON i.security_id = m.security_id AND i.id_type = 'nse_symbol'
+    WHERE m.valid_to IS NULL AND m.index_name IN (SELECT value FROM json_each(?))`;
 
 /** NSE symbols of the focus companies, or undefined for "ALL" or when no index snapshot exists yet (never blocks). */
 export async function focusSymbolsOf(market: Sql, spec = FOCUS_DEFAULT): Promise<string[] | undefined> {
   if (spec.trim().toUpperCase() === "ALL") return undefined;
   const names = spec.split(",").map((x) => x.trim()).filter(Boolean);
-  const r = await market.all<{ value: string }>(`SELECT DISTINCT i.value FROM index_membership m JOIN security_identifier i ON i.security_id = m.security_id AND i.id_type = 'nse_symbol'
-    WHERE m.valid_to IS NULL AND m.index_name IN (SELECT value FROM json_each(?))`, [JSON.stringify(names)]);
+  const r = await market.all<{ value: string }>(SQL_FOCUS, [JSON.stringify(names)]);
   const syms = r.map((x) => x.value);
   return syms.length ? syms : undefined;
 }
