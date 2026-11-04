@@ -8,7 +8,7 @@ import { chargeBudget, gapDates, runPending } from "./runner.js";
 import { loadStructure } from "./structure.js";
 import { buildSectors } from "./sectors.js";
 import { digestDay } from "./digest.js";
-import { loadIndexHistory, loadIndexWeekends } from "./indexhist.js";
+import { WEEKEND_MARKER, loadIndexHistory, loadIndexWeekends } from "./indexhist.js";
 import { runDay } from "./daily.js";
 import { istNow } from "./dates.js";
 
@@ -100,7 +100,9 @@ export default {
       const at = (url.searchParams.get("at") ?? "").split(",").filter((x) => /^\d{8}$/.test(x)).slice(0, 20);
       const closes = at.length ? (await env.DB_MARKET.prepare(`SELECT d, index_name, close, pe, pb, div_yield FROM index_daily WHERE lower(index_name) = 'nifty 50' AND d IN (SELECT value FROM json_each(?1)) ORDER BY d`)
         .bind(JSON.stringify(at.map(Number))).all()).results : [];
-      return Response.json({ years, closes }, { headers: { "cache-control": "no-store" } });
+      const marker = !!(await env.RAW.head(WEEKEND_MARKER).catch(() => null));
+      const weekendRow = (await env.DB_MARKET.prepare("SELECT d, rows, note FROM ms_day WHERE source='index_hist_weekends'").all()).results;
+      return Response.json({ years, closes, weekend_marker: marker, weekend_done: weekendRow }, { headers: { "cache-control": "no-store" } });
     }
     if (url.pathname === "/gaps") {
       // C49: loaded sessions whose delivery or index-close file is not in the ledger (repair queue, tried weekly).
