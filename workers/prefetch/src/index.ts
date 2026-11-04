@@ -1,5 +1,5 @@
 // disclo-prefetch Worker (D128): fetch raw NSE API responses for every company into R2, as fast as NSE allows.
-import { type D1Meter, EQUITY_SERIES, FOCUS_DEFAULT, FORBIDDEN_TEXT, type Sql, batchAll, chargeReads, focusSymbolsOf, insertRows, parseEquityList, readLevel, readsToday, sha256Hex, statusAuthorized } from "@disclo/core";
+import { type D1Meter, EQUITY_SERIES, FOCUS_DEFAULT, FORBIDDEN_TEXT, type Sql, batchAll, chargeReads, focusSymbolsOf, insertRows, parseEquityList, readLevel, readsToday, type NseSession, nseSession, sha256Hex, statusAuthorized } from "@disclo/core";
 import { d1Sql } from "./d1.js";
 import { attachmentKey, attachments } from "./discover.js";
 import { bulkJobs, companyJobs } from "./jobs.js";
@@ -8,16 +8,14 @@ import { compressStep } from "./compress.js";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; PARALLEL?: string; PER_RUN?: string; INGEST_TOKEN?: string; STATUS_TOKEN?: string; FOCUS_INDICES?: string; DAILY_READ_CAP?: string }
 
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
-
-async function seed(db: Sql, raw: R2Bucket, today: string): Promise<number> {
+async function seed(db: Sql, raw: R2Bucket, today: string, nse: NseSession): Promise<number> {
   if ((await db.all("SELECT 1 FROM fetch_job LIMIT 1")).length) return 0; // owner #271: not count(*) every minute
   // Company list: prefetched copy in R2 first (D128), else NSE with retries.
   let text: string | null = null;
   const cached = await raw.get("cache/content/equities/EQUITY_L.csv");
   if (cached) text = await cached.text();
   for (let i = 0; !text && i < 4; i++) {
-    const r = await fetch("https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv", { headers: { "User-Agent": UA, Accept: "*/*" } });
+    const r = await nse.get("https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv", "archive");
     if (r.ok) text = await r.text(); else { await r.body?.cancel(); await new Promise((x) => setTimeout(x, 3000 * (i + 1))); }
   }
   if (!text) throw new Error("EQUITY_L not available (R2 cache missing, NSE refused)");
@@ -52,14 +50,6 @@ async function discover(env: Env, db: Sql): Promise<number> {
   return rows.length;
 }
 
-async function cookies(): Promise<string> {
-  try {
-    const r = await fetch("https://www.nseindia.com/", { headers: { "User-Agent": UA, Accept: "text/html" } });
-    await r.body?.cancel();
-    return r.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
-  } catch { return ""; }
-}
-
 async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
 }
@@ -84,10 +74,11 @@ export async function readText(obj: R2ObjectBody): Promise<string> {
 export const SQL_API_TODO = "SELECT job_id, url, r2_key, attempts FROM fetch_job WHERE url LIKE 'https://www.nseindia.com/%' AND status='todo' ORDER BY attempts, job_id LIMIT ?";
 export const SQL_API_RETRY = "SELECT job_id, url, r2_key, attempts FROM fetch_job WHERE url LIKE 'https://www.nseindia.com/%' AND status='failed' AND attempts < 4 ORDER BY attempts, job_id LIMIT ?";
 
-export async function runBatch(env: Env, now = new Date(), meter?: D1Meter) {
+/** D160: `nse` is the run's browser session (one cookie jar, warmed on first use, re-warmed once on 401/403). */
+export async function runBatch(env: Env, now = new Date(), meter?: D1Meter, nse: NseSession = nseSession()) {
   const db = d1Sql(env.DB_FILINGS, meter);
   const today = new Date(now.getTime() + 330 * 60_000).toISOString().slice(0, 10);
-  const seeded = await seed(db, env.RAW, today);
+  const seeded = await seed(db, env.RAW, today, nse);
   const perRun = Number(env.PER_RUN ?? 240);
   const parallel = Number(env.PARALLEL ?? 6);
   type Job = { job_id: number; url: string; r2_key: string; attempts: number };
@@ -96,8 +87,6 @@ export async function runBatch(env: Env, now = new Date(), meter?: D1Meter) {
   let discovered: number | string = 0;
   try { discovered = await discover(env, db); } catch (e) { discovered = `discover error: ${String(e).slice(0, 120)}`; }
   if (!todo.length) return { seeded, discovered, done: 0 };
-  const ck = await cookies();
-  const headers = { "User-Agent": UA, Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", Referer: "https://www.nseindia.com/", Cookie: ck };
   let refusals = 0, ok = 0, empty = 0, failed = 0;
   const results: unknown[][] = [];
   let i = 0;
@@ -106,7 +95,7 @@ export async function runBatch(env: Env, now = new Date(), meter?: D1Meter) {
     while (i < todo.length && !stop) {
       const j = todo[i++]!;
       try {
-        const r = await fetch(j.url, { headers });
+        const r = await nse.get(j.url, "api");
         const bytes = new Uint8Array(await r.arrayBuffer());
         if (r.status === 403 || r.status === 429 || r.status === 503) {
           refusals++; failed++;
@@ -138,7 +127,7 @@ export async function runBatch(env: Env, now = new Date(), meter?: D1Meter) {
     params: r,
   })));
   // no count(*) of what is left (it re-read the whole queue every minute); a full batch means more is waiting
-  return { seeded, discovered, done: ok, empty, failed, refusals, batch: todo.length, more: todo.length >= perRun };
+  return { seeded, discovered, done: ok, empty, failed, refusals, batch: todo.length, more: todo.length >= perRun, ...(nse.rewarmed ? { rewarmed: 1 } : {}) };
 }
 
 async function withLock<T>(db: D1Database, fn: () => Promise<T>): Promise<T | null> {
@@ -162,23 +151,20 @@ export default {
           const market = d1Sql(env.DB_MARKET, meter);
           const level = readLevel(await readsToday(market, now), Number(env.DAILY_READ_CAP ?? 150_000_000));
           try {
-            const b = await runBatch(env, now, meter);
-            // Daily freshness (plan item 2): once per IST slot; NSE API answers Cloudflare.
+            // D160: one browser session per run (cookie jar warmed on the first API call, re-warmed once on 401/403)
+            const nse = nseSession();
+            const b = await runBatch(env, now, meter, nse);
             const db = d1Sql(env.DB_FILINGS, meter);
-            const compressed = level === "ok" ? await compressStep(db, env.RAW, gzip, gunzip) : null; // D147: older objects → gzip, ~200/min until done
-            const full = await seedFullHistory(db, now); // C40: complete history for the 20-row-capped lists, once
-            if (full) return { ...b, full_history_queued: full };
-            const seeded = await seedStructureHistory(db, now); // D144: once; fetched by the normal runs
-            if (seeded) return { ...b, structure_history_queued: seeded, compressed };
+            // D163 (P1): only live work here. The one-off passes (compression D147, full-history and structure-history
+            // seeds) run when started explicitly: POST /maint/<name> through the ops workflow, bounded per call.
             const slot = await dueSlot(db, now);
-            if (!slot) return compressed ? { ...b, compressed, reads: level } : level === "ok" ? b : { ...b, reads: level };
-            // owner's universe lock (4 Nov): new per-company downloads only for the 250 focus companies
+            if (!slot) return level === "ok" ? b : { ...b, reads: level };
+            // owner's universe lock (D161): new per-company downloads only for the 250 focus companies
             const focus = await focusSymbolsOf(market, env.FOCUS_INDICES ?? FOCUS_DEFAULT);
-            const ck = await cookies();
-            const headers = { "User-Agent": UA, Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9", Referer: "https://www.nseindia.com/", Cookie: ck };
             const get = async (url: string) => {
+              // 401/403 are handled inside the session (one re-warm); other refusals wait and retry, as before
               for (let i = 0; i < 3; i++) {
-                const r = await fetch(url, { headers });
+                const r = await nse.get(url, "api");
                 const bytes = new Uint8Array(await r.arrayBuffer());
                 if (r.status === 200 || i === 2) return { status: r.status, bytes };
                 await new Promise((x) => setTimeout(x, 3000 * (i + 1)));
@@ -214,6 +200,17 @@ export default {
       await env.DB_FILINGS.prepare("UPDATE fetch_job SET status=?2, attempts=attempts+1, http_status=?3, bytes=?4, sha256=?5, fetched_at=?6 WHERE job_id=?1")
         .bind(id, status, Number(url.searchParams.get("http") ?? 200), bytes.length, status === "done" ? await sha256Hex(bytes) : null, new Date().toISOString()).run();
       return new Response("ok");
+    }
+    // D163 (P1): one-off passes, started explicitly (ops workflow), one bounded batch per call; each saves its position
+    if (url.pathname.startsWith("/maint/") && req.method === "POST") {
+      if (!statusAuthorized(req, env.STATUS_TOKEN)) return new Response(FORBIDDEN_TEXT, { status: 403, headers: { "cache-control": "no-store" } });
+      const db = d1Sql(env.DB_FILINGS), now = new Date(), name = url.pathname.slice(7);
+      let out: unknown;
+      if (name === "compress") { const r = await compressStep(db, env.RAW, gzip, gunzip); out = r ? { ...r } : { done: true }; }
+      else if (name === "full_history") out = { queued: await seedFullHistory(db, now), done: true };
+      else if (name === "structure_history") out = { queued: await seedStructureHistory(db, now), done: true };
+      else return new Response("unknown pass", { status: 404 });
+      return Response.json(out, { headers: { "cache-control": "no-store" } });
     }
     if (url.pathname !== "/status") return new Response("not found", { status: 404 });
     if (!statusAuthorized(req, env.STATUS_TOKEN)) return new Response(FORBIDDEN_TEXT, { status: 403, headers: { "cache-control": "no-store" } }); // scans the ledger: token only (audit 4 Nov)

@@ -473,3 +473,30 @@ describe("file selection without scanning the ledger (audit P0)", () => {
     t += 400 * 86400_000; expect(await loadBatch(at())).toEqual([]);
   });
 });
+
+describe("robustness (audit P1)", () => {
+  it("an unreadable list or a missing file is recorded, not silently passed; a storage error waits at the file (3 runs)", async () => {
+    const { loadEvents } = await import("../src/events.js");
+    const filings = sqlite("filings");
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES
+      (20,'sast29',NULL,'s1','k/bad','done'), (21,'board_meetings',NULL,'b1','k/gone','done'), (22,'pit',NULL,'p1','k/flaky','done')`);
+    let flaky = true;
+    const get = async (k: string) => { if (k === "k/flaky" && flaky) throw new Error("get: storage unavailable"); return k === "k/bad" ? "{not json" : null; };
+    expect(await loadEvents(filings, get)).toMatchObject({ after: 21 }); // waits at 22
+    expect(await filings.all("SELECT job_id, status, substr(detail, 1, 15) AS d FROM event_load ORDER BY job_id")).toEqual([
+      { job_id: 20, status: "failed", d: "unreadable list" }, { job_id: 21, status: "failed", d: "file not in R2" }]);
+    await loadEvents(filings, get);
+    expect(await loadEvents(filings, get)).toMatchObject({ after: 22 }); // third run: recorded and passed
+    expect((await filings.all<{ d: string }>("SELECT detail AS d FROM event_load WHERE job_id=22"))[0]!.d).toContain("storage read error");
+    flaky = false;
+  });
+  it("a run past its deadline starts no new file and the cursor does not pass the files left; counters move", async () => {
+    const { filings, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
+    expect(await loadBatch({ ...deps, deadline: Date.now() - 1 })).toEqual([]);
+    const cur = await filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE slot='loader_cursor'");
+    expect(JSON.parse(cur[0]?.detail ?? '{"after":0}').after).toBeLessThan(2); // file 2 was not read, so the cursor stays before it
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded" });
+    const c = Object.fromEntries((await filings.all<{ name: string; n: number }>("SELECT name, n FROM stat_counter")).map((r) => [r.name, r.n]));
+    expect(c["fin_load:loaded"]).toBe(1); expect(c["filing:results"]).toBe(1); expect(c["fin_value:pl"]).toBeGreaterThan(10);
+  });
+});

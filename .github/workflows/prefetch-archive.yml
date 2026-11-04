@@ -37,6 +37,8 @@ jobs:
           FROM="${{ github.event.inputs.from }}"; [ -z "$FROM" ] && FROM=$TO
           SET="${{ github.event.inputs.set }}"; [ -z "$SET" ] && SET=daily
           mask() { sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email hidden>/g'; }
+          # the 23:07 run is a retry: only files the 19:07 run did not store (audit P1)
+          if [ "${{ github.event.schedule }}" = "37 17 * * 1-5" ]; then export ONLY_MISSING=1; fi
           if [ "$SET" = "daily" ]; then
             for s in market structure snapshot; do python3 tools/prefetch_archive.py disclo-raw "$TODAY" "$TODAY" $s 2>&1 | mask; done
           else

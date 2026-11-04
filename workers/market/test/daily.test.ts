@@ -105,9 +105,9 @@ describe("market daily job on real file samples", () => {
 
   it("schedules dates from 2024-01-01, only after 22:00 IST, skipping done ones", async () => {
     const { market } = setup();
-    const at2130 = await pendingDates(market, new Date("2024-01-03T16:00:00Z"), 5);
+    const at2130 = await pendingDates(market, new Date("2024-01-03T16:00:00Z"));
     expect(at2130).toEqual(["2024-01-01", "2024-01-02"]);
-    const at2230 = await pendingDates(market, new Date("2024-01-03T17:00:00Z"), 5);
+    const at2230 = await pendingDates(market, new Date("2024-01-03T17:00:00Z"));
     expect(at2230).toEqual(["2024-01-01", "2024-01-02", "2024-01-03"]);
   });
 });
@@ -157,10 +157,10 @@ describe("runner order", () => {
   it("stops at the first date that didn't load, so later dates never get ahead of it", async () => {
     const { runPending } = await import("../src/runner.js");
     const { deps } = setup();
-    const out = await runPending({ ...deps, now: () => new Date("2025-06-17T01:00:00Z") }, { maxDates: 10, budgetMs: 60_000, revisitSessions: 5, from: "2025-06-13" });
+    const out = await runPending({ ...deps, now: () => new Date("2025-06-17T01:00:00Z") }, { maxDates: 10, budgetMs: 60_000, from: "2025-06-13" });
     // 13th loads; 14th/15th are weekend 404s -> no session; 16th loads; 17th not eligible yet
     expect(out.map((r) => `${r.date}:${r.status}`)).toEqual(["2025-06-13:loaded", "2025-06-14:no_session", "2025-06-15:no_session", "2025-06-16:loaded"]);
-    const refused = await runPending({ ...deps, fetch: async () => ({ status: 403, bytes: new Uint8Array(), contentType: null }), now: () => new Date("2025-06-20T01:00:00Z") }, { maxDates: 10, budgetMs: 60_000, revisitSessions: 0, from: "2025-06-13" });
+    const refused = await runPending({ ...deps, fetch: async () => ({ status: 403, bytes: new Uint8Array(), contentType: null }), now: () => new Date("2025-06-20T01:00:00Z") }, { maxDates: 10, budgetMs: 60_000, from: "2025-06-13" });
     expect(refused.map((r) => r.status)).toEqual(["pending"]);
   });
 });
@@ -215,7 +215,7 @@ describe("maintenance + missing-file rules", () => {
     const { runPending } = await import("../src/runner.js");
     const { market, deps } = setup();
     await market.run("INSERT INTO job_lock (name, holder, expires_at) VALUES ('paused','t','9999')");
-    expect(await runPending({ ...deps, now: () => new Date("2025-06-17T01:00:00Z") }, { maxDates: 10, budgetMs: 60_000, revisitSessions: 5, from: "2025-06-13" })).toEqual([]);
+    expect(await runPending({ ...deps, now: () => new Date("2025-06-17T01:00:00Z") }, { maxDates: 10, budgetMs: 60_000, from: "2025-06-13" })).toEqual([]);
   });
 });
 

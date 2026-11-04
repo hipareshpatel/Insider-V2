@@ -4,7 +4,7 @@
 // Precedence (D121): the index CSV sector comes first for Total Market members from our first index snapshot on;
 // announcement rows fill everyone else, and the time before that first snapshot. A value not in the map is never
 // guessed: the company is recorded as Unclassified ('none') and the value is added to sector_map as 'unmapped'.
-import { type Sql, type Stmt, batchAll, insertRows } from "@disclo/core";
+import { type Sql, type Stmt, batchAll, byKindAfter, insertRows } from "@disclo/core";
 import { r2Text } from "./structure.js";
 
 const PREFIXES = ["api/announcements/", "api/bulk/announcements/"];
@@ -27,22 +27,40 @@ export function industryPairs(json: string): { rows: number; pairs: Seen[] } {
   return { rows: rows.length, pairs: [...out.values()] };
 }
 
-export interface SectorDeps { market: Sql; raw: R2Bucket; today: string }
+/** `filings` (production): new announcement lists come from the download ledger (fetch_job, one indexed range per kind
+ *  after a cursor in market.kv_state) instead of listing R2 and reading all of sector_file every 10 minutes (audit P1).
+ *  Without it (tests, tools) the R2 listing is used. */
+export interface SectorDeps { market: Sql; raw: R2Bucket; today: string; filings?: Sql }
+export const SQL_SECTOR_LISTS = "SELECT job_id, r2_key, status, attempts FROM fetch_job WHERE kind = ? AND job_id > ? ORDER BY job_id LIMIT ?";
 export interface SectorReport { files: number; pairs: number; newValues: string[]; inserted: number; classified: boolean }
 
 /** Read announcement list files not read before (within budget), then rebuild the classification rows if anything changed. */
 export async function buildSectors(deps: SectorDeps, budgetMs: number): Promise<SectorReport> {
   const t0 = Date.now(), m = deps.market;
   const rep: SectorReport = { files: 0, pairs: 0, newValues: [], inserted: 0, classified: false };
-  const read = new Set((await m.all<{ r2_key: string }>("SELECT r2_key FROM sector_file")).map((r) => r.r2_key));
   const todo: string[] = [];
-  for (const prefix of PREFIXES) {
-    let cursor: string | undefined;
-    do {
-      const l = await deps.raw.list({ prefix, cursor, limit: 1000 });
-      for (const o of l.objects) if (!read.has(o.key)) todo.push(o.key);
-      cursor = l.truncated ? l.cursor : undefined;
-    } while (cursor);
+  let after = 0, nextAfter = 0;
+  if (deps.filings) {
+    const [c] = await m.all<{ v: string }>("SELECT v FROM kv_state WHERE k='sector_cursor'");
+    after = nextAfter = Number(c?.v ?? 0);
+    const rows = await byKindAfter<{ job_id: number; r2_key: string; status: string; attempts: number }>(deps.filings, SQL_SECTOR_LISTS, ["announcements", "announcements_daily"], after, 200);
+    let blocked = false;
+    for (const r of rows) {
+      const settled = r.status === "done" || r.status === "empty" || (r.status === "failed" && r.attempts >= 4);
+      if (!settled) blocked = true; // still downloading: the cursor waits here
+      else if (r.status === "done" && !(await m.all("SELECT 1 FROM sector_file WHERE r2_key=?", [r.r2_key])).length) todo.push(r.r2_key);
+      if (!blocked) nextAfter = r.job_id;
+    }
+  } else {
+    const read = new Set((await m.all<{ r2_key: string }>("SELECT r2_key FROM sector_file")).map((r) => r.r2_key));
+    for (const prefix of PREFIXES) {
+      let cursor: string | undefined;
+      do {
+        const l = await deps.raw.list({ prefix, cursor, limit: 1000 });
+        for (const o of l.objects) if (!read.has(o.key)) todo.push(o.key);
+        cursor = l.truncated ? l.cursor : undefined;
+      } while (cursor);
+    }
   }
   const known = new Set((await m.all<{ sm_industry: string }>("SELECT sm_industry FROM sector_map")).map((r) => r.sm_industry));
   for (const key of todo.sort()) {
@@ -66,6 +84,7 @@ export async function buildSectors(deps: SectorDeps, budgetMs: number): Promise<
     rep.files++; rep.pairs += parsed.pairs.length;
   }
   const caughtUp = rep.files === todo.length;
+  if (deps.filings && caughtUp && nextAfter !== after) await m.run("INSERT INTO kv_state (k, v) VALUES ('sector_cursor', ?) ON CONFLICT (k) DO UPDATE SET v=excluded.v", [String(nextAfter)]);
   const [ran] = await m.all<{ n: number }>("SELECT count(*) AS n FROM pipeline_run WHERE pipeline='market.sectors' AND run_key=?", [deps.today]);
   // Classify when caught up and either new files were read or not yet today (map or index changes).
   if (caughtUp && (rep.files > 0 || !ran?.n)) {

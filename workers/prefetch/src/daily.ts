@@ -141,6 +141,17 @@ export async function dailyRefresh(d: Deps, slot: "evening" | "morning") {
     await batchAll(d.db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key, parent_id, discovered)", 6, att));
     out.insider_attachments = att.length;
   }
+  // 2c. Frozen feeds since the one-off full history of 3 Nov (audit P1): SAST Reg 29, board meetings, credit ratings —
+  //     NSE's dated all-company feeds (D149: checked uncapped), the last 3 days, one call each. The event loader reads
+  //     them (same kinds as the history lists); their XBRL is queued for the focus companies only (D161).
+  for (const [kind, ep] of [["sast29", "corporate-sast-reg29"], ["board_meetings", "corporate-board-meetings"], ["credit_rating", "corporate-credit-rating"]] as const) {
+    const r = await fetchKept(d, kind, `${API}${ep}?index=equities&from_date=${dmy(addDays(day, -3))}&to_date=${dmy(day)}`, `api/${kind}/daily/${tag}.json`);
+    if (!r.text || !r.jobId) { out[kind] = "fetch failed"; continue; }
+    out[kind] = rowsOf(r.text).length;
+    if (kind === "credit_rating") continue; // no XBRL attachments
+    const att = rowAttachments(r.text).filter(([s]) => ok(s)).map(([s, u]) => [`xbrl_${kind}`, s || null, u, attachmentKey(u), r.jobId, 1]);
+    await batchAll(d.db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key, parent_id, discovered)", 6, att));
+  }
   // 3. Integrated Filing: dated per-company refresh for companies with a results-type announcement.
   const an = await fetchKept(d, "announcements_daily", `${API}corporate-announcements?index=equities&from_date=${dmy(addDays(day, -1))}&to_date=${dmy(day)}`, `api/bulk/announcements/${tag}.json`);
   const sweep = slot === "evening" && new Date(Date.parse(day + "T00:00:00Z")).getUTCDay() === 0;

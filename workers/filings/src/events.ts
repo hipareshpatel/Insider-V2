@@ -8,45 +8,72 @@ const dnum = (iso: string | null) => (iso ? Number(iso.replace(/-/g, "")) : null
 const KINDS = ["pit", "sast29", "board_meetings", "credit_rating"];
 export const SQL_EVENTS_NEXT = "SELECT job_id, kind, r2_key, status, attempts FROM fetch_job WHERE kind = ? AND job_id > ? ORDER BY job_id LIMIT ?";
 
-export async function loadEvents(db: Sql, getText: (k: string) => Promise<string | null>, limit = 60): Promise<{ lists: number; rows: number; after: number }> {
+/** Audit P1: a file that cannot be read is recorded in event_load (it was: 0 rows, cursor moved on, nothing kept); a
+ *  storage error is temporary — the cursor waits at that file (retried next run) and records it after 3 runs. */
+export class BadFile extends Error {}
+const parsed = <T>(f: () => T): T => { try { return f(); } catch (e) { throw new BadFile(String(e).slice(0, 200)); } };
+async function recordFailure(db: Sql, jobId: number, kind: string, detail: string) {
+  await db.run("INSERT INTO event_load (job_id, kind, status, detail, at) VALUES (?,?, 'failed', ?, ?) ON CONFLICT (job_id) DO UPDATE SET detail=excluded.detail, at=excluded.at", [jobId, kind, detail.slice(0, 300), new Date().toISOString()]);
+}
+export interface EventOpts { focus?: string[]; deadline?: number }
+type Cursor = { after: number; rows: number; stuck?: number; tries?: number; failed?: number };
+/** Read one stored file: text, null when it is not in R2, or "wait" on a storage error (≤ 3 runs, then recorded). */
+async function readOrWait(db: Sql, cur: Cursor, j: { job_id: number; r2_key: string }, kind: string, getText: (k: string) => Promise<string | null>): Promise<string | null | "wait"> {
+  try { return await getText(j.r2_key); } catch (e) {
+    cur.tries = cur.stuck === j.job_id ? (cur.tries ?? 0) + 1 : 1; cur.stuck = j.job_id;
+    if (cur.tries < 3) return "wait";
+    await recordFailure(db, j.job_id, kind, `storage read error (3 runs): ${String(e).slice(0, 150)}`);
+    cur.failed = (cur.failed ?? 0) + 1;
+    return null;
+  }
+}
+
+export async function loadEvents(db: Sql, getText: (k: string) => Promise<string | null>, limit = 60, opts: EventOpts = {}): Promise<{ lists: number; rows: number; after: number }> {
   const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='events_cursor'");
-  const cur = st ? JSON.parse(st.detail) as { after: number; rows: number } : { after: 0, rows: 0 };
+  const cur: Cursor = st ? JSON.parse(st.detail) as Cursor : { after: 0, rows: 0 };
   const jobs = await byKindAfter<{ job_id: number; kind: string; r2_key: string; status: string; attempts: number }>(db, SQL_EVENTS_NEXT, KINDS, cur.after, limit);
+  const focus = opts.focus ? new Set(opts.focus) : null;
+  const keep = (sym: unknown) => !focus || focus.has(String(sym ?? ""));
   let lists = 0;
   for (const j of jobs) {
+    if (opts.deadline && Date.now() > opts.deadline) break;
     const terminal = j.status === "done" || j.status === "empty" || (j.status === "failed" && j.attempts >= 4);
     if (!terminal) break; // not downloaded yet: wait here, never skip
     if (j.status === "done") {
-      const t = await getText(j.r2_key);
+      const t = await readOrWait(db, cur, j, j.kind, getText);
+      if (t === "wait") break;
+      if (t === null && cur.stuck !== j.job_id) { await recordFailure(db, j.job_id, j.kind, "file not in R2"); cur.failed = (cur.failed ?? 0) + 1; }
       if (t) {
-        let n = 0;
-        try { n = await write(db, j.kind, t, j.job_id); } catch { /* malformed list: counted below as 0 rows */ }
-        cur.rows += n;
+        try { cur.rows += await write(db, j.kind, t, j.job_id, keep); } catch (e) {
+          if (!(e instanceof BadFile)) throw e; // a D1 error stops the run here; the cursor has not moved past this list
+          await recordFailure(db, j.job_id, j.kind, `unreadable list: ${e.message}`); cur.failed = (cur.failed ?? 0) + 1;
+        }
       }
     }
-    cur.after = j.job_id; lists++;
+    cur.after = j.job_id; delete cur.stuck; delete cur.tries; lists++;
   }
   await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','events_cursor',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
   return { lists, rows: cur.rows, after: cur.after };
 }
 
-async function write(db: Sql, kind: string, json: string, jobId: number): Promise<number> {
+/** Rows of one list (D161: focus companies only, `keep`); a parse failure is a BadFile, a D1 failure is not. */
+async function write(db: Sql, kind: string, json: string, jobId: number, keep: (sym: unknown) => boolean = () => true): Promise<number> {
   if (kind === "pit") {
-    const r = parsePit(json).map((t) => [t.key, t.symbol, t.person, t.category, t.secType, t.txn, t.mode, t.qty, t.valueRs, t.beforeQty, t.afterQty, t.beforePct, t.afterPct, dnum(t.fromDate), dnum(t.toDate), dnum(t.intimated), t.disclosedAt, t.did, t.pid, t.exchange, t.derivative, jobId]);
+    const r = parsed(() => parsePit(json)).filter((t) => keep(t.symbol)).map((t) => [t.key, t.symbol, t.person, t.category, t.secType, t.txn, t.mode, t.qty, t.valueRs, t.beforeQty, t.afterQty, t.beforePct, t.afterPct, dnum(t.fromDate), dnum(t.toDate), dnum(t.intimated), t.disclosedAt, t.did, t.pid, t.exchange, t.derivative, jobId]);
     await batchAll(db, insertRows("INSERT OR IGNORE INTO insider_trade (key,symbol,person,category,sec_type,txn,mode,qty,value_rs,before_qty,after_qty,before_pct,after_pct,from_d,to_d,intimated,disclosed_at,did,pid,exchange,derivative,job_id)", 22, r));
     return r.length;
   }
   if (kind === "sast29") {
-    const r = parseSast(json).map((s) => [s.key, s.symbol, s.acquirer, s.promoter === null ? null : s.promoter ? 1 : 0, s.regType, s.action, s.mode, s.secType, s.sharesAcq, s.sharesSale, s.sharesAfter, s.pctAcq, s.pctSale, s.pctAfter, s.period, s.disclosedAt, jobId]);
+    const r = parsed(() => parseSast(json)).filter((t) => keep(t.symbol)).map((s) => [s.key, s.symbol, s.acquirer, s.promoter === null ? null : s.promoter ? 1 : 0, s.regType, s.action, s.mode, s.secType, s.sharesAcq, s.sharesSale, s.sharesAfter, s.pctAcq, s.pctSale, s.pctAfter, s.period, s.disclosedAt, jobId]);
     await batchAll(db, insertRows("INSERT OR IGNORE INTO sast_disclosure (key,symbol,acquirer,promoter,reg_type,action,mode,sec_type,shares_acq,shares_sale,shares_after,pct_acq,pct_sale,pct_after,period,disclosed_at,job_id)", 17, r));
     return r.length;
   }
   if (kind === "board_meetings") {
-    const r = parseBoardMeetings(json).map((b) => [b.key, b.symbol, dnum(b.meetingDate), b.purpose, b.description, b.intimation, b.announcedAt, b.xbrl, jobId]);
+    const r = parsed(() => parseBoardMeetings(json)).filter((t) => keep(t.symbol)).map((b) => [b.key, b.symbol, dnum(b.meetingDate), b.purpose, b.description, b.intimation, b.announcedAt, b.xbrl, jobId]);
     await batchAll(db, insertRows("INSERT OR IGNORE INTO board_meeting (key,symbol,meeting_d,purpose,description,intimation,announced_at,xbrl,job_id)", 9, r));
     return r.length;
   }
-  const r = parseCreditRatings(json).map((c) => [c.key, c.symbol, c.company, c.isin, c.agency, c.rating, c.outlook, c.action, dnum(c.ratedOn), c.earlierRating, c.earlierOutlook, c.disclosedAt, c.appId, jobId]);
+  const r = parsed(() => parseCreditRatings(json)).filter((t) => keep(t.symbol)).map((c) => [c.key, c.symbol, c.company, c.isin, c.agency, c.rating, c.outlook, c.action, dnum(c.ratedOn), c.earlierRating, c.earlierOutlook, c.disclosedAt, c.appId, jobId]);
   await batchAll(db, insertRows("INSERT OR IGNORE INTO credit_rating (key,symbol,company,isin,agency,rating,outlook,action,rated_on,earlier_rating,earlier_outlook,disclosed_at,app_id,job_id)", 14, r));
   return r.length;
 }
@@ -57,35 +84,52 @@ async function write(db: Sql, kind: string, json: string, jobId: number): Promis
 const PITX = ["xbrl_pit_gg", "xbrl_pit_gg_probe"];
 export const SQL_PITX_NEXT = `SELECT j.job_id, j.url, j.r2_key, j.status, j.attempts, j.http_status, p.r2_key AS parent_key FROM fetch_job j LEFT JOIN fetch_job p ON p.job_id = j.parent_id
      WHERE j.kind = ? AND j.job_id > ? ORDER BY j.job_id LIMIT ?`;
-export async function loadPitXbrl(db: Sql, getText: (k: string) => Promise<string | null>, limit = 150): Promise<{ files: number; rows: number; after: number; waiting: boolean }> {
+export async function loadPitXbrl(db: Sql, getText: (k: string) => Promise<string | null>, limit = 150, opts: EventOpts = {}): Promise<{ files: number; rows: number; after: number; waiting: boolean }> {
   const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='pitx_cursor'");
-  const cur = st ? JSON.parse(st.detail) as { after: number; rows: number } : { after: 0, rows: 0 };
-  const jobs = await byKindAfter<{ job_id: number; url: string; r2_key: string; status: string; attempts: number; http_status: number | null; parent_key: string | null }>(db, SQL_PITX_NEXT, PITX, cur.after, limit);
-  const lists = new Map<string, Record<string, unknown>[]>();
+  const cur: Cursor = st ? JSON.parse(st.detail) as Cursor : { after: 0, rows: 0 };
+  const jobs = await byKindAfter<{ job_id: number; kind: string; url: string; r2_key: string; status: string; attempts: number; http_status: number | null; parent_key: string | null }>(db, SQL_PITX_NEXT, PITX, cur.after, limit);
+  const focus = opts.focus ? new Set(opts.focus) : null;
+  const lists = new Map<string, Record<string, unknown>[] | null>();
   let files = 0, waiting = false;
+  const fail = async (j: { job_id: number }, why: string) => { await recordFailure(db, j.job_id, "xbrl_pit_gg", why); cur.failed = (cur.failed ?? 0) + 1; };
   for (const j of jobs) {
+    if (opts.deadline && Date.now() > opts.deadline) break;
     const terminal = j.status === "done" || j.status === "empty" || (j.status === "failed" && (j.attempts >= 3 || j.http_status === 404));
     if (!terminal) { waiting = true; break; }
+    if (j.status === "done" && !j.parent_key) await fail(j, "no parent list (broadcast time and filing number unknown)");
     if (j.status === "done" && j.parent_key) {
       if (!lists.has(j.parent_key)) {
-        let rows: Record<string, unknown>[] = [];
-        try { const t = await getText(j.parent_key); const d = t ? JSON.parse(t) as unknown : null; rows = Array.isArray(d) ? d as Record<string, unknown>[] : ((d as { data?: Record<string, unknown>[] } | null)?.data ?? []); } catch { /* unreadable list */ }
+        const t = await readOrWait(db, cur, { job_id: j.job_id, r2_key: j.parent_key }, "xbrl_pit_gg", getText);
+        if (t === "wait") { waiting = true; break; }
+        let rows: Record<string, unknown>[] | null = null;
+        if (t) try { const d = JSON.parse(t) as unknown; rows = Array.isArray(d) ? d as Record<string, unknown>[] : ((d as { data?: Record<string, unknown>[] } | null)?.data ?? []); } catch { rows = null; }
         lists.set(j.parent_key, rows);
       }
-      const row = lists.get(j.parent_key)!.find((r) => r.xmlFileName === j.url);
-      const xml = row ? await getText(j.r2_key) : null;
-      if (row && xml) {
-        let trades: ReturnType<typeof parsePitXbrl> = [];
-        try { trades = parsePitXbrl(parseXbrl(xml), { appId: String(row.appId ?? ""), broadcast: row.broadcastDateTime ?? row.exchdisstime, symbol: String(row.symbol ?? "") }); } catch { /* unreadable file: 0 rows */ }
-        const stmts = [];
-        if (row.prevAppId) stmts.push({ sql: "DELETE FROM insider_trade WHERE key >= ? AND key < ?", params: [`pitx:${row.prevAppId}:`, `pitx:${row.prevAppId};`] }); // ';' sorts right after ':'
-        stmts.push(...insertRows("INSERT OR REPLACE INTO insider_trade (key,symbol,person,category,sec_type,txn,mode,qty,value_rs,before_qty,after_qty,before_pct,after_pct,from_d,to_d,intimated,disclosed_at,did,pid,exchange,derivative,job_id)", 22,
-          trades.map((t) => [t.key, t.symbol, t.person, t.category, t.secType, t.txn, t.mode, t.qty, t.valueRs, t.beforeQty, t.afterQty, t.beforePct, t.afterPct, dnum(t.fromDate), dnum(t.toDate), dnum(t.intimated), t.disclosedAt, t.did, t.pid, t.exchange, t.derivative, j.job_id])));
-        await batchAll(db, stmts);
-        cur.rows += trades.length;
+      const listRows = lists.get(j.parent_key)!;
+      const row = listRows?.find((r) => r.xmlFileName === j.url);
+      if (!listRows) await fail(j, "parent list unreadable or not in R2");
+      else if (!row) await fail(j, "file not found in its parent list");
+      else if (focus && !focus.has(String(row.symbol ?? ""))) { /* outside the focus companies (D161): not loaded, not a failure */ }
+      else {
+        const xml = await readOrWait(db, cur, j, "xbrl_pit_gg", getText);
+        if (xml === "wait") { waiting = true; break; }
+        if (xml === null && cur.stuck !== j.job_id) await fail(j, "file not in R2");
+        if (xml) {
+          let trades: ReturnType<typeof parsePitXbrl> | null = null;
+          try { trades = parsePitXbrl(parseXbrl(xml), { appId: String(row.appId ?? ""), broadcast: row.broadcastDateTime ?? row.exchdisstime, symbol: String(row.symbol ?? "") }); } catch (e) { await fail(j, `unreadable XBRL: ${String(e).slice(0, 150)}`); }
+          if (trades) {
+            const stmts = [];
+            if (row.prevAppId) stmts.push({ sql: "DELETE FROM insider_trade WHERE key >= ? AND key < ?", params: [`pitx:${row.prevAppId}:`, `pitx:${row.prevAppId};`] }); // ';' sorts right after ':'
+            stmts.push(...insertRows("INSERT OR REPLACE INTO insider_trade (key,symbol,person,category,sec_type,txn,mode,qty,value_rs,before_qty,after_qty,before_pct,after_pct,from_d,to_d,intimated,disclosed_at,did,pid,exchange,derivative,job_id)", 22,
+              trades.map((t) => [t.key, t.symbol, t.person, t.category, t.secType, t.txn, t.mode, t.qty, t.valueRs, t.beforeQty, t.afterQty, t.beforePct, t.afterPct, dnum(t.fromDate), dnum(t.toDate), dnum(t.intimated), t.disclosedAt, t.did, t.pid, t.exchange, t.derivative, j.job_id])));
+            await batchAll(db, stmts);
+            cur.rows += trades.length;
+          }
+        }
       }
     }
-    cur.after = j.job_id; files++;
+    cur.after = j.job_id; delete cur.stuck; delete cur.tries; files++;
+    if (files % 25 === 0) await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','pitx_cursor',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
   }
   await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','pitx_cursor',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
   return { files, rows: cur.rows, after: cur.after, waiting };

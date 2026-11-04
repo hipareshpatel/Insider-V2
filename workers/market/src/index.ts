@@ -4,7 +4,8 @@ import { d1Sql, r2Raw } from "./d1.js";
 import { acceptance } from "./acceptance.js";
 import { jumps } from "./jumps.js";
 import { evidence } from "./evidence.js";
-import { chargeBudget, gapDates, runPending } from "./runner.js";
+import { chargeBudget, deriveJanuary2024, gapDates, maybeCaughtUp, runPending } from "./runner.js";
+import { repairFactors } from "./repair.js";
 import { loadStructure, refillDealsCsv } from "./structure.js";
 import { buildSectors } from "./sectors.js";
 import { digestDay } from "./digest.js";
@@ -15,6 +16,7 @@ import { type D1Meter, FORBIDDEN_TEXT, chargeReads, readLevel, readsToday, statu
 
 export interface Env {
   DB_MARKET: D1Database;
+  DB_FILINGS?: D1Database; // read only: the download ledger (fetch_job) drives the sector job (audit P1)
   DB_APP: D1Database;
   RAW: R2Bucket;
   CACHE_RO?: R2Bucket; // staging only: production's archive cache, read by the re-run test (never written)
@@ -54,28 +56,14 @@ export default {
         // C56 read breaker (audit 4 Nov): the daily market load always runs; the optional passes after it stop once
         // today's rows read (all workers) pass the daily cap.
         const level = readLevel(await readsToday(deps.market, new Date()), Number(env.DAILY_READ_CAP ?? 150_000_000));
-        const r = await runPending(deps, { maxDates: 40, budgetMs: 8 * 60_000, revisitSessions: 5, from: env.BACKFILL_FROM, monthlyCap: env.MONTHLY_WRITE_CAP ? Number(env.MONTHLY_WRITE_CAP) : undefined });
+        const r = await runPending(deps, { maxDates: 40, budgetMs: 8 * 60_000, from: env.BACKFILL_FROM, monthlyCap: env.MONTHLY_WRITE_CAP ? Number(env.MONTHLY_WRITE_CAP) : undefined });
         if (level !== "ok") { structure = { read_cap: 1 }; return r; }
-        // M1 market structure (D144): R2 only, in date order, within what is left of this run.
+        // M1 market structure (D144): R2 only, in date order, within what is left of this run (live delta: today's files).
         structure = await loadStructure({ market: deps.market, raw: env.RAW, now: deps.now }, Math.max(0, 11 * 60_000 - (Date.now() - t0)));
-        // work list 1.8: capped bulk/block days replaced from NSE's uncapped CSV windows (no-op once none are left)
-        try {
-          const refill = await refillDealsCsv({ market: deps.market, raw: env.RAW, now: deps.now }, Math.max(60_000, 11.2 * 60_000 - (Date.now() - t0)));
-          if (refill.refilled || refill.waiting) structure = { ...(structure ?? {}), csv_refilled: refill.refilled, csv_waiting: refill.waiting };
-        } catch (e) { console.log(JSON.stringify({ refill_error: String(e).slice(0, 200) })); }
-        // D156: 10-year index history from stored daily index files (R2 only). Runs before the sector job (owner #325:
-        // it only got leftover seconds after it); once the range is loaded this returns at once.
-        indexHist = await loadIndexHistory(deps.market, env.RAW, Math.max(0, 11.5 * 60_000 - (Date.now() - t0)));
-        // one-off and small (836 weekend days, 25 per batch): its own minute, since the steps before it can use the run's time
-        try {
-          const weekends = await loadIndexWeekends(deps.market, env.RAW, Math.max(60_000, 11.5 * 60_000 - (Date.now() - t0)));
-          if (weekends) indexHist = { ...(indexHist as object), weekends };
-        } catch (e) {
-          // a failure here must not stop the steps after it; recorded so /index-check shows it (no log access needed)
-          await deps.market.run("INSERT OR REPLACE INTO ms_day (source, d, rows, note) VALUES ('index_hist_weekends_err', 0, -2, ?)", [`${new Date().toISOString()} ${String(e).slice(0, 300)}`]).catch(() => {});
-        }
-        // D150: sector history from the stored announcement lists (R2 only), with what is left.
-        sectors = await buildSectors({ market: deps.market, raw: env.RAW, today: istNow(deps.now()).date }, Math.max(0, 12 * 60_000 - (Date.now() - t0)));
+        // D150: sector history from new announcement lists (download ledger → R2), with what is left.
+        sectors = await buildSectors({ market: deps.market, raw: env.RAW, today: istNow(deps.now()).date, filings: env.DB_FILINGS ? d1Sql(env.DB_FILINGS, meter) : undefined }, Math.max(0, 12 * 60_000 - (Date.now() - t0)));
+        // D163 (P1): one-off and historical passes (deals CSV refill 1.8, 10-year index history D156 + weekends C52,
+        // January-2024 derivation, versioned factor repair) run when started explicitly: POST /maint/<name>.
         return r;
       });
       // runPending already charged each date's price/factor rows; charge the rest (identity, ledger, reviews, snapshot).
@@ -91,6 +79,20 @@ export default {
     const url = new URL(req.url);
     // every page here is a diagnostic over large tables, and the addresses are public: token only (audit 4 Nov)
     if (!statusAuthorized(req, env.STATUS_TOKEN)) return new Response(FORBIDDEN_TEXT, { status: 403, headers: { "cache-control": "no-store" } });
+    // D163 (P1): one-off passes started explicitly (ops workflow), one bounded batch per call; each saves its position
+    if (url.pathname.startsWith("/maint/") && req.method === "POST") {
+      const m = d1Sql(env.DB_MARKET), name = url.pathname.slice(7), sd = { market: m, raw: env.RAW, now: () => new Date() };
+      let r: unknown;
+      if (name === "deals_refill") { const x = await refillDealsCsv(sd, 60_000); r = { ...x, done: !x.refilled && !x.waiting }; }
+      else if (name === "index_history") { const x = await loadIndexHistory(m, env.RAW, 60_000); r = { ...x, done: x.days === 0 }; }
+      else if (name === "index_weekends") r = (await loadIndexWeekends(m, env.RAW, 60_000)) ?? { done: true };
+      else if (name === "derive_jan2024") { const n = await deriveJanuary2024(m); r = { rows: n, done: n === 0 }; }
+      else if (name === "repair_factors") {
+        const deps = { market: m, app: d1Sql(env.DB_APP), raw: r2Raw(env.RAW), fetch: r2FirstFetcher(env.RAW, archiveFetcher(), env.CACHE_AUTHORITATIVE_UNTIL), now: () => new Date(), cachedFromR2: true };
+        r = (await maybeCaughtUp(deps)) ? ((await repairFactors(m, d1Sql(env.DB_APP), new Date())) ?? { done: true }) : { done: false, waiting: "prices not caught up" };
+      } else return new Response("unknown pass", { status: 404 });
+      return Response.json(r, { headers: { "cache-control": "no-store" } });
+    }
     if (url.pathname === "/closes") {
       // D141 second cycle: one security's closes in a window (read-only).
       const rows = (await env.DB_MARKET.prepare("SELECT p.d, p.series, p.open, p.close, s.issue_size, s.face_value_paise FROM price_daily p LEFT JOIN shares_daily s ON s.security_id = p.security_id AND s.d = p.d WHERE p.security_id=?1 AND p.d BETWEEN ?2 AND ?3 ORDER BY p.d, p.series='EQ' DESC")

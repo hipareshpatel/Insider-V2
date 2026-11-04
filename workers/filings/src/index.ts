@@ -1,7 +1,7 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { RESULT_KINDS, backfillBsCf, loadBatch } from "./load.js";
+import { RESULT_KINDS, backfillBsCf, loadBatch, remarkBackfill, versionBackfill } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
 import { primaryBasisStep } from "./basis.js";
@@ -14,6 +14,9 @@ export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Buc
 export async function focusSymbols(market: D1Database, spec = FOCUS_DEFAULT, meter?: D1Meter): Promise<string[] | undefined> {
   return focusSymbolsOf(d1Sql(market, meter), spec); // no snapshot yet → undefined, loading not blocked
 }
+
+/** P1 run budget and lock (audit 4 Nov): the cron fires every 5 minutes; a run starts no new step after 210 s. */
+export const RUN_BUDGET_MS = 210_000, LOCK_TTL_MS = 10 * 60_000;
 
 /** Owner #266: one monthly cap on billed D1 writes, shared with the market worker (ledger in the market DB). */
 const istDay = (d: Date) => new Date(d.getTime() + 330 * 60_000).toISOString().slice(0, 10);
@@ -32,49 +35,45 @@ async function getText(bucket: R2Bucket, key: string): Promise<string | null> {
 export default {
   async scheduled(_e: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil((async () => {
-      // One run at a time (cron fires every minute; a run can take longer).
-      const now = new Date(), holder = crypto.randomUUID();
+      // One run at a time. P1 (audit): a run stops starting work after RUN_BUDGET_MS (210 s) and the lock lasts 10 min,
+      // so a run can never still be going when the next 5-minute cron fires and takes the lock.
+      const now = new Date(), holder = crypto.randomUUID(), deadline = now.getTime() + RUN_BUDGET_MS;
       const lock = await env.DB_FILINGS.prepare(`INSERT INTO job_lock (name, holder, expires_at) VALUES ('filings', ?1, ?2)
         ON CONFLICT (name) DO UPDATE SET holder = ?1, expires_at = ?2 WHERE job_lock.expires_at < ?3`)
-        .bind(holder, new Date(now.getTime() + 5 * 60_000).toISOString(), now.toISOString()).run();
+        .bind(holder, new Date(now.getTime() + LOCK_TTL_MS).toISOString(), now.toISOString()).run();
       if (!lock.meta.changes) return;
       if (await capReached(env, now)) { await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run(); console.log(JSON.stringify({ env: env.ENVIRONMENT, skipped: "monthly write cap reached" })); return; }
       const meter: D1Meter = { rows: 0, reads: 0 };
       let out: Awaited<ReturnType<typeof loadBatch>> = [];
+      const errors: string[] = [];
       const market = d1Sql(env.DB_MARKET, meter);
-      // C56 read breaker (audit 4 Nov): rows read today by every worker. "soft": optional passes stop; "hard": only new
-      // files and events load.
+      // Every step is guarded: one failing step (a storage error, a parse error, the per-run query limit) is recorded
+      // and cannot stop the steps after it (P1: events and insider trades were unguarded and could stop the whole run).
+      const step = async <T>(name: string, f: () => Promise<T>): Promise<T | undefined> => {
+        if (Date.now() > deadline) return undefined; // the run budget is spent: the step waits for the next run
+        try { return await f(); } catch (e) {
+          errors.push(name);
+          await env.DB_FILINGS.prepare("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once', ?1, ?2, ?3) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail")
+            .bind(`error:${name}`, new Date().toISOString(), String(e).slice(0, 300)).run().catch(() => {});
+          return undefined;
+        }
+      };
+      // C56 read breaker: rows read today by every worker. "soft": the optional step stops; "hard": smaller batches.
       const level = readLevel(await readsToday(market, now), Number(env.DAILY_READ_CAP ?? 150_000_000));
       try {
-        const ldeps = { filings: d1Sql(env.DB_FILINGS, meter), market, getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: env.BSCF_LOAD === "1", focus: await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES, meter) };
-        // C47: events first. Placed last, they never ran while the results backlog filled every run (cursor stuck at
-        // job 250168; INFY 20 of NSE's 2,199 insider trades). Lists are small; 150 per run.
-        await loadEvents(ldeps.filings, ldeps.getText, 150); // M2 events: PIT, SAST, board meetings, credit ratings (owner #289)
-        await loadPitXbrl(ldeps.filings, ldeps.getText, 150); // C53: insider trades from NSE's system since 3 May 2026 (pit-gg XBRL)
-        out = await loadBatch(ldeps, level === "hard" ? 60 : 300, 8);
-        if (level !== "ok") console.log(JSON.stringify({ env: env.ENVIRONMENT, reads: level, skipped: "optional passes (daily read cap)" }));
-        else await (async () => {
-        if (ldeps.bscf) await backfillBsCf(ldeps, out.length < 300 ? 200 : 60); // M2: BS/CF + FY (D90) for earlier filings; a small share every run (it never started while the backlog filled every run)
-        // One-off passes at the end of the run: each guarded, so one failing step (e.g. over the per-run query limit)
-        // cannot stop the steps after it (4 Nov: the widened version pass, 150 groups × 5 kinds, stalled everything after).
-        const step = async (name: string, f: () => Promise<unknown>) => {
-          try { await f(); } catch (e) {
-            // visible on /restatements (no log access needed)
-            await env.DB_FILINGS.prepare("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once', ?1, ?2, ?3) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail")
-              .bind(`error:${name}`, new Date().toISOString(), String(e).slice(0, 300)).run().catch(() => {});
-          }
-        };
-        // P0 (audit 4 Nov): the one-off version pass (versionBackfill) and revision-remark pass (remarkBackfill) are OFF in
-        // the cron. Each read whole tables on every run (the remark UPDATE scanned all of filing per row; the version pass
-        // read each company's whole fin_value six times per period). New filings are still versioned as they load
-        // (versionPeriod, now one indexed read). The two passes return as bounded, explicitly started jobs (P1).
-        // D50/D51: primary basis + basis-switch breaks, only for focus companies with newly loaded filings (P0: was all
-        // 250 companies from scratch every day, with a lists query that read every 'done' row of fetch_job per company).
-        if (ldeps.focus) await step("primary_basis", async () => {
-          const sids = new Set((await market.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(ldeps.focus)])).map((r) => r.security_id));
-          await primaryBasisStep(ldeps.filings, market, ldeps.getText, sids, now);
+        const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES, meter);
+        const ldeps = { filings: d1Sql(env.DB_FILINGS, meter), market, getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: env.BSCF_LOAD === "1", focus, deadline };
+        // C47: events first, each with its own budget of lists (D161: rows of the focus companies only).
+        await step("events", () => loadEvents(ldeps.filings, ldeps.getText, 150, { focus, deadline })); // PIT, SAST, board meetings, credit ratings
+        await step("insider_xbrl", () => loadPitXbrl(ldeps.filings, ldeps.getText, 150, { focus, deadline })); // C53: NSE's system since 3 May 2026
+        out = (await step("results", () => loadBatch(ldeps, level === "hard" ? 60 : 300, 8))) ?? [];
+        // D50/D51: primary basis + basis-switch breaks, only for focus companies with newly loaded filings (live delta).
+        // D163 (P1): the one-off passes (BS/CF backfill, version pass, remark pass) are not in the cron; they run when
+        // started explicitly (POST /maint/<name> through the ops workflow), one bounded batch per call.
+        if (level === "ok" && focus) await step("primary_basis", async () => {
+          const sids = new Set((await market.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(focus)])).map((r) => r.security_id));
+          return primaryBasisStep(ldeps.filings, market, ldeps.getText, sids, now);
         });
-        })();
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
         await chargeReads(d1Sql(env.DB_MARKET), new Date(), meter.reads ?? 0).catch(() => {});
@@ -82,7 +81,7 @@ export default {
       if (meter.rows > 0) await env.DB_MARKET.prepare("INSERT INTO write_budget (day, rows) VALUES (?1, ?2) ON CONFLICT (day) DO UPDATE SET rows = rows + excluded.rows").bind(istDay(new Date()), meter.rows).run();
       const by: Record<string, number> = {};
       for (const o of out) by[o.status] = (by[o.status] ?? 0) + 1;
-      console.log(JSON.stringify({ env: env.ENVIRONMENT, processed: out.length, by }));
+      console.log(JSON.stringify({ env: env.ENVIRONMENT, processed: out.length, by, reads: level, errors, ms: Date.now() - now.getTime() }));
     })());
   },
   async fetch(req: Request, env: Env) {
@@ -94,6 +93,17 @@ export default {
 
   async page(req: Request, env: Env): Promise<Response> {
     const path = new URL(req.url).pathname;
+    // D163 (P1): one-off passes started explicitly (ops workflow), one bounded batch per call; each saves its position
+    if (path.startsWith("/maint/") && req.method === "POST") {
+      const db = d1Sql(env.DB_FILINGS), focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES), name = path.slice(7);
+      const ldeps = { filings: db, market: d1Sql(env.DB_MARKET), getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: true, focus };
+      let r: unknown;
+      if (name === "bscf_backfill") r = await backfillBsCf(ldeps, 60, 20_000);
+      else if (name === "version_backfill") r = await versionBackfill(db, 10);
+      else if (name === "remark_backfill") r = await remarkBackfill(db, (k) => getText(env.RAW, k), 10, focus);
+      else return new Response("unknown pass", { status: 404 });
+      return Response.json(r ?? { done: true }, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/revisions") {
       // Read-only (D48): periods with more than one results filing for the same security and basis, with key figures.
       const rows = (await env.DB_FILINGS.prepare(`SELECT f.security_id, f.period_end, f.period_kind, f.basis, count(*) AS n, group_concat(f.disclosed_at, ' | ') AS disclosed
@@ -336,19 +346,14 @@ export default {
     }
     if (path === "/audit") return Response.json(await auditJumps(d1Sql(env.DB_FILINGS)), { headers: { "cache-control": "no-store" } });
     if (path !== "/status") return new Response("not found", { status: 404 });
+    // P1 (owner #341): cached counters and cursor rows only — no count over fin_value, filing or fin_load (a call read
+    // ~7M rows before). Counters: seeded by filings 0035, then each loader run adds its deltas.
     const q = async (s: string) => (await env.DB_FILINGS.prepare(s).all()).results;
     return Response.json({
-      by_status: await q("SELECT status, count(*) AS n FROM fin_load GROUP BY status"),
-      review_reasons: await q("SELECT substr(detail,1,60) AS reason, count(*) AS n FROM fin_load WHERE status IN ('review','failed') GROUP BY 1 ORDER BY 2 DESC LIMIT 15"),
-      filings: await q("SELECT count(*) AS n FROM filing"),
-      values: await q("SELECT basis, count(*) AS n FROM fin_value GROUP BY basis"),
-      shareholding_filings: await q("SELECT count(*) AS n FROM filing WHERE kind='shareholding'"),
-      bs_cf_values: await q("SELECT statement, count(*) AS n FROM fin_value WHERE statement IN ('bs','cf') GROUP BY statement"),
-      restatements: { flags: (await q("SELECT count(*) AS n FROM restatement_flag"))[0], versions: await q("SELECT version, count(*) AS n FROM fin_value GROUP BY version"), backfill: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='version_backfill'") },
-      bscf_backfill: await q("SELECT at, detail FROM daily_refresh WHERE day='once' AND slot='bscf_backfill'"),
+      counters: await q("SELECT name, n, at FROM stat_counter ORDER BY name"),
+      cursors: await q("SELECT slot, at, substr(detail, 1, 200) AS detail FROM daily_refresh WHERE day='once' AND slot IN ('loader_cursor','events_cursor','pitx_cursor','primary_basis_cursor','bscf_backfill','version_backfill','remark_backfill')"),
+      errors: await q("SELECT slot, at, substr(detail, 1, 200) AS detail FROM daily_refresh WHERE day='once' AND slot >= 'error:' AND slot < 'error;'"),
       focus: { indices: env.FOCUS_INDICES ?? "default", symbols: (await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES))?.length ?? "all" },
-      events: { cursor: await q("SELECT detail FROM daily_refresh WHERE day='once' AND slot='events_cursor'"), insider_trades: (await q("SELECT count(*) AS n FROM insider_trade"))[0], sast: (await q("SELECT count(*) AS n FROM sast_disclosure"))[0], board_meetings: (await q("SELECT count(*) AS n FROM board_meeting"))[0], credit_ratings: (await q("SELECT count(*) AS n FROM credit_rating"))[0] },
-      review_samples: await q("SELECT l.status, substr(l.detail,1,120) AS detail, j.symbol, j.url FROM fin_load l JOIN fetch_job j ON j.job_id = l.job_id WHERE l.status IN ('review','failed') ORDER BY l.at DESC LIMIT 8"),
     }, { headers: { "cache-control": "no-store" } });
   },
 };

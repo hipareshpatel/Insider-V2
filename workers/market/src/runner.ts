@@ -2,32 +2,27 @@
 import { type Sql, batchAll, dec, diso, dnum, insertRows, mul, round, toText } from "@disclo/core";
 import { type DayReport, type Deps, runDay } from "./daily.js";
 import { snapshotIndices } from "./snapshot.js";
-import { repairFactors } from "./repair.js";
 import { addDays, datesBetween, eligible, istNow } from "./dates.js";
 
 export const HISTORY_START = "2024-01-01"; // D2
 
-export interface RunOptions { maxDates: number; budgetMs: number; revisitSessions: number; from?: string; monthlyCap?: number }
+export interface RunOptions { maxDates: number; budgetMs: number; from?: string; monthlyCap?: number }
 
-export async function pendingDates(db: Sql, now: Date, revisit: number, from = HISTORY_START): Promise<string[]> {
+/** Dates not loaded yet, in order. P1 (audit 4 Nov): the daily "re-fetch the last 5 sessions" check is gone — the
+ *  fetcher reads R2 first, so it re-read our own stored copies and never asked NSE for a revised file; a file that
+ *  arrives late is picked up by the C49 gap pass (fillGaps). */
+export async function pendingDates(db: Sql, now: Date, from = HISTORY_START): Promise<string[]> {
   const today = istNow(now).date;
   const all = datesBetween(from < HISTORY_START ? HISTORY_START : from, today).filter((d) => eligible(d, now));
   const done = new Set((await db.all<{ run_key: string }>(
     "SELECT DISTINCT run_key FROM pipeline_run WHERE pipeline='market.daily' AND status IN ('ok','skipped')")).map((r) => r.run_key));
-  const todo = all.filter((d) => !done.has(d));
-  // Revised-file check (§5.2): re-fetch the last N sessions once a day; unchanged bytes cost nothing.
-  const recent = (await db.all<{ trade_date: string }>(
-    "SELECT trade_date FROM trading_calendar WHERE is_session=1 ORDER BY trade_date DESC LIMIT ?", [revisit])).map((r) => r.trade_date);
-  const checkedToday = new Set((await db.all<{ run_key: string }>(
-    "SELECT DISTINCT run_key FROM pipeline_run WHERE pipeline='market.daily' AND started_at >= ?", [`${addDays(today, -1)}T16:30:00Z`])).map((r) => r.run_key));
-  for (const d of recent) if (!checkedToday.has(d) && !todo.includes(d)) todo.push(d);
-  return todo.sort();
+  return all.filter((d) => !done.has(d)).sort();
 }
 
 export async function runPending(deps: Deps, opt: RunOptions): Promise<DayReport[]> {
   const t0 = Date.now();
   const out: DayReport[] = [];
-  for (const d of (await pendingDates(deps.market, deps.now(), opt.revisitSessions, opt.from)).slice(0, opt.maxDates)) {
+  for (const d of (await pendingDates(deps.market, deps.now(), opt.from)).slice(0, opt.maxDates)) {
     if (Date.now() - t0 > opt.budgetMs) break;
     if (await paused(deps.market)) break; // maintenance: a reset must not race a running load
     // Owner #266: no daily limit; bulk work stops once the month's billed writes reach the cap. The normal daily job
@@ -41,9 +36,8 @@ export async function runPending(deps: Deps, opt: RunOptions): Promise<DayReport
     if (!["loaded", "unchanged", "no_session"].includes(r.status)) break;
   }
   if (await paused(deps.market)) return out;
-  await deriveJanuary2024(deps.market);
-  // Once per REPAIR_VERSION, after prices have caught up (factors need both sessions' share counts).
-  if ((await maybeCaughtUp(deps))) await repairFactors(deps.market, deps.app, deps.now());
+  // D163 (P1): the January-2024 derivation (done once) and the versioned factor repair run when started explicitly
+  // (POST /maint/derive_jan2024, /maint/repair_factors), not on every run.
   await maybeSnapshot(deps);
   if (!out.length) await fillGaps(deps, 4, Math.max(0, opt.budgetMs - (Date.now() - t0))); // only when caught up; reported via /gaps
   return out;
@@ -95,7 +89,7 @@ export async function maybeSnapshot(deps: Deps): Promise<string> {
   }
 }
 
-async function maybeCaughtUp(deps: Deps): Promise<boolean> {
+export async function maybeCaughtUp(deps: Deps): Promise<boolean> {
   const [last] = await deps.market.all<{ d: string | null }>("SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session=1 AND universe_rows IS NOT NULL");
   return !!last?.d && last.d >= addDays(istNow(deps.now()).date, -5);
 }

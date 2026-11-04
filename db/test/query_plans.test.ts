@@ -11,6 +11,8 @@ import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetc
 import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_VERSION_ROWS } from "../../workers/filings/src/load.js";
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT } from "../../workers/filings/src/events.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
+import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
+import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
 
 const root = join(import.meta.dirname, "..", "migrations");
 function schema(domain: string): DatabaseSync {
@@ -38,6 +40,8 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: insider XBRL cursor (every 5 min)", SQL_PITX_NEXT, ["xbrl_pit_gg", 0, 150], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
   ["filings: companies with new filings (primary basis)", SQL_BASIS_NEW, [0, 2000], /INTEGER PRIMARY KEY \(rowid>\?\)/],
   ["filings: one company's results lists (primary basis)", SQL_BASIS_LISTS, ['["INFY"]'], /ix_fetch_symbol_kind/],
+  ["market: new announcement lists for the sector job (every 10 min)", SQL_SECTOR_LISTS, ["announcements_daily", 0, 200], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
+  ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 
 describe("recurring queries read only what they need (C56)", () => {
