@@ -56,7 +56,13 @@ export default {
         if (ldeps.bscf) await backfillBsCf(ldeps, out.length < 300 ? 200 : 60); // M2: BS/CF + FY (D90) for earlier filings; a small share every run (it never started while the backlog filled every run)
         // One-off passes at the end of the run: each guarded, so one failing step (e.g. over the per-run query limit)
         // cannot stop the steps after it (4 Nov: the widened version pass, 150 groups × 5 kinds, stalled everything after).
-        const step = async (name: string, f: () => Promise<unknown>) => { try { await f(); } catch (e) { console.log(JSON.stringify({ step: name, error: String(e).slice(0, 200) })); } };
+        const step = async (name: string, f: () => Promise<unknown>) => {
+          try { await f(); } catch (e) {
+            // visible on /restatements (no log access needed)
+            await env.DB_FILINGS.prepare("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once', ?1, ?2, ?3) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail")
+              .bind(`error:${name}`, new Date().toISOString(), String(e).slice(0, 300)).run().catch(() => {});
+          }
+        };
         await step("version_backfill", () => versionBackfill(ldeps.filings, 20)); // D48 + owner #334: label and flag earlier-loaded revisions once
         await step("remark_backfill", () => remarkBackfill(ldeps.filings, (k) => getText(env.RAW, k), 40)); // owner #334: submission type + revision remark, once
         // D50/D51: primary basis + basis-switch breaks for the focus companies, once per IST day
@@ -160,7 +166,7 @@ export default {
       const sym = new URL(req.url).searchParams.get("symbol");
       if (!sym) return Response.json({
         by_statement: (await env.DB_FILINGS.prepare("SELECT statement, count(*) AS lines, count(DISTINCT security_id || period_end || basis) AS periods FROM restatement_flag GROUP BY statement").all()).results,
-        progress: (await env.DB_FILINGS.prepare("SELECT slot, at, detail FROM daily_refresh WHERE day='once' AND slot IN ('version_backfill','remark_backfill')").all()).results,
+        progress: (await env.DB_FILINGS.prepare("SELECT slot, at, detail FROM daily_refresh WHERE day='once' AND (slot IN ('version_backfill','remark_backfill') OR slot LIKE 'error:%')").all()).results,
         revised_filings: (await env.DB_FILINGS.prepare("SELECT count(*) AS n, sum(revision_remark IS NOT NULL) AS with_remark FROM filing WHERE submission='Revision'").first()),
       }, { headers: { "cache-control": "no-store" } });
       const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
