@@ -4,6 +4,7 @@ import { auditJumps } from "./audit.js";
 import { RESULT_KINDS, backfillBsCf, loadBatch, remarkBackfill, versionBackfill } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
+import { runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
 import { BS_LINES, CF_LINES, balanceAndCash, parsePit, parseXbrl, statementDetail } from "@disclo/core";
 
@@ -55,6 +56,14 @@ export default {
         if (ldeps.bscf) await backfillBsCf(ldeps, out.length < 300 ? 200 : 60); // M2: BS/CF + FY (D90) for earlier filings; a small share every run (it never started while the backlog filled every run)
         await versionBackfill(ldeps.filings, 150); // D48: label earlier-loaded revisions once
         await remarkBackfill(ldeps.filings, (k) => getText(env.RAW, k), 40); // owner #334: submission type + revision remark, once
+        // D50/D51: primary basis + basis-switch breaks for the focus companies, once per IST day
+        const day = istDay(now);
+        const [pb] = (await env.DB_FILINGS.prepare("SELECT 1 AS x FROM daily_refresh WHERE day=?1 AND slot='primary_basis'").bind(day).all()).results;
+        if (!pb && ldeps.focus) {
+          const sids = (await env.DB_MARKET.prepare("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(ldeps.focus)).all<{ security_id: number }>()).results.map((r) => r.security_id);
+          const n = await runPrimaryBasis(ldeps.filings, sids, now);
+          await env.DB_FILINGS.prepare("INSERT INTO daily_refresh (day, slot, at, detail) VALUES (?1, 'primary_basis', ?2, ?3)").bind(day, now.toISOString(), JSON.stringify({ companies: n })).run();
+        }
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
       }
@@ -121,6 +130,19 @@ export default {
         return Response.json(inst.facts.filter((f) => f.contextRef === one).map((f) => ({ tag: f.tag, value: masked.test(f.tag) ? "(masked)" : f.value?.slice(0, 200) ?? null, unit: f.unitRef, decimals: f.decimals })), { headers: { "cache-control": "no-store" } });
       }
       return Response.json({ facts: inst.facts.length, contexts: ctx.filter((c) => c.facts > 0).sort((a, b) => b.facts - a.facts), undefined_refs: undefinedRefs }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/primary-basis") {
+      // Read-only (D50/D51): primary basis per focus company, with the reason, and basis-switch breaks.
+      const q = async (sql: string) => (await env.DB_FILINGS.prepare(sql).all()).results;
+      const rows = await q("SELECT security_id, basis, reason, cons_q, sa_q, sa_share FROM primary_basis ORDER BY basis, security_id");
+      const ids = rows.map((r) => Number((r as { security_id: number }).security_id));
+      const syms = ids.length ? (await env.DB_MARKET.prepare("SELECT security_id, min(value) AS symbol FROM security_identifier WHERE id_type='nse_symbol' AND security_id IN (SELECT value FROM json_each(?1)) GROUP BY security_id").bind(JSON.stringify(ids)).all<{ security_id: number; symbol: string }>()).results : [];
+      const sym = new Map(syms.map((x) => [x.security_id, x.symbol]));
+      return Response.json({
+        counts: await q("SELECT basis, count(*) AS n FROM primary_basis GROUP BY basis"),
+        companies: rows.map((r) => ({ symbol: sym.get(Number((r as { security_id: number }).security_id)), ...r })),
+        breaks: (await q("SELECT security_id, period_end, change FROM basis_break ORDER BY security_id, period_end")).map((r) => ({ symbol: sym.get(Number((r as { security_id: number }).security_id)), ...r })),
+      }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/restatements") {
       // Read-only (owner #334): restatement flags — one company (?symbol=) or a summary of all.
