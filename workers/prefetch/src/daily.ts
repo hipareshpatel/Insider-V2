@@ -124,6 +124,11 @@ export async function dailyRefresh(d: Deps, slot: "evening" | "morning") {
     await batchAll(d.db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key, parent_id)", 5, att));
     out.shareholding_attachments = att.length;
   } else out.shareholding_attachments = "fetch failed";
+  // 2b. Insider trading (C53): NSE's system since 3 May 2026 (/api/corporates-pit-gg; the old corporates-pit is empty).
+  //     The list carries one XBRL link per filing; discover() queues them and the GitHub attachment job downloads them
+  //     from the archive host (NSE refuses GitHub for the API host, so the list itself is fetched here).
+  const pg = await fetchKept(d, "pit_gg", `${API}corporates-pit-gg?index=equities&from_date=${dmy(addDays(day, -3))}&to_date=${dmy(day)}`, `api/pit_gg/${tag}.json`);
+  out.insider_list = pg.text ? (() => { try { return ((JSON.parse(pg.text!) as { data?: unknown[] }).data ?? []).length; } catch { return "unreadable"; } })() : "fetch failed";
   // 3. Integrated Filing: dated per-company refresh for companies with a results-type announcement.
   const an = await fetchKept(d, "announcements_daily", `${API}corporate-announcements?index=equities&from_date=${dmy(addDays(day, -1))}&to_date=${dmy(day)}`, `api/bulk/announcements/${tag}.json`);
   const sweep = slot === "evening" && new Date(Date.parse(day + "T00:00:00Z")).getUTCDay() === 0;

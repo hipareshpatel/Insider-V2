@@ -2,9 +2,9 @@ name: prefetch-pit
 
 # C53 / owner #330: NSE insider-trading filings (system from 3 May 2026) downloaded on GitHub and passed to Cloudflare
 # as one bundle per run (bundles/pit_gg/<from>_<to>.jsonl.gz); the filings Worker loads it. Daily: the last 3 days.
+# 4 Nov 2026: NSE refuses GitHub's runners for the API host (every list call: connection refused), so the daily list
+# is fetched by the Cloudflare prefetch (daily slot) and the XBRL files by the attachment job. Manual runs only.
 on:
-  schedule:
-    - cron: "17 17 * * *"   # 22:47 IST
   workflow_dispatch:
     inputs:
       from: { description: "from date YYYY-MM-DD (blank = 3 days ago, IST)", default: "" }

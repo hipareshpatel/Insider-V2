@@ -23,8 +23,9 @@ const NSE: Record<string, unknown> = {
     { symbol: "INFY", exDate: "28-Oct-2026", subject: "Interim Dividend - Rs 23 Per Share", series: "EQ" }],
   corporateShareHoldingsMaster: [{ symbol: "INFY", broadcastDate: "02-Nov-2026 18:00:00", xbrl: XBRL }],
   corporateAnnouncements: [{ symbol: "INFY", desc: "Outcome of Board Meeting" }, { symbol: "TCS", desc: "General Updates" }],
+  pitGg: { data: [{ appId: "4155", symbol: "ACEVECTOR", broadcastDateTime: "03-Nov-2026 22:09:12", xmlFileName: "https://nsearchives.nseindia.com/corporate/xbrl/IT_20276_WebXMLFile_20261103_220912677.xml" }] },
 };
-const key = (url: string) => url.includes("corporateActions") ? "corporatesCorporateActions" : url.includes("share-holdings") ? "corporateShareHoldingsMaster" : "corporateAnnouncements";
+const key = (url: string) => url.includes("corporates-pit-gg") ? "pitGg" : url.includes("corporateActions") ? "corporatesCorporateActions" : url.includes("share-holdings") ? "corporateShareHoldingsMaster" : "corporateAnnouncements";
 
 describe("daily freshness (plan item 2)", () => {
   it("parses triggers and attachments", () => {
@@ -41,7 +42,7 @@ describe("daily freshness (plan item 2)", () => {
     expect(await dueSlot(db, new Date("2026-11-03T13:00:00Z"))).toBe("morning"); // 18:30 IST: morning slot not yet run
     expect(await dueSlot(db, now)).toBe("evening");
     const out = await dailyRefresh({ db, market, raw, get, gzip: async (b) => b, now }, "evening");
-    expect(out).toMatchObject({ corp_actions: 2, shareholding_attachments: 1, results_refresh: 1 });
+    expect(out).toMatchObject({ corp_actions: 2, shareholding_attachments: 1, results_refresh: 1, insider_list: 1 });
     expect(await dueSlot(db, now)).toBeNull();
     expect(await market.all("SELECT symbol, ex_date FROM corp_action_extra WHERE source='nse_bulk' ORDER BY symbol")).toEqual([{ symbol: "INFY", ex_date: "2026-10-28" }, { symbol: "SHRIRAMFIN", ex_date: "2027-01-10" }]);
     const att = await db.all<{ symbol: string; parent_id: number | null }>("SELECT symbol, parent_id FROM fetch_job WHERE kind='xbrl_shareholding'");
@@ -50,7 +51,8 @@ describe("daily freshness (plan item 2)", () => {
     expect(ref).toEqual([{ url: expect.stringContaining("symbol=INFY") as unknown as string, status: "todo" }]);
     expect(ref[0]!.url).toContain("from_date=29-10-2026&to_date=03-11-2026");
     expect((await db.all("SELECT 1 FROM fetch_job WHERE kind LIKE 'bulk_%' OR kind='announcements_daily'")).length).toBe(3);
-    expect(r2.size).toBe(6); expect(calls).toBe(6); // + ASM, GSM, FII/DII snapshots (evening)
+    expect(await db.all("SELECT url FROM fetch_job WHERE kind='pit_gg'")).toEqual([{ url: expect.stringContaining("corporates-pit-gg?index=equities&from_date=31-10-2026&to_date=03-11-2026") as unknown as string }]);
+    expect(r2.size).toBe(7); expect(calls).toBe(7); // + insider list (C53) + ASM, GSM, FII/DII snapshots (evening)
     const { seedStructureHistory } = await import("../src/daily.js");
     expect(await seedStructureHistory(db, now)).toBeGreaterThan(2000); // ~700 weekdays × 3
     expect(await seedStructureHistory(db, now)).toBe(0); // once
