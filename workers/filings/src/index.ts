@@ -4,7 +4,7 @@ import { auditJumps } from "./audit.js";
 import { RESULT_KINDS, backfillBsCf, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
-import { classifyGaps, primaryBasisStep } from "./basis.js";
+import { SQL_BASIS_LISTS, classifyGaps, nseListedFiles, primaryBasisStep } from "./basis.js";
 import { caLists } from "./calists.js";
 import { BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
@@ -172,6 +172,34 @@ export default {
         return Response.json(inst.facts.filter((f) => f.contextRef === one).map((f) => ({ tag: f.tag, value: masked.test(f.tag) ? "(masked)" : f.value?.slice(0, 200) ?? null, unit: f.unitRef, decimals: f.decimals })), { headers: { "cache-control": "no-store" } });
       }
       return Response.json({ facts: inst.facts.length, contexts: ctx.filter((c) => c.facts > 0).sort((a, b) => b.facts - a.facts), undefined_refs: undefinedRefs }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/gap-detail") {
+      // Work list item 2 (read-only): every active gap (from the D168 floor) of the given companies with its NSE-listed
+      // files (ledger row, load outcome, R2 key) and the P&L periods actually stored — to fix gaps by class.
+      const syms = (new URL(req.url).searchParams.get("symbols") ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 12);
+      const out: Record<string, unknown> = {};
+      for (const sym of syms) {
+        const ids = (await env.DB_MARKET.prepare("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1").bind(sym).all<{ security_id: number }>()).results;
+        const sid = ids[0]?.security_id;
+        if (!sid) { out[sym] = "unknown symbol"; continue; }
+        const allSyms = (await env.DB_MARKET.prepare("SELECT DISTINCT value FROM security_identifier WHERE security_id=?1 AND id_type='nse_symbol'").bind(sid).all<{ value: string }>()).results.map((r) => r.value);
+        const keys = (await env.DB_FILINGS.prepare(SQL_BASIS_LISTS).bind(JSON.stringify(allSyms)).all<{ r2_key: string }>()).results;
+        const listed = nseListedFiles((await Promise.all(keys.map((k) => getText(env.RAW, k.r2_key)))).filter((t): t is string => !!t));
+        const gaps = (await env.DB_FILINGS.prepare("SELECT period_end, basis, status FROM coverage_gap WHERE security_id=?1 AND period_end >= '2024-01-01' ORDER BY period_end").bind(sid).all<{ period_end: string; basis: string; status: string | null }>()).results;
+        const detail = [];
+        for (const g of gaps) {
+          const files = [];
+          for (const url of listed.get(`${g.period_end}|${g.basis}`) ?? []) {
+            const job = await env.DB_FILINGS.prepare("SELECT job_id, kind, status, http_status, attempts, r2_key FROM fetch_job WHERE url=?1").bind(url).first<Record<string, unknown>>();
+            const load = job ? await env.DB_FILINGS.prepare("SELECT status, detail, tries, retry_after FROM fin_load WHERE job_id=?1").bind(job.job_id).first<Record<string, unknown>>() : null;
+            files.push({ url: url.replace("https://nsearchives.nseindia.com/corporate/", ""), job, load });
+          }
+          detail.push({ ...g, files });
+        }
+        const stored = (await env.DB_FILINGS.prepare("SELECT period_end, period_kind, basis, version, count(*) AS lines, min(disclosed_at) AS first_at FROM fin_value WHERE security_id=?1 AND statement='pl' AND period_end >= '2024-01-01' GROUP BY 1, 2, 3, 4 ORDER BY 1, 3, 2").bind(sid).all()).results;
+        out[sym] = { security_id: sid, symbols: allSyms, gaps: detail, stored_pl: stored };
+      }
+      return Response.json(out, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/coverage-gaps") {
       // Work list item 2: coverage gaps of the focus companies by class (coverage_gap.status, set by /maint/coverage_classify)
