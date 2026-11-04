@@ -530,6 +530,27 @@ describe("renamed companies (work list item 2)", () => {
     const { deps } = setup({ "att/xbrl/a.xml": renamed, "api/results_quarterly/INFY/x.json": list });
     expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded" });
   });
+  it("a file carrying another company's symbol loads under the company whose list linked it, not that company (C61)", async () => {
+    const wrong = xml.replace(/(<in-bse-fin:Symbol\b[^>]*>)[^<]*/, "$1NUCLEUS");
+    const { deps, filings, market } = setup({ "att/xbrl/a.xml": wrong, "api/results_quarterly/INFY/x.json": list });
+    market.raw.exec("INSERT INTO security (security_id,name) VALUES (8,'Nucleus'); INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (8,'nse_symbol','NUCLEUS','2024-01-01','t')");
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded" });
+    expect(await filings.all("SELECT DISTINCT security_id FROM filing")).toEqual([{ security_id: 7 }]);
+  });
+  it("misattributed pass: reports, then moves a filing and its rows to the company whose list linked it (C61)", async () => {
+    const { misattributed } = await import("../src/load.js");
+    const { deps, filings, market } = setup({});
+    market.raw.exec("INSERT INTO security (security_id,name) VALUES (8,'Nucleus'); INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (8,'nse_symbol','NUCLEUS','2024-01-01','t')");
+    filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,period_end,period_kind,basis,disclosed_at,source_url) VALUES (60,8,'results_quarterly','2025-12-31','Q','consolidated','2026-01-22T00:00:00Z','${URL1}');
+      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version)
+      VALUES (8,'industrial','pl','revenue','','2025-12-31','Q','consolidated','original','1','2026-01-22T00:00:00Z',60,'reported','x')`);
+    const d = { ...deps, focus: ["INFY"] };
+    expect(await misattributed(d, false)).toMatchObject({ found: 1, moved: 0 });
+    expect(await filings.all("SELECT security_id FROM fin_value")).toEqual([{ security_id: 8 }]);
+    expect(await misattributed(d, true)).toMatchObject({ found: 1, moved: 1, sids: [7] });
+    expect(await filings.all("SELECT security_id FROM fin_value UNION ALL SELECT security_id FROM filing")).toEqual([{ security_id: 7 }, { security_id: 7 }]);
+    expect(await misattributed(d, true)).toMatchObject({ found: 0 });
+  });
 });
 
 describe("half-year-only files (D169): the quarter from its own column, else half-year minus the previous quarter", () => {
