@@ -13,6 +13,7 @@ on:
       worker: { description: "worker", type: choice, options: [filings, prefetch, market], default: filings }
       path: { description: "path, e.g. /status or /maint/version_backfill", default: "/status" }
       minutes: { description: "for /maint: keep calling until done, at most this many minutes", default: "10" }
+      max_calls: { description: "for /maint: at most this many calls (1 = one batch, e.g. the first-batch cost gate)", default: "1000" }
 
 permissions:
   contents: read
@@ -31,6 +32,7 @@ jobs:
       WORKER: ${{ github.event.inputs.worker }}
       PATH_IN: ${{ github.event.inputs.path }}
       MINUTES: ${{ github.event.inputs.minutes }}
+      MAX_CALLS: ${{ github.event.inputs.max_calls }}
     steps:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
@@ -47,12 +49,14 @@ jobs:
           URL="https://disclo-$WORKER.financialengineer-in.workers.dev$PATH_IN"
           case "$PATH_IN" in
             /maint/*)
-              end=$(( $(date +%s) + ${MINUTES:-10} * 60 ))
-              while [ "$(date +%s)" -lt "$end" ]; do
+              end=$(( $(date +%s) + ${MINUTES:-10} * 60 )); n=0
+              # at least one call; then until the pass answers done, the time is up or MAX_CALLS calls were made
+              while [ "$n" -eq 0 ] || { [ "$(date +%s)" -lt "$end" ] && [ "$n" -lt "${MAX_CALLS:-1000}" ]; }; do
+                n=$((n+1))
                 out=$(curl -s -X POST -H "Authorization: Bearer $T" "$URL" || true)
-                echo "$(date -u +%H:%M:%S) $out" | cut -c1-600 | mask
+                echo "$(date -u +%H:%M:%S) $out" | cut -c1-1500 | mask
                 echo "$out" | grep -q '"done":true' && break
-                echo "$out" | grep -q '^forbidden\|unknown pass\|not found' && exit 1
+                echo "$out" | grep -q '^forbidden\|unknown pass\|not found\|"refused"' && exit 1
                 sleep 5
               done ;;
             *) curl -s -H "Authorization: Bearer $T" "$URL" | head -c 20000 | mask; echo ;;

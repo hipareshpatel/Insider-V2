@@ -53,6 +53,14 @@
 
 **Repo:** `hipareshpatel/Insider-V2`, branch **`ccr-eb822347-c3zp4b`** (only branch). All documents are in `docs/`.
 
+### Build state — 2026-11-04 12:20 IST (owner #343: paused passes restarted behind a cost gate; work list item 1)
+| Area | State |
+|---|---|
+| **Owner decisions (#343)** | **D167** cash flow with untagged adjustments: option (a) — a labelled "Other adjustments (not itemised in the filing)" line only when all three section totals reconcile; otherwise the file goes to review (to build with the D154 item, after its census, D134). Restart the deals CSV refill (1.8), remark pass and version pass now, focus companies only, **behind a first-batch cost gate** (rows read / written of the first call recorded; continue only if cheap and writes stay well below the 60M soft cap). `fin_value` key change stays deferred to a fresh billing cycle (D162) |
+| **Built for the gate** | `/maint` calls are metered (rows read, billed rows written) — returned in each answer and charged to the read and write budgets (they were not charged before: a gap in P1); `ops` takes `max_calls` (1 = one batch) and always makes at least one call; version pass rewritten for the focus companies, company by company over `ix_filing_sec` (`version_backfill_focus`; the old pass grouped all of `filing` per call) |
+| **Item 1 — freshness rule for every feed** | `feed_fresh` (filings 0036): one watermark per feed (newest disclosure, rows, when), written by the loaders (results, shareholding, insider trades, SAST, board meetings, credit ratings); market feeds from the newest loaded session / `ms_day` (primary-key lookups). `/fresh` now: per feed age vs its rule (`FEED_RULES`, e.g. results ≤ 4 days, SAST ≤ 5, ratings ≤ 10), the stale list, the insider count check (distinct appIds loaded vs XBRL files by status, failures recorded in `event_load`), the last two days' slots — no table scan |
+| Deploy / gate results | next update |
+
 ### Build state — 2026-11-04 11:40 IST (audit P1 "plan realignment" built; owner #341)
 | Area | State |
 |---|---|
@@ -86,7 +94,7 @@
 | Market | 705 sessions to 3 Nov; M1 clean sessions 1/10 (daily check 22:41 IST); index history 2016–2023 complete incl. 5 weekend sessions; DUMMY… symbols outside the universe |
 | Insider trades (C53) | NSE moved to `/api/corporates-pit-gg` on 3 May 2026. List via Cloudflare (daily slots), XBRL via the GitHub attachment job, `parsePitXbrl` + `loadPitXbrl`; 2,250 of 3,298 filings loaded (09:14), ~1 h to finish at 150 files / 5 min. Then: count check (`/fresh` insider_new_system vs 3,298) |
 | Bulk/block (1.8) | JSON capped at 70/day; `csv=true` is not (656 deals / 8 days). ~210 CSV windows queued (kind `hist_deals_csv`); `refillDealsCsv` replaces capped days. Check `ms_day` notes `complete (csv window)` |
-| Statements (D154) | BS 99.58%, CF 95.81% of files; totals vs Screener 189/255 (rest = Screener conventions/errors, verified on Union Bank PDFs); **owner a/b pending** on ~1,240 files with untagged adjustments |
+| Statements (D154) | BS 99.58%, CF 95.81% of files (D167 decided #343: option a); totals vs Screener 189/255 (rest = Screener conventions/errors, verified on Union Bank PDFs); **owner a/b pending** on ~1,240 files with untagged adjustments |
 | Restatements (C55) | No prior-year columns in any results XBRL; revised XBRL exists and is versioned/flagged on every line, statement and period kind; NSE submission type + revision remark stored (131 revisions, 87 remarks so far); one-off passes running (`/restatements`) |
 | Primary basis (D50/D51) | 97 of the focus companies decided (both 6, consolidated 81, standalone 10); 31 basis breaks + 153 coverage gaps in 26 companies — breaks now ignore quarters NSE itself lists (a missing file is a coverage gap). Next: work the gap list |
 
@@ -303,7 +311,7 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | D90 | 5 years of statements for the 250 | 🔶 coverage check live (`coverage_gap`, `/primary-basis`): 153 gaps in 26 companies so far | Fix by class (why each listed file is not loaded) |
 | §14 | ≥ 99.5% parse + identity checks | 🔶 99.66% (part) | Measure on the 250 |
 | D90 FY | Full-year figures | ✅ census 99.68% | Re-measure on the 250 |
-| D154 | Every reported line, three statements | 🔶 BS 99.58%, CF 95.81% (0 newly failing); totals vs Screener 189/255 (rest = Screener conventions/errors, #332) | owner a/b on untagged adjustments; 17 direct-method; bank/NBFC/insurer maps |
+| D154, D167 | Every reported line, three statements | 🔶 BS 99.58%, CF 95.81% (0 newly failing); untagged CF adjustments: option (a) decided (D167) — build after its census; totals vs Screener 189/255 (rest = Screener conventions/errors, #332) | owner a/b on untagged adjustments; 17 direct-method; bank/NBFC/insurer maps |
 | **D157** | Heads with sub-rows (Schedule III layout per format) | ⬜ | Build the layout trees; reference: the owner's ProwessIQ data dictionary in `docs/` (owner #341) |
 | D121, D150 | Sector | ✅ | Confirm all 250 have one |
 | 2.8 | Shareholding coverage + counts vs NSE (250) | ⬜ | Check |
@@ -1259,6 +1267,7 @@ probe/                throwaway reachability check
 | D164 | Monthly write cap 62M (owner #341; replaces 54M of D154; **superseded by D166**, #342) | Raised so daily filings loading is not stopped after the 15.7M-row index build (P0) was charged to the counter. The market daily job stays exempt (D136). Claude's note at decision time: D1 includes 50M writes a month and bills $1 per extra million, so filling the cap costs up to $12 in writes — above the $5 usage part of the $10 ceiling (D137); the daily cost guard (fails above $4) keeps reporting it. **Zero-mass-write rule (owner #341):** no migration or backfill in P1 rewrites a large table or writes millions of rows |
 | D165 | Explicit operations instead of standing secrets (owner #341) | Diagnostic pages and one-off passes are reached only through the `ops` workflow (manual): it sets a fresh random `STATUS_TOKEN` on the target Worker, calls the page once (or a `/maint/<name>` pass until it answers done, bounded by minutes) and prints the masked answer in the run log. No token is kept anywhere. The filings `/status` page reads cached counters (`stat_counter`) |
 | D166 | Temporary $25 budget and two-tier write caps (owner #342; supersedes D164 and, for November 2026 only, D137's $10) | **November 2026 billing period only:** ceiling $25 ($5 plan + up to $20 of D1 overage); from the next period $10 again. Writes (billed rows, D136 counter, IST month): **soft cap 60M** — one-off passes, back-fills and optional steps stop; **hard cap 68M** — only the live daily filings + events loading continue (the market daily job is exempt as in D136). From December both caps are 54M automatically (`WRITE_CAP_MONTH=2026-11`); the cost guard's alarm is $20 for the 2 Nov period, $4 after. The raise is a safety buffer, not room for mass rewrites: the zero-mass-write rule (D164) stays and D162 stays deferred. Sec-Fetch-Site: same-origin for `www.nseindia.com` API calls, same-site for `nsearchives` downloads (approved, #342) |
+| D167 | Cash flow with untagged adjustments: option (a) (owner #343) | For the ≈ 1,240 files whose cash-flow detail does not add up because adjustments are not tagged: when the three section totals (operating, investing, financing) reconcile with the net change in cash (and opening + change = closing), the detail is loaded with one labelled line **"Other adjustments (not itemised in the filing)"** carrying the difference; when the three totals do not reconcile, no line is plugged and the file goes to review. Census of the affected files before the reader changes (D134); reload through the indexed loader |
 
 ### Appendix B — Verification evidence (live NSE checks, 2026-11-02, cloud container)
 | Claim | Evidence |
@@ -3003,6 +3012,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 340 | Approved the audit; locked three decisions (browser-session headers with cookie re-warm; new downloads only for the 250; `fin_value` key change deferred) and ordered P0 then P1, each tested, deployed and verified. | D160, D161, D162, D163 recorded; P0 built (Part 1 10:45 IST). Claude's note on D160: a terms-of-use point for the legal consult (§12); its code change goes in P1, not in the cost deploy |
 | 341 | Approved Stage 1; ordered Stage 2 with five directives: merge PR #1 yourself; no manual STATUS_TOKEN (reuse the ingest token or keep pages closed; cached counters for /status); keep the ProwessIQ PDF in docs/ as a reference for D157; raise the write cap to 62M with a zero-mass-write rule; implement the D160 browser session fully. | PR #1 merged; D164 (62M, with the cost note: up to $12 of writes above 50M), D165 (ops workflow, no standing token — the ingest token is rotated per run and cannot serve as a status key); PDF recorded as an approved owner reference; P1 built (Part 1 11:40 IST), FMEA C58 |
 | 342 | Approved the three catches; $25 ceiling for the November billing cycle only (back to $10 next cycle); two-tier write caps (soft 60M: optional passes stop; hard 68M: live daily filings + events continue); zero-mass-write rule and D162 deferral stay; ops workflow and counter-based /status approved; same-origin for the API host, same-site for nsearchives approved; merge, deploy, report. | D166 (replaces D164): caps in code, revert automatic from December, cost-guard alarm $20 for this period only. PR #1 was already merged (#341) |
+| 343 | Restart the deals CSV refill and the remark and version passes now via ops (focus companies only), with a first-batch cost gate (record rows read/written of the first call; continue only if cheap and below the 60M soft cap); cash flow untagged adjustments: option (a), review when the three totals do not reconcile; fin_value key change stays deferred; keep the 20:30 IST and 24 h checks tracked without blocking; then Part 2 items 1–6 in order, one at a time, verified and reported. | D167; metering on /maint (also charged to the budgets), ops max_calls, focus version pass; item 1 built (feed_fresh, /fresh without scans, insider count check). Gate results and item 1 numbers in Part 1 |
 
 ### Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -3011,7 +3021,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-04 after entry #342: all checks pass (166 decisions, 342 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
+*Last run 2026-11-04 after entry #343: all checks pass (167 decisions, 343 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
 
 ### Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*

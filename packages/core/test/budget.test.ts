@@ -20,3 +20,14 @@ describe("read breaker and status token (audit P0)", () => {
     expect([59e6, 61e6, 68e6].map((u) => writeLevel(u, nov))).toEqual(["ok", "soft", "hard"]);
   });
 });
+
+import { staleness } from "../src/index.js";
+describe("feed freshness rule (work list item 1)", () => {
+  it("age in IST days against each feed's maximum; no watermark = stale", () => {
+    const now = new Date("2026-11-04T06:00:00Z"); // 11:30 IST
+    expect(staleness("results", "2026-11-03T14:00:00.000Z", now)).toEqual({ age_days: 1, stale: false, max_age_days: 4 });
+    expect(staleness("sast29", "2026-10-28T10:00:00.000Z", now)).toMatchObject({ age_days: 7, stale: true });
+    expect(staleness("prices", "2026-11-03", now)).toMatchObject({ age_days: 1, stale: false });
+    expect(staleness("board_meetings", null, now)).toMatchObject({ stale: true, age_days: null });
+  });
+});

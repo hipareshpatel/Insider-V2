@@ -1,7 +1,7 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, statementDetail, type Sql, type XbrlInstance, balanceAndCash, batchAll, byKindAfter, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, statementDetail, type Sql, type XbrlInstance, balanceAndCash, batchAll, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
 
 export interface Deps {
   filings: Sql;
@@ -91,7 +91,9 @@ const CORE: Record<CanonicalResult["template"], string[]> = { industrial: ["reve
 export interface LoadOutcome { jobId: number; status: "loaded" | "review" | "skipped" | "failed" | "excluded"; detail: string; rows?: number;
   /** Rows offered to the tables (per statement / 'shareholding') and whether the filing row was new — for the cached
    *  /status counters (audit P1; approximate only when a file is re-read). */
-  counts?: Record<string, number> }
+  counts?: Record<string, number>;
+  /** Disclosure time of a loaded file (feed freshness watermark, work list item 1). */
+  newest?: string }
 
 /** Shareholding pattern (FMEA B3, B4, C1–C3): loaded only when the top-level categories sum exactly to total shares. */
 export async function loadShp(job: { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }, deps: Deps, listCache: Map<string, string | null>): Promise<LoadOutcome> {
@@ -144,7 +146,7 @@ export async function loadShp(job: { job_id: number; kind: string; symbol: strin
     { sql: `INSERT INTO promoter_encumbrance (filing_id,security_id,as_of,encumbered,pledged,non_disposal,other,pct_of_promoter_holding) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
       params: [fid, sec.security_id, r.asOf, r.promoterEncumbrance.encumbered, r.promoterEncumbrance.pledged, r.promoterEncumbrance.nonDisposal, r.promoterEncumbrance.other, r.promoterEncumbrance.pctOfPromoterHolding] },
   ]);
-  return { jobId: job.job_id, status: "loaded", detail: `shareholding ${r.asOf}${note ? `; ${note}` : ""}`, rows: rows.length + 1, counts: { "filing:shareholding": ins.changes ? 1 : 0, shareholding: rows.length } };
+  return { jobId: job.job_id, status: "loaded", detail: `shareholding ${r.asOf}${note ? `; ${note}` : ""}`, rows: rows.length + 1, counts: { "filing:shareholding": ins.changes ? 1 : 0, shareholding: rows.length }, newest: disclosedAt };
 }
 
 export async function loadOne(job: { job_id: number; kind: string; symbol: string | null; url: string; r2_key: string; parent_key: string | null }, deps: Deps, listCache: Map<string, string | null>): Promise<LoadOutcome> {
@@ -222,7 +224,7 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   await versionPeriod(deps.filings, sec.security_id, r.periodEnd, r.periodKind, r.basis);
   const extra = deps.bscf ? await loadBsCf(inst!, sec.security_id, TEMPLATE[r.template], r.basis, disclosedAt, f!.filing_id, deps) : { rows: 0, note: "" };
   const fyx = await loadFy(inst!, r, sec.security_id, disclosedAt, f!.filing_id, deps);
-  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}${extra.note}${fyx.note}`, rows: rows.length + extra.rows + fyx.rows , counts: { "filing:results": ins.changes ? 1 : 0, pl: rows.length + fyx.rows, bs: extra.by?.bs ?? 0, cf: extra.by?.cf ?? 0 } };
+  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}${extra.note}${fyx.note}`, rows: rows.length + extra.rows + fyx.rows , counts: { "filing:results": ins.changes ? 1 : 0, pl: rows.length + fyx.rows, bs: extra.by?.bs ?? 0, cf: extra.by?.cf ?? 0 }, newest: disclosedAt };
 }
 
 /** D48: for one company, period and basis, the earliest disclosure is 'original' and every later one 'restated'
@@ -296,6 +298,26 @@ export async function versionBackfill(db: Sql, limit = 150): Promise<{ done: boo
   const next = { after: g.length ? g[g.length - 1]!.k : cur.after, done: g.length < limit, groups: cur.groups + g.length };
   await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','version_backfill',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(next)]);
   return next;
+}
+
+/** Owner #343: the version pass for the focus companies only, one company at a time (its periods filed more than once,
+ *  found through ix_filing_sec: a few hundred rows per company), `perCall` companies per call, position saved after
+ *  each company ('once','version_backfill_focus'). Replaces the GROUP BY over all of filing on every call. */
+export async function versionBackfillFocus(db: Sql, focusSids: number[], perCall = 5): Promise<{ after: number; done: boolean; companies: number; groups: number }> {
+  const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='version_backfill_focus'");
+  const cur = st ? JSON.parse(st.detail) as { after: number; done: boolean; companies: number; groups: number } : { after: 0, done: false, companies: 0, groups: 0 };
+  if (cur.done) return cur;
+  const todo = [...new Set(focusSids)].sort((a, b) => a - b).filter((x) => x > cur.after);
+  for (const sid of todo.slice(0, perCall)) {
+    const g = await db.all<{ period_end: string; period_kind: string; basis: string }>(
+      "SELECT period_end, period_kind, basis FROM filing WHERE security_id=? AND kind <> 'shareholding' GROUP BY period_end, period_kind, basis HAVING count(*) > 1", [sid]);
+    for (const x of g) for (const k of new Set([x.period_kind, "Q", "H", "9M", "FY"])) await versionPeriod(db, sid, x.period_end, k, x.basis);
+    cur.after = sid; cur.companies++; cur.groups += g.length;
+    await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','version_backfill_focus',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
+  }
+  cur.done = todo.length <= perCall;
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','version_backfill_focus',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
+  return cur;
 }
 
 const months = (a: string, b: string) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5, 7)) - Number(a.slice(5, 7)) + 1;
@@ -462,6 +484,7 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8, scan = 20
   const cache = new Map<string, string | null>();
   const out: LoadOutcome[] = [];
   const delta: Record<string, number> = {};
+  const fresh: Record<string, { newest: string; rows: number }> = {};
   let i = 0;
   const worker = async () => {
     while (i < jobs.length) {
@@ -472,6 +495,7 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8, scan = 20
       out.push(o);
       delta[`fin_load:${o.status}`] = (delta[`fin_load:${o.status}`] ?? 0) + 1;
       if (j.prior) delta[`fin_load:${j.prior}`] = (delta[`fin_load:${j.prior}`] ?? 0) - 1;
+      if (o.status === "loaded" && o.newest) { const f = SHP_KINDS.includes(j.kind) ? "shareholding" : "results"; const w = fresh[f] ??= { newest: o.newest, rows: 0 }; w.rows++; if (o.newest > w.newest) w.newest = o.newest; }
       for (const [k, n] of Object.entries(o.counts ?? {})) if (n) { const key = k.includes(":") ? k : `fin_value:${k}`; delta[key] = (delta[key] ?? 0) + n; }
       const tries = j.tries + 1, now = deps.now();
       const retryAt = retryable(o) && tries < MAX_TRIES ? new Date(now.getTime() + 6 * 3600_000 * 2 ** (tries - 1)).toISOString() : null;
@@ -487,6 +511,7 @@ export async function loadBatch(deps: Deps, limit = 150, parallel = 8, scan = 20
   const at = deps.now().toISOString();
   const ups = Object.entries(delta).filter(([, n]) => n).map(([k, n]) => ({ sql: "INSERT INTO stat_counter (name, n, at) VALUES (?,?,?) ON CONFLICT (name) DO UPDATE SET n = n + excluded.n, at = excluded.at", params: [k, n, at] }));
   if (ups.length) await deps.filings.batch(ups);
+  for (const [feed, w] of Object.entries(fresh)) await markFresh(deps.filings, feed, w.newest, w.rows, deps.now());
   if (after !== saved?.after || fp !== saved?.focus) await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','loader_cursor',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [deps.now().toISOString(), JSON.stringify({ after, focus: fp })]);
   return out;
 }

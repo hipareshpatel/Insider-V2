@@ -2,8 +2,10 @@
 // ratings into their tables. Walks the ledger by a (kind, job_id) cursor over ix_fetch_kind_job (P0, 4 Nov: the former
 // "+kind" form scanned the whole table tail from the cursor on every run, since no new event list sits there) and stops at a
 // list that is not downloaded yet, so nothing is skipped. Rows are keyed; INSERT OR IGNORE makes re-reads harmless.
-import { type Sql, batchAll, byKindAfter, insertRows, parseBoardMeetings, parseCreditRatings, parsePit, parsePitXbrl, parseSast, parseXbrl } from "@disclo/core";
+import { type Sql, batchAll, byKindAfter, markFresh, insertRows, parseBoardMeetings, parseCreditRatings, parsePit, parsePitXbrl, parseSast, parseXbrl } from "@disclo/core";
 
+/** Newest of a set of ISO timestamps (null when none). */
+const newestOf = (xs: (string | null | undefined)[]) => xs.reduce<string | null>((a, x) => (x && (!a || x > a) ? x : a), null);
 const dnum = (iso: string | null) => (iso ? Number(iso.replace(/-/g, "")) : null);
 const KINDS = ["pit", "sast29", "board_meetings", "credit_rating"];
 export const SQL_EVENTS_NEXT = "SELECT job_id, kind, r2_key, status, attempts FROM fetch_job WHERE kind = ? AND job_id > ? ORDER BY job_id LIMIT ?";
@@ -64,16 +66,22 @@ async function write(db: Sql, kind: string, json: string, jobId: number, keep: (
     return r.length;
   }
   if (kind === "sast29") {
-    const r = parsed(() => parseSast(json)).filter((t) => keep(t.symbol)).map((s) => [s.key, s.symbol, s.acquirer, s.promoter === null ? null : s.promoter ? 1 : 0, s.regType, s.action, s.mode, s.secType, s.sharesAcq, s.sharesSale, s.sharesAfter, s.pctAcq, s.pctSale, s.pctAfter, s.period, s.disclosedAt, jobId]);
+    const objs = parsed(() => parseSast(json)).filter((t) => keep(t.symbol));
+    await markFresh(db, "sast29", newestOf(objs.map((o) => o.disclosedAt)), objs.length);
+    const r = objs.map((s) => [s.key, s.symbol, s.acquirer, s.promoter === null ? null : s.promoter ? 1 : 0, s.regType, s.action, s.mode, s.secType, s.sharesAcq, s.sharesSale, s.sharesAfter, s.pctAcq, s.pctSale, s.pctAfter, s.period, s.disclosedAt, jobId]);
     await batchAll(db, insertRows("INSERT OR IGNORE INTO sast_disclosure (key,symbol,acquirer,promoter,reg_type,action,mode,sec_type,shares_acq,shares_sale,shares_after,pct_acq,pct_sale,pct_after,period,disclosed_at,job_id)", 17, r));
     return r.length;
   }
   if (kind === "board_meetings") {
-    const r = parsed(() => parseBoardMeetings(json)).filter((t) => keep(t.symbol)).map((b) => [b.key, b.symbol, dnum(b.meetingDate), b.purpose, b.description, b.intimation, b.announcedAt, b.xbrl, jobId]);
+    const objs = parsed(() => parseBoardMeetings(json)).filter((t) => keep(t.symbol));
+    await markFresh(db, "board_meetings", newestOf(objs.map((o) => o.announcedAt)), objs.length);
+    const r = objs.map((b) => [b.key, b.symbol, dnum(b.meetingDate), b.purpose, b.description, b.intimation, b.announcedAt, b.xbrl, jobId]);
     await batchAll(db, insertRows("INSERT OR IGNORE INTO board_meeting (key,symbol,meeting_d,purpose,description,intimation,announced_at,xbrl,job_id)", 9, r));
     return r.length;
   }
-  const r = parsed(() => parseCreditRatings(json)).filter((t) => keep(t.symbol)).map((c) => [c.key, c.symbol, c.company, c.isin, c.agency, c.rating, c.outlook, c.action, dnum(c.ratedOn), c.earlierRating, c.earlierOutlook, c.disclosedAt, c.appId, jobId]);
+  const objs = parsed(() => parseCreditRatings(json)).filter((t) => keep(t.symbol));
+  await markFresh(db, "credit_rating", newestOf(objs.map((o) => o.disclosedAt)), objs.length);
+  const r = objs.map((c) => [c.key, c.symbol, c.company, c.isin, c.agency, c.rating, c.outlook, c.action, dnum(c.ratedOn), c.earlierRating, c.earlierOutlook, c.disclosedAt, c.appId, jobId]);
   await batchAll(db, insertRows("INSERT OR IGNORE INTO credit_rating (key,symbol,company,isin,agency,rating,outlook,action,rated_on,earlier_rating,earlier_outlook,disclosed_at,app_id,job_id)", 14, r));
   return r.length;
 }
@@ -123,6 +131,7 @@ export async function loadPitXbrl(db: Sql, getText: (k: string) => Promise<strin
             stmts.push(...insertRows("INSERT OR REPLACE INTO insider_trade (key,symbol,person,category,sec_type,txn,mode,qty,value_rs,before_qty,after_qty,before_pct,after_pct,from_d,to_d,intimated,disclosed_at,did,pid,exchange,derivative,job_id)", 22,
               trades.map((t) => [t.key, t.symbol, t.person, t.category, t.secType, t.txn, t.mode, t.qty, t.valueRs, t.beforeQty, t.afterQty, t.beforePct, t.afterPct, dnum(t.fromDate), dnum(t.toDate), dnum(t.intimated), t.disclosedAt, t.did, t.pid, t.exchange, t.derivative, j.job_id])));
             await batchAll(db, stmts);
+            await markFresh(db, "insider_trades", newestOf(trades.map((t) => t.disclosedAt)), trades.length);
             cur.rows += trades.length;
           }
         }
