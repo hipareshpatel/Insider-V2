@@ -55,8 +55,13 @@ export default {
         // it only got leftover seconds after it); once the range is loaded this returns at once.
         indexHist = await loadIndexHistory(deps.market, env.RAW, Math.max(0, 11.5 * 60_000 - (Date.now() - t0)));
         // one-off and small (836 weekend days, 25 per batch): its own minute, since the steps before it can use the run's time
-        const weekends = await loadIndexWeekends(deps.market, env.RAW, Math.max(60_000, 11.5 * 60_000 - (Date.now() - t0)));
-        if (weekends) indexHist = { ...(indexHist as object), weekends };
+        try {
+          const weekends = await loadIndexWeekends(deps.market, env.RAW, Math.max(60_000, 11.5 * 60_000 - (Date.now() - t0)));
+          if (weekends) indexHist = { ...(indexHist as object), weekends };
+        } catch (e) {
+          // a failure here must not stop the steps after it; recorded so /index-check shows it (no log access needed)
+          await deps.market.run("INSERT OR REPLACE INTO ms_day (source, d, rows, note) VALUES ('index_hist_weekends_err', 0, -2, ?)", [`${new Date().toISOString()} ${String(e).slice(0, 300)}`]).catch(() => {});
+        }
         // D150: sector history from the stored announcement lists (R2 only), with what is left.
         sectors = await buildSectors({ market: deps.market, raw: env.RAW, today: istNow(deps.now()).date }, Math.max(0, 12 * 60_000 - (Date.now() - t0)));
         return r;
@@ -102,7 +107,7 @@ export default {
       const closes = at.length ? (await env.DB_MARKET.prepare(`SELECT d, index_name, close, pe, pb, div_yield FROM index_daily WHERE lower(index_name) = 'nifty 50' AND d IN (SELECT value FROM json_each(?1)) ORDER BY d`)
         .bind(JSON.stringify(at.map(Number))).all()).results : [];
       const marker = !!(await env.RAW.head(WEEKEND_MARKER).catch(() => null));
-      const weekendRow = (await env.DB_MARKET.prepare("SELECT d, rows, note FROM ms_day WHERE source='index_hist_weekends'").all()).results;
+      const weekendRow = (await env.DB_MARKET.prepare("SELECT source, d, rows, note FROM ms_day WHERE source IN ('index_hist_weekends','index_hist_weekends_err')").all()).results;
       return Response.json({ years, closes, weekend_marker: marker, weekend_done: weekendRow }, { headers: { "cache-control": "no-store" } });
     }
     if (url.pathname === "/gaps") {
