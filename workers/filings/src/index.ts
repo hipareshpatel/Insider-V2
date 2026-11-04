@@ -82,6 +82,25 @@ export default {
         board_meetings: await one("SELECT count(*) AS n FROM board_meeting WHERE symbol=?1 AND coalesce(meeting_d, 0) BETWEEN ?2 AND ?3"),
       }, { headers: { "cache-control": "no-store" } });
     }
+    if (path === "/if-list") {
+      // Read-only (owner #337): every row of the stored NSE results lists for one company (period, basis, submission
+      // type, revision remarks, dates, XBRL link) — to see whether a revised/restated filing exists for a period.
+      const sym = new URL(req.url).searchParams.get("symbol") ?? "";
+      const lists = (await env.DB_FILINGS.prepare("SELECT job_id, kind, url, r2_key, fetched_at FROM fetch_job WHERE symbol=?1 AND kind IN ('integrated_financials','results_quarterly','results_annual') AND status='done' ORDER BY job_id").bind(sym).all<{ job_id: number; kind: string; url: string; r2_key: string; fetched_at: string }>()).results;
+      const rows: Record<string, unknown>[] = [];
+      for (const l of lists) {
+        const text = await getText(env.RAW, l.r2_key);
+        if (!text) continue;
+        let o: unknown; try { o = JSON.parse(text); } catch { continue; }
+        const arr = (Array.isArray(o) ? o : ((o as Record<string, unknown>).data ?? [])) as Record<string, unknown>[];
+        for (const r of arr) {
+          const pick: Record<string, unknown> = { list: l.kind, list_fetched: l.fetched_at?.slice(0, 10) };
+          for (const [k, v] of Object.entries(r)) if (v !== null && v !== "" && /period|qe_?date|todate|fromdate|audited|consol|cumulative|type|revis|remark|broadcast|filingdate|xbrl|date|nature|seq|relating/i.test(k)) pick[k] = typeof v === "string" ? v.slice(0, 140) : v;
+          rows.push(pick);
+        }
+      }
+      return Response.json({ lists: lists.length, rows }, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/contexts") {
       // Read-only (owner #337): every context of one stored XBRL file — id, dates, dimensions, number of facts, sample tags.
       const key = new URL(req.url).searchParams.get("key") ?? "";
