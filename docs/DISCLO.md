@@ -53,6 +53,34 @@
 
 **Repo:** `hipareshpatel/Insider-V2`, branch **`ccr-eb822347-c3zp4b`** (only branch). All documents are in `docs/`.
 
+### Build state — 2026-11-04 09:15 IST (handover to the next assistant)
+| Area | State |
+|---|---|
+| **Cost (read first)** | Charges this period $0.03 (storage). **D1 reads 24.2 of 25 B included used** — ≈ 20 B wasted by Claude's diagnostics (FMEA C56). Beyond 25 B: $1 per billion rows. Rules in C56: no polling loops, EXPLAIN every new query, full census only when a reader changes. Filings cron now every 5 min |
+| Market | 705 sessions to 3 Nov; M1 clean sessions 1/10 (daily check 22:41 IST); index history 2016–2023 complete incl. 5 weekend sessions; DUMMY… symbols outside the universe |
+| Insider trades (C53) | NSE moved to `/api/corporates-pit-gg` on 3 May 2026. List via Cloudflare (daily slots), XBRL via the GitHub attachment job, `parsePitXbrl` + `loadPitXbrl`; 2,250 of 3,298 filings loaded (09:14), ~1 h to finish at 150 files / 5 min. Then: count check (`/fresh` insider_new_system vs 3,298) |
+| Bulk/block (1.8) | JSON capped at 70/day; `csv=true` is not (656 deals / 8 days). ~210 CSV windows queued (kind `hist_deals_csv`); `refillDealsCsv` replaces capped days. Check `ms_day` notes `complete (csv window)` |
+| Statements (D154) | BS 99.58%, CF 95.81% of files; totals vs Screener 189/255 (rest = Screener conventions/errors, verified on Union Bank PDFs); **owner a/b pending** on ~1,240 files with untagged adjustments |
+| Restatements (C55) | No prior-year columns in any results XBRL; revised XBRL exists and is versioned/flagged on every line, statement and period kind; NSE submission type + revision remark stored (131 revisions, 87 remarks so far); one-off passes running (`/restatements`) |
+| Primary basis (D50/D51) | 97 of the focus companies decided (both 6, consolidated 81, standalone 10); 31 basis breaks + 153 coverage gaps in 26 companies — breaks now ignore quarters NSE itself lists (a missing file is a coverage gap). Next: work the gap list |
+
+### Handover prompt for the next assistant (owner #337, "write handover prompt")
+Copy everything between the lines.
+
+---
+You are continuing the build of **Disclo** (disclo.in), an Indian-equities data site: NSE disclosures (financial results, shareholding, insider trades, SAST, board meetings, ratings, bulk/block deals, prices, indices) turned into checked, sourced data for retail investors. Owner: non-technical founder; reply in simple English, result first, IST times; stress-test his ideas and never agree by default; report only what you verified.
+
+**Where everything is:** GitHub `hipareshpatel/Insider-V2`, branch `ccr-eb822347-c3zp4b` (the only branch). **One document holds everything: `docs/DISCLO.md`** — Part 1 state (read the latest build-state table first), Part 2 work list (do it in order), Part 3 plan + decisions D1–D159 (Appendix A), Part 4 website (owned by the website chat — do not edit), Part 5 data reference, Part 6 failure modes (FMEA C1–C56: read C53–C56), Part 7 operations, Part 8 the owner's words (append one row per owner message at the end of the log table, then run the consistency check at the end of Part 8).
+
+**Stack:** Cloudflare Workers (`workers/market` cron 10 min, `workers/filings` cron 5 min, `workers/prefetch` cron 1 min, `workers/web` offline) + D1 + R2 (`disclo-raw`); shared readers in `packages/core`; migrations in `db/migrations/<db>/`; GitHub Actions: `deploy.yml` deploys on push (tests first), `prefetch-archive.yml` / `prefetch-attachments.yml` download NSE archive files to R2, `infra-check.yml` daily cost guard. `npm run check` = tests; `npx tsc -b` = types. Read-only status pages on `https://disclo-<worker>.financialengineer-in.workers.dev/` (`/status`, `/fresh`, `/restatements`, `/primary-basis`, `/index-check`) — call them once, never in a polling loop.
+
+**Hard rules (owner's):** scope is the 250 focus companies (Nifty 50 + Next 50 + Midcap 150) until the freeze; nothing already downloaded is deleted; never put secrets, personal emails or PAN/DIN numbers in the repo, logs or public pages; no bot-check circumvention (no proxies, disguised browsers, faked headers) — NSE refuses GitHub for its API host, so API lists come via Cloudflare and archive files via GitHub; budget $10/month: D1 writes capped at 54M/month, **D1 reads are nearly at the 25 B included — EXPLAIN-check every new query, no full-table scans in cron paths, no polling** (C56); a reader change needs a whole-population census first (D134), at most once; confirm a deploy succeeded before reporting it; one item at a time from Part 2.
+
+**Running now (check, don't restart):** insider trades from NSE's new system loading (count check vs 3,298 filings when done); bulk/block CSV windows downloading + capped days refilling; one-off version and revision-remark passes; daily primary basis + coverage gaps.
+
+**Next, in order:** (1) insider count check and freshness rule for every feed (owner to-do: NSE inventory with daily evidence, Part 2); (2) coverage gaps for the 250 (`coverage_gap`), fix by class; (3) verify bulk/block refill; (4) 2.8 shareholding counts vs NSE; (5) D157 statement layout (Schedule III heads with sub-rows); (6) computed views D49/D52/D66 and the feature table. **Waiting on the owner:** a/b for cash-flow files with untagged adjustments (recommended a: labelled "Other adjustments (not itemised in the filing)" line when the three section totals check).
+---
+
 ### Build state — 2026-11-04 05:40 IST (check-ins 7–10 closed; session was down 22:00–05:15 IST)
 | Area | State |
 |---|---|
@@ -228,10 +256,10 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | D62 | FII/DII history from go-live | ✅ from 3 Nov | — |
 | D65 | Delivery file | ✅ `/gaps` = 0 | — |
 | D76, D148 | Market structure loaded from R2 with a day ledger | ✅ | — |
-| 1.8 | Bulk/block history capped at 70 rows on 480 of 704 days | ⬜ | Test the history call split by symbol (250) |
+| 1.8 | Bulk/block history capped at 70 rows on 480 of 704 days | 🔶 csv=true uncapped; windows queued; refill live | Verify refilled days |
 | D125, D129, §9.1 | Market gates | ✅ code + tests | — |
 | D141 | Review queue decided with evidence | ✅ empty | — |
-| **D146** | Series breaks | 🔶 recorded only as review decisions | Own table for the site/API |
+| **D146** | Series breaks | ⏭ all known cases are outside the 250 (SPENTEX, MELSTAR, Tata Coffee…) | At widening |
 | §9.2 | Phase 1 tests 1–6 | ✅ all six | Re-run at freeze |
 | §14 | 10 consecutive clean sessions | 🔶 counting | Daily |
 | D156 | Index history 2016–2023 | ✅ 2,086 weekdays + 5 weekend sessions, 165k rows, Nifty 50 every day, closes = NSE (4 Jan 2016, 23 Mar 2020, 29 Dec 2023) | — |
@@ -244,9 +272,9 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | D32 | `period` + `disclosed_at` on every fact | ✅ | — |
 | D47, D132 | As filed (R2) → canonical → computed views | ✅ first two; computed ⬜ (A4) | — |
 | D48 | Restatements versioned, > 0.5% flagged | ✅ | — |
-| **D50, D51** | **Primary basis per company** (consolidated most, standalone banks, both for holding cos); **basis switch → series break**; basis on every number | 🔶 both bases stored + tagged; primary basis and switch detection ⬜ | Derive and detect |
+| **D50, D51** | **Primary basis per company** (consolidated most, standalone banks, both for holding cos); **basis switch → series break**; basis on every number | 🔶 built (`basis.ts`, daily, 25 companies/run): banks standalone, holding cos = standalone income < 20% of consolidated, breaks only where NSE lists no consolidated filing | Review the 'both' list (Eternal borderline); fix coverage gaps; then breaks are real |
 | D76 | Integrated Filing primary; ratings structured | ✅ | — |
-| D90 | 5 years of statements for the 250 | 🔶 loading | Coverage per company vs NSE's lists |
+| D90 | 5 years of statements for the 250 | 🔶 coverage check live (`coverage_gap`, `/primary-basis`): 153 gaps in 26 companies so far | Fix by class (why each listed file is not loaded) |
 | §14 | ≥ 99.5% parse + identity checks | 🔶 99.66% (part) | Measure on the 250 |
 | D90 FY | Full-year figures | ✅ census 99.68% | Re-measure on the 250 |
 | D154 | Every reported line, three statements | 🔶 BS 99.58%, CF 95.81% (0 newly failing); totals vs Screener 189/255 (rest = Screener conventions/errors, #332) | owner a/b on untagged adjustments; 17 direct-method; bank/NBFC/insurer maps |
@@ -2923,6 +2951,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 334 | "How on earth is it possible that companies file PDF but no XBRL … NSE itself uses XBRL for their data services, so it's impossible not to have revised XBRL." (+ "Coming to restated, did you compare two results and verify the PDF?") | Partly right, checked on evidence: revised XBRL exists (BSE FAQ Nov 2025 Q11; Union Bank Q4 FY26 revised 29 Sep 2026, remark stored) and is downloaded; but no results XBRL carries prior-year columns (74,571 files; Union Bank's 45), and Union Bank filed no revised FY25 XBRL although its FY26 PDF shows regrouped FY25 cash flows. FMEA C55; revision check widened to every line, statement and period kind. | ✅ |
 | 335 | "Keep in mind we are going live with 250 stocks; remove stocks whose name starts with DUMMY, they are for corporate actions. Let's focus our energy on finishing the tasks we decided in the unified document." | DUMMY… symbols taken out of the universe and marked 'other' (stored rows kept, #282). Working the Part 2 list in order for the 250: probe schedule removed, D156 closed, insider load (C53) and revision checks finishing; next 1.8 bulk/block split, D146 series-break table, D50/D51 primary basis, 2.8 shareholding counts, D157 layout. | 🔶 |
 | 336 | (Angry) Claude used the owner's Cloudflare unnecessarily. | Correct: measured by the cost guard — charges $0.03, but 24.2 of 25 billion included D1 reads used, ≈ 20 billion by Claude's own diagnostics and polling (FMEA C56). Fixed the queries, added indexes, stopped polling; rules recorded in C56. | ✅ |
+| 337 | "Update documentation and write a handover prompt, I will get it done from ChatGPT." | Part 1 build state 09:15 IST, work-list statuses and a copy-ready handover prompt written in Part 1. Corrected the quoted status: the revision pass failed on a duplicate-key conflict (figures stored under both labels), now fixed and moving. | ✅ |
 
 ### Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -2931,7 +2960,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-04 after entry #336: all checks pass (159 decisions, 336 entries); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
+*Last run 2026-11-04 after entry #337: all checks pass (159 decisions, 337 entries); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
 
 ### Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
