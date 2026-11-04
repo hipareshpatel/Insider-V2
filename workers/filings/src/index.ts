@@ -3,7 +3,7 @@ import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { RESULT_KINDS, backfillBsCf, loadBatch, remarkBackfill, versionBackfill } from "./load.js";
 import { census, tagCensus } from "./census.js";
-import { loadEvents } from "./events.js";
+import { loadEvents, loadPitXbrl } from "./events.js";
 import { caLists } from "./calists.js";
 import { BS_LINES, CF_LINES, balanceAndCash, parsePit, parseXbrl, statementDetail } from "@disclo/core";
 
@@ -50,6 +50,7 @@ export default {
         // C47: events first. Placed last, they never ran while the results backlog filled every run (cursor stuck at
         // job 250168; INFY 20 of NSE's 2,199 insider trades). Lists are small; 150 per run.
         await loadEvents(ldeps.filings, ldeps.getText, 150); // M2 events: PIT, SAST, board meetings, credit ratings (owner #289)
+        await loadPitXbrl(ldeps.filings, ldeps.getText, 150); // C53: insider trades from NSE's system since 3 May 2026 (pit-gg XBRL)
         out = await loadBatch(ldeps, 300, 8);
         if (ldeps.bscf) await backfillBsCf(ldeps, out.length < 300 ? 200 : 60); // M2: BS/CF + FY (D90) for earlier filings; a small share every run (it never started while the backlog filled every run)
         await versionBackfill(ldeps.filings, 150); // D48: label earlier-loaded revisions once

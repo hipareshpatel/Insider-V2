@@ -3,6 +3,7 @@
 // all-company board meetings Oct 2026, credit ratings Jan 2024). Each row gets a stable key, so re-reading an
 // overlapping list (capped latest-20 list + full dated list, D149) never double-counts.
 import { isoFromNseDate } from "./structure.js";
+import type { XbrlInstance } from "../xbrl.js";
 
 const rowsOf = (json: string): Record<string, unknown>[] => { const d = JSON.parse(json) as unknown; return Array.isArray(d) ? d as Record<string, unknown>[] : ((d as { data?: Record<string, unknown>[] }).data ?? []); };
 const str = (v: unknown) => { const s = String(v ?? "").trim(); return s === "-" || s === "null" ? "" : s; };
@@ -34,6 +35,28 @@ export function parsePit(json: string): InsiderTrade[] {
       did: str(r.did), pid: str(r.pid), exchange: str(r.exchange), derivative: str(r.derivativeType) };
     return { key: rowKey("pit", t.symbol, t.did, t.pid, t.person, t.secType, t.txn, t.qty, t.valueRs, t.fromDate, t.toDate, t.afterQty), ...t };
   }).filter((t) => t.symbol);
+}
+
+/** C53: NSE's insider-trading system since 3 May 2026 — one PIT XBRL per filing (in-bse-co taxonomy; NSE and BSE share
+ *  it), one dimensioned context per disclosed person ("Disclosure1", "Disclosure2", …). Read from a real filing
+ *  (ACEVECTOR, 3 Nov 2026). Values as filed. The identification number (PAN / DIN / CIN) is never read. Keys are
+ *  "pitx:<appId>:<context>", so a revised filing can replace its original by appId (prevAppId). */
+export function parsePitXbrl(inst: XbrlInstance, meta: { appId: string; broadcast: unknown; symbol?: string }): InsiderTrade[] {
+  const v = (ctx: string, local: string) => inst.facts.find((f) => f.contextRef === ctx && f.tag.endsWith(`:${local}`) && !f.nil)?.value ?? null;
+  const symbol = inst.facts.find((f) => f.tag.endsWith(":Symbol"))?.value?.trim() || meta.symbol || "";
+  const disclosedAt = nseDateTime(meta.broadcast);
+  const ctxs = [...inst.contexts.values()].filter((c) => Object.keys(c.dims).length && inst.facts.some((f) => f.contextRef === c.id && f.tag.endsWith(":NameOfThePerson")));
+  return ctxs.map((c) => ({
+    key: `pitx:${meta.appId}:${c.id}`, symbol,
+    person: str(v(c.id, "NameOfThePerson")), category: str(v(c.id, "CategoryOfPerson")), secType: str(v(c.id, "TypeOfInstrument")),
+    txn: str(v(c.id, "SecuritiesAcquiredOrDisposedTransactionType")), mode: str(v(c.id, "ModeOfAcquisitionOrDisposal")),
+    qty: int(v(c.id, "SecuritiesAcquiredOrDisposedNumberOfSecurity")), valueRs: str(v(c.id, "SecuritiesAcquiredOrDisposedValueOfSecurity")),
+    beforeQty: int(v(c.id, "SecuritiesHeldPriorToAcquisitionOrDisposalNumberOfSecurity")), afterQty: int(v(c.id, "SecuritiesHeldPostAcquistionOrDisposalNumberOfSecurity") ?? v(c.id, "SecuritiesHeldPostAcquisitionOrDisposalNumberOfSecurity")),
+    beforePct: str(v(c.id, "SecuritiesHeldPriorToAcquisitionOrDisposalPercentageOfShareholding")), afterPct: str(v(c.id, "SecuritiesHeldPostAcquistionOrDisposalPercentageOfShareholding") ?? v(c.id, "SecuritiesHeldPostAcquisitionOrDisposalPercentageOfShareholding")),
+    fromDate: v(c.id, "DateOfAllotmentAdviceOrAcquisitionOfSharesOrSaleOfSharesSpecifyFromDate"), toDate: v(c.id, "DateOfAllotmentAdviceOrAcquisitionOfSharesOrSaleOfSharesSpecifyToDate"),
+    intimated: v(c.id, "DateOfIntimationToCompany"), disclosedAt, did: meta.appId, pid: c.id, exchange: str(v(c.id, "ExchangeOnWhichTheTradeWasExecuted")),
+    derivative: str(v(c.id, "TypeOfContract") ?? v(c.id, "DerivativeTypeOfContract")),
+  })).filter((t) => t.symbol);
 }
 
 export interface SastDisclosure {
