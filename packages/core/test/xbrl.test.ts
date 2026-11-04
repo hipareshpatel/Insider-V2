@@ -64,6 +64,14 @@ describe("C64: a mistyped reporting-start date (HDFCLIFE / ICICILIFE Q3 FY26: 20
     expect(typo).not.toBe(raw);
     expect(canonicalResult(parseXbrl(typo))).toMatchObject({ periodStart: "2026-07-01", periodEnd: "2026-09-30", periodKind: "Q", lines: { revenue: "407190000000" } });
   });
+  it("a typo that also dates the year-to-date context gives a 15-month period: the current-period context's dates rule (SIEMENS Q2 FY25)", () => {
+    const full = readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_INFY_IF_Q2FY27_cons_full.xml"), "utf8");
+    const want = canonicalResult(parseXbrl(full));
+    const typo = full.replace('DateOfStartOfReportingPeriod contextRef="OneD">2026-07-01', 'DateOfStartOfReportingPeriod contextRef="OneD">2025-07-01')
+      .replace(/(<xbrli:context id="FourD">.*?<xbrli:startDate>)2026-04-01/s, "$12025-07-01");
+    expect(typo).toContain('<xbrli:startDate>2025-07-01');
+    expect(canonicalResult(parseXbrl(typo))).toMatchObject({ periodStart: "2026-07-01", periodEnd: "2026-09-30", periodKind: "Q", lines: { revenue: want.lines.revenue } });
+  });
   it("still fails when the file's content is another period (SIEMENS: OneD ends before the reporting end date)", () => {
     const other = raw.replace(/(DateOfStartOfReportingPeriod[^>]*>)2026-07-01</, "$12026-10-01<").replace(/(DateOfEndOfReportingPeriod[^>]*>)2026-09-30</, "$12026-12-31<");
     expect(() => canonicalResult(parseXbrl(other))).toThrow(/no context/);
