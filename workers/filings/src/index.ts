@@ -1,13 +1,13 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { COVERAGE_FLOOR, RESULT_KINDS, backfillBsCf, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
-import { BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
+import { BS_INDUSTRIAL, CF_INDUSTRIAL, PL_INDUSTRIAL, derivedPl, layoutStatement, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; WRITE_SOFT_CAP?: string; WRITE_HARD_CAP?: string; WRITE_CAP_MONTH?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string; STATUS_TOKEN?: string; DAILY_READ_CAP?: string }
 
@@ -238,6 +238,19 @@ export default {
       const res = await shpCoverage(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), all.slice(offset, offset + limit), COVERAGE_FLOOR);
       const t = res.companies.reduce((a, c) => ({ listed: a.listed + c.listed, loaded: a.loaded + c.loaded }), { listed: 0, loaded: 0 });
       return Response.json({ companies_total: all.length, offset, limit, totals: t, list_row_keys: res.keys, none_listed: res.companies.filter((c) => !c.listed).map((c) => c.symbol), with_missing: res.companies.filter((c) => c.missing.length) }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/statement") {
+      // D157 (read-only check of the layout): one company's stored statements for one period laid out in the Schedule III
+      // tree (filed values only; derived rows labelled, never stored). ?symbol=&period=YYYY-MM-DD&basis=&kind=Q|FY
+      const u = new URL(req.url), sym = u.searchParams.get("symbol") ?? "", period = u.searchParams.get("period") ?? "";
+      const basis = u.searchParams.get("basis") === "standalone" ? "standalone" : "consolidated", kind = u.searchParams.get("kind") === "FY" ? "FY" : "Q";
+      const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
+      if (!sid || !/^\d{4}-\d{2}-\d{2}$/.test(period)) return Response.json({ error: "symbol or period" }, { status: 400 });
+      const rows = (await env.DB_FILINGS.prepare(SQL_STATEMENT_ROWS).bind(sid, period, basis, kind).all<{ statement: string; line: string; value: string | null; period_kind: string }>()).results;
+      const of = (st: string) => Object.fromEntries(rows.filter((r) => r.statement === st).map((r) => [r.line, r.value]));
+      const pl = of("pl");
+      return Response.json({ symbol: sym, period, basis, kind, template: "industrial (Schedule III Div II)",
+        pl: [...layoutStatement(PL_INDUSTRIAL, pl), ...derivedPl(pl)], bs: layoutStatement(BS_INDUSTRIAL, of("bs")), cf: layoutStatement(CF_INDUSTRIAL, of("cf")) }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/coverage-gaps") {
       // Work list item 2: coverage gaps of the focus companies by class (coverage_gap.status, set by /maint/coverage_classify)

@@ -60,7 +60,8 @@
 | **Accepted gaps (25, not chased further)** | **12** NSE answers 404 for the standalone XBRL, re-fetched once on 4 Nov and 404 again: ADANIENT Mar/Sep 2025, Mar/Sep 2026; ADANIGREEN Mar/Sep 2026; JSWENERGY Mar/Sep 2026; UPL Mar/Sep 2025, Mar/Sep 2026 (consolidated loaded). **9** no quarter in the filed XBRL: COFORGE Sep 2026 (both) and COALINDIA Sep 2026 (both) are genuine half-years; COFORGE Mar 2025 consolidated and MANKIND Mar 2025 (both) fail the C62 proof; CGPOWER Mar 2025 (both) — the linked file holds H1 FY25. **2** SIEMENS Q3 FY26 (both) — the file holds Apr–Jun 2025. **2** BAJAJFINSV standalone Jun and Sep 2026 — held: profit ÷ shares does not match the filed EPS within 2%. Possible later sources (not built): iXBRL files, the next quarter's comparative column, PDF extraction |
 | **Item 3 — deals refill (owner #355: moved to the end, before the universe expansion)** | Checked 4 Nov 22:08 IST (market `/status`): bulk and block 0 days still marked "possibly truncated" over 706 sessions (bulk 71,190 rows, block 4,929; 5 days with no file each). Short selling has 304 days at the same 70-row cap and no CSV source — **added to the end of the list (owner #356)**: find an uncapped source. Both kept as the last items before the universe expansion |
 | **Cost** | D1 writes this month 48.1M of 50M included (cap 54M; 15.9M on 4 Nov, mostly the morning's index build). One-off passes kept small |
-| **Next** | Item 4 — 2.8 shareholding counts vs NSE |
+| **Item 4 — 2.8 shareholding counts (5 Nov 07:41 IST, `/shp-coverage`, 5 read-only calls)** | **2,820 of 2,824** shareholding filings NSE lists for the 250 from 2024-01-01 are loaded (99.9%). Not loaded, noted and not chased (owner #357): **4** download 404 — VOLTAS Jun 2025, VMM Jun 2025, one non-quarter-end filing each of LTIM and BSE; **5** listed by NSE without an XBRL link — CANBK Dec 2025, TIINDIA Jun 2026, BSE Jun 2024 / Dec 2024 / Mar 2025; **3 companies with no shareholding list** — EMBASSY (REIT, expected), MCX and ABBOTINDIA (not investigated). Six 2022 filings (UNOMINDA ×3, PATANJALI, SHRIRAMFIN, MOTHERSON) show as missing only because they are not dated at a quarter end — correctly excluded by the loader (D168) |
+| **Item 5 — D157 layout, industrial (5 Nov)** | Built: Schedule III Div II trees for P&L, balance sheet and cash flow over the lines we store; every stored line placed exactly once (test); filed values only; derived rows (operating profit, OPM %) labelled, computed when shown, never stored. Check page `/statement`. Remaining formats: NBFC, bank, insurers |
 
 ### Build state — 2026-11-04 12:20 IST (owner #343: paused passes restarted behind a cost gate; work list item 1)
 | Area | State |
@@ -129,7 +130,7 @@ You are continuing the build of **Disclo** (disclo.in), an Indian-equities data 
 
 **Running now (check, don't restart):** insider trades from NSE's new system loading (count check vs 3,298 filings when done); bulk/block CSV windows downloading + capped days refilling; one-off version and revision-remark passes; daily primary basis + coverage gaps.
 
-**Next, in order:** (1) insider count check and freshness rule for every feed (owner to-do: NSE inventory with daily evidence, Part 2); (2) coverage gaps for the 250 (`coverage_gap`), fix by class; (3) ~~verify bulk/block refill~~ moved to the end (owner #355); (4) 2.8 shareholding counts vs NSE; (5) D157 statement layout (Schedule III heads with sub-rows); (6) computed views D49/D52/D66 and the feature table; **last, before the universe expansion:** (a) sign off the bulk/block refill (checked 4 Nov: 0 capped days); (b) short selling: 304 days at the API's 70-row cap — find an uncapped source (owner #356). **Waiting on the owner:** a/b for cash-flow files with untagged adjustments (recommended a: labelled "Other adjustments (not itemised in the filing)" line when the three section totals check).
+**Next, in order:** (1) insider count check and freshness rule for every feed (owner to-do: NSE inventory with daily evidence, Part 2); (2) coverage gaps for the 250 (`coverage_gap`), fix by class; (3) ~~verify bulk/block refill~~ moved to the end (owner #355); (4) ~~2.8 shareholding counts vs NSE~~ ✅ 2,820 / 2,824 (5 Nov); (5) D157 statement layout (Schedule III heads with sub-rows); (6) computed views D49/D52/D66 and the feature table; **last, before the universe expansion:** (a) sign off the bulk/block refill (checked 4 Nov: 0 capped days); (b) short selling: 304 days at the API's 70-row cap — find an uncapped source (owner #356). **Waiting on the owner:** a/b for cash-flow files with untagged adjustments (recommended a: labelled "Other adjustments (not itemised in the filing)" line when the three section totals check).
 ---
 
 ### Build state — 2026-11-04 05:40 IST (check-ins 7–10 closed; session was down 22:00–05:15 IST)
@@ -329,9 +330,9 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | §14 | ≥ 99.5% parse + identity checks | 🔶 99.66% (part) | Measure on the 250 |
 | D90 FY | Full-year figures | ✅ census 99.68% | Re-measure on the 250 |
 | D154, D167 | Every reported line, three statements | 🔶 BS 99.58%, CF 95.81% (0 newly failing); untagged CF adjustments: option (a) decided (D167) — build after its census; totals vs Screener 189/255 (rest = Screener conventions/errors, #332) | owner a/b on untagged adjustments; 17 direct-method; bank/NBFC/insurer maps |
-| **D157** | Heads with sub-rows (Schedule III layout per format) | ⬜ | Build the layout trees; reference: the owner's ProwessIQ data dictionary in `docs/` (owner #341) |
+| **D157** | Heads with sub-rows (Schedule III layout per format) | 🔶 industrial (Schedule III Div II) built 5 Nov: `packages/core/src/layout.ts` — P&L, balance sheet and cash-flow trees of the stored lines, `layoutStatement` (filed values only; an unfiled head shows its filed sub-rows, no sum), `derivedPl` (operating profit, OPM % — computed when shown, labelled, never stored); read-only `/statement?symbol=&period=&basis=&kind=` to check on real data. ProwessIQ used only as a cross-check (CMIE's classification is theirs; the tree follows the public Schedule III format and the filers' tag names) | Next formats: NBFC (Div III), bank (Third Schedule), life and general insurers (IRDAI); website wiring is Part 4 (website chat) |
 | D121, D150 | Sector | ✅ | Confirm all 250 have one |
-| 2.8 | Shareholding coverage + counts vs NSE (250) | ⬜ | Check |
+| 2.8 | Shareholding coverage + counts vs NSE (250) | ✅ 2,820 of 2,824 from 2024-01-01 loaded (5 Nov); 9 missing + 3 companies without a list noted (Part 1) | — |
 | 2.10 | Credit ratings vs NSE by month | ⬜ | Small endpoint + check |
 | **D40** | **Promoter-group structures from shareholding** | ⬜ | Derive per company |
 | D47 | Segment results | ⬜ | Census + reader (stock page "segments") |
@@ -3054,6 +3055,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 354 | "After this let's accept the gap and move to next item" | Item 2 closed: 25 remaining gaps (10 companies) accepted with reasons (Part 1, 5 Nov) | ✅ |
 | 355 | "Item 3, bulk/block deals … Ignore it and keep it at last before we expand universe" | Item 3 moved to the end of the work list, before the universe expansion (checked 4 Nov: 0 capped days); next item 4 | ✅ |
 | 356 | "Short selling has 304 days at the same 70-row cap … Add it also in last" | Added to the end of the work list with the bulk/block sign-off, before the universe expansion: find an uncapped short-selling source for the 304 capped days | ✅ |
+| 357 | "Anything missing will be noted and we will move forward" | Item 4 run on all 250 (5 read-only calls): 2,820 of 2,824 loaded; the 9 missing and 3 companies without a list noted in Part 1, not chased; next item 5 | ✅ |
 
 ### Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -3062,7 +3064,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-04 after entry #356: all checks pass (170 decisions, 356 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
+*Last run 2026-11-04 after entry #357: all checks pass (170 decisions, 357 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
 
 ### Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
