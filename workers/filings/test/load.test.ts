@@ -943,3 +943,19 @@ describe("D167 (b): cash-flow detail with untagged adjustments", async () => {
     expect(filings.raw.prepare("SELECT count(*) AS n FROM fin_value WHERE line LIKE 'derived:%'").get()).toEqual({ n: 0 });
   });
 });
+
+describe("item 7: credit-rating company-name fallback", async () => {
+  const { nameKey, ratingSymbol } = await import("../src/events.js");
+  it("reduces names for an exact match only", () => {
+    expect(nameKey("The Tata Power Company Limited")).toBe(nameKey("TATA POWER CO LTD"));
+    expect(nameKey("State Bank Of India")).toBe("STATE BANK OF INDIA");
+    expect(nameKey("Larsen & Toubro Limited")).toBe("LARSEN AND TOUBRO");
+    expect(nameKey("Bank of India")).not.toBe(nameKey("Bank of Maharashtra"));
+  });
+  it("matches by name only when the issuer code does not (SBI bond under INE651A; TVS Motor with a placeholder ISIN)", () => {
+    const issuers = new Map([["INE062A", "SBIN"], [`name:${nameKey("STATE BANK OF INDIA")}`, "SBIN"], ["INE494B", "TVSMOTOR"], [`name:${nameKey("TVS MOTOR COMPANY LTD")}`, "TVSMOTOR"]]);
+    expect(ratingSymbol({ symbol: "", isin: "INE651A08041", company: "State Bank Of India" }, issuers)).toBe("SBIN");
+    expect(ratingSymbol({ symbol: "", isin: "FFF000F00000", company: "TVS Motor Company Limited" }, issuers)).toBe("TVSMOTOR");
+    expect(ratingSymbol({ symbol: "", isin: "INE530B08144", company: "IIFL Finance Limited" }, issuers)).toBe("");
+  });
+});

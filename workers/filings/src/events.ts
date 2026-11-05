@@ -24,23 +24,39 @@ export interface EventOpts { focus?: string[]; deadline?: number; issuers?: Map<
  *  its shares INE040A01034 and its bonds INE040A08…), so a rating is the focus company's when its ISIN's issuer part is
  *  that of one of the company's own ISINs. */
 export const issuerOf = (isin: string | null | undefined) => (isin && /^IN[A-Z][0-9A-Z]{4}/.test(isin) ? isin.slice(0, 7) : null);
-export const SQL_FOCUS_ISSUERS = `SELECT n.value AS symbol, i.value AS isin FROM security_identifier n
+export const SQL_FOCUS_ISSUERS = `SELECT n.value AS symbol, i.value AS isin, s.name AS name FROM security_identifier n
   JOIN security_identifier i ON i.security_id = n.security_id AND i.id_type = 'isin'
+  JOIN security s ON s.security_id = n.security_id
   WHERE n.id_type = 'nse_symbol' AND n.value IN (SELECT value FROM json_each(?1))`;
+/** Company name reduced for an exact match: upper case, "&" → AND, punctuation and a leading THE dropped, the legal
+ *  suffix dropped, CO/CORP spelled one way ("The Tata Power Company Limited" = "TATA POWER CO LTD"). */
+export function nameKey(name: string | null | undefined): string {
+  const w = String(name ?? "").toUpperCase().replace(/&/g, " AND ").replace(/[^A-Z0-9 ]/g, " ").split(/\s+/).filter(Boolean)
+    .map((x) => (x === "COMPANY" ? "CO" : x === "CORPORATION" ? "CORP" : x === "LIMITED" ? "LTD" : x));
+  if (w[0] === "THE") w.shift();
+  while (w.length && (w[w.length - 1] === "LTD" || w[w.length - 1] === "PVT" || w[w.length - 1] === "PRIVATE")) w.pop();
+  return w.join(" ");
+}
+/** Issuer code → symbol, and "name:<nameKey>" → symbol (the fallback for bonds under another issuer code, e.g. SBI
+ *  INE649A / INE651A vs shares INE062A, and placeholder ISINs such as ZZZ000Z00000). */
 export async function focusIssuers(market: Sql, focus: string[]): Promise<Map<string, string>> {
   const m = new Map<string, string>();
-  for (const r of await market.all<{ symbol: string; isin: string }>(SQL_FOCUS_ISSUERS, [JSON.stringify(focus)])) { const k = issuerOf(r.isin); if (k && !m.has(k)) m.set(k, r.symbol); }
+  for (const r of await market.all<{ symbol: string; isin: string; name: string }>(SQL_FOCUS_ISSUERS, [JSON.stringify(focus)])) {
+    const k = issuerOf(r.isin); if (k && !m.has(k)) m.set(k, r.symbol);
+    const nk = nameKey(r.name); if (nk.length >= 4 && !m.has(`name:${nk}`)) m.set(`name:${nk}`, r.symbol);
+  }
   return m;
 }
 /** The symbol a rating belongs to. The issuer code decides; NSE's own Symbol field counts only when it is one of the
  *  focus companies' symbols — it often holds "NOTLISTED", "NA", "Not Listed", "000000" or "222333" even for listed
  *  issuers (L&T INE018A08BJ8 "NOTLISTED", Reliance INE002A08690 "NA"). Without an issuer map: NSE's field as given. */
-export function ratingSymbol(c: { symbol: string; isin: string }, issuers?: Map<string, string>): string {
+export function ratingSymbol(c: { symbol: string; isin: string; company?: string }, issuers?: Map<string, string>): string {
   if (!issuers) return c.symbol;
   const m = issuers.get(issuerOf(c.isin) ?? "");
   if (m) return m;
   for (const v of issuers.values()) if (v === c.symbol) return c.symbol;
-  return "";
+  // last: the rated company's exact (reduced) name is a focus company's listed name
+  return issuers.get(`name:${nameKey(c.company)}`) ?? "";
 }
 type Cursor = { after: number; rows: number; stuck?: number; tries?: number; failed?: number };
 /** Read one stored file: text, null when it is not in R2, or "wait" on a storage error (≤ 3 runs, then recorded). */
@@ -172,7 +188,7 @@ export async function loadPitXbrl(db: Sql, getText: (k: string) => Promise<strin
  *  not stored yet are added (INSERT OR IGNORE), stored ones still without a symbol get it (owner #363: symbol filled,
  *  nothing deleted). Cursor by job_id in ('once','ratings_relink'). */
 export async function ratingsRelink(db: Sql, getText: (k: string) => Promise<string | null>, focus: string[], issuers: Map<string, string>, limit = 12) {
-  const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='ratings_relink_v2'");
+  const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='ratings_relink_v3'");
   const cur = st ? JSON.parse(st.detail) as { after: number; lists: number; rows: number; inserted: number; linked: number; done: boolean }
     : { after: 0, lists: 0, rows: 0, inserted: 0, linked: 0, done: false };
   if (cur.done) return cur;
@@ -192,6 +208,6 @@ export async function ratingsRelink(db: Sql, getText: (k: string) => Promise<str
     cur.linked += await batchAll(db, mine.map((c) => ({ sql: "UPDATE credit_rating SET symbol = ?1 WHERE key = ?2 AND symbol <> ?1", params: [c.symbol, c.key] })));
   }
   cur.done = jobs.length < limit;
-  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','ratings_relink_v2',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','ratings_relink_v3',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
   return cur;
 }
