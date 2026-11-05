@@ -78,6 +78,17 @@ describe("item 6: feature-table values for one company (D171)", () => {
     expect(at("roce", "2026-09-30").value).toBe("24.36");
     expect(rows.some((r) => r.field === "roe" && r.periodEnd === "2026-06-30")).toBe(false); // no balance sheet that date
   });
+  it("interest cover = TTM EBIT ÷ TTM finance costs; debt to equity = borrowings ÷ equity to owners", () => {
+    // TTM EBIT to Sep 2026 = 134 (above); finance costs 4 × 2 = 8 → 16.75
+    expect(at("interest_coverage_ttm", "2026-09-30")).toMatchObject({ value: "16.75" });
+    expect(at("interest_coverage_ttm", "2025-12-31").value).toBeNull(); // not four quarters yet
+    // borrowings 50 + 30 = 80 ÷ owners' equity 500 = 0.16
+    expect(at("debt_to_equity", "2026-09-30")).toMatchObject({ value: "0.16", inputs: ["balance sheet 2026-09-30"] });
+    const noDebt = companyFeatures(qs.map((x) => ({ ...x, lines: { ...x.lines, finance_cost: "0" } })), bs, "consolidated", "industrial");
+    expect(noDebt.find((r) => r.field === "interest_coverage_ttm" && r.periodEnd === "2026-09-30")!.reason).toMatch(/no finance costs/);
+    const bank = companyFeatures(qs, bs, "consolidated", "bank");
+    expect(bank.find((r) => r.field === "debt_to_equity")!.reason).toMatch(/not used for bank/);
+  });
   it("a bank gets no EBITDA or ROCE (reasons stored) and uses total income as revenue", () => {
     const bank = qs.map((q) => ({ ...q, lines: { total_income: q.lines.revenue, pat: q.lines.pat, pat_after_minority: q.lines.pat_owners } }));
     const b = companyFeatures(bank, new Map(), "consolidated", "bank");
