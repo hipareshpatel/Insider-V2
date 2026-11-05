@@ -12,6 +12,7 @@ import { digestDay } from "./digest.js";
 import { WEEKEND_MARKER, loadIndexHistory, loadIndexWeekends } from "./indexhist.js";
 import { runDay } from "./daily.js";
 import { istNow } from "./dates.js";
+import { priceFeaturesStep } from "./technicals.js";
 import { type D1Meter, FORBIDDEN_TEXT, chargeReads, writeCaps, writeLevel, writesThisMonth, readLevel, readsToday, statusAuthorized } from "@disclo/core";
 
 export interface Env {
@@ -52,6 +53,7 @@ export default {
       let structure: Record<string, number> | null = null;
       let sectors: unknown = null;
       let indexHist: unknown = null;
+      let priceFeatures: unknown = null;
       const out = await withLock(env.DB_MARKET, 14 * 60_000, async () => {
         const t0 = Date.now();
         // C56 read breaker (audit 4 Nov): the daily market load always runs; the optional passes after it stop once
@@ -67,6 +69,8 @@ export default {
         structure = await loadStructure({ market: deps.market, raw: env.RAW, now: deps.now }, Math.max(0, 11 * 60_000 - (Date.now() - t0)));
         // D150: sector history from new announcement lists (download ledger → R2), with what is left.
         sectors = await buildSectors({ market: deps.market, raw: env.RAW, today: istNow(deps.now()).date, filings: env.DB_FILINGS ? d1Sql(env.DB_FILINGS, meter) : undefined }, Math.max(0, 12 * 60_000 - (Date.now() - t0)));
+        // field catalogue §3: price features of the focus companies, once per loaded session (≈ 50 companies a run)
+        if (Date.now() - t0 < 12 * 60_000) priceFeatures = await priceFeaturesStep(deps.market, deps.now(), 50).catch((e) => ({ error: String(e).slice(0, 120) }));
         // D163 (P1): one-off and historical passes (deals CSV refill 1.8, 10-year index history D156 + weekends C52,
         // January-2024 derivation, versioned factor repair) run when started explicitly: POST /maint/<name>.
         return r;
@@ -75,7 +79,7 @@ export default {
       const charged = (out ?? []).reduce((n, r) => n + (r.written ?? 0), 0);
       if (out && meter.rows > charged) await chargeBudget(d1Sql(env.DB_MARKET), new Date(), meter.rows - charged);
       if (out) await chargeReads(d1Sql(env.DB_MARKET), new Date(), meter.reads ?? 0).catch(() => {});
-      console.log(JSON.stringify({ env: env.ENVIRONMENT, rows_written: meter.rows, structure, sectors, indexHist, ran: out?.map((r) => ({ d: r.date, s: r.status, c: r.counts, why: r.reasons?.slice(0, 3) })) ?? "locked" }));
+      console.log(JSON.stringify({ env: env.ENVIRONMENT, rows_written: meter.rows, structure, sectors, indexHist, priceFeatures, ran: out?.map((r) => ({ d: r.date, s: r.status, c: r.counts, why: r.reasons?.slice(0, 3) })) ?? "locked" }));
     })());
   },
 
@@ -95,6 +99,7 @@ export default {
       else if (name === "index_history") { const x = await loadIndexHistory(m, env.RAW, 60_000); r = { ...x, done: x.days === 0 }; }
       else if (name === "index_weekends") r = (await loadIndexWeekends(m, env.RAW, 60_000)) ?? { done: true };
       else if (name === "derive_jan2024") { const n = await deriveJanuary2024(m); r = { rows: n, done: n === 0 }; }
+      else if (name === "price_features") r = await priceFeaturesStep(m, new Date(), 50);
       else if (name === "repair_factors") {
         const deps = { market: m, app: d1Sql(env.DB_APP), raw: r2Raw(env.RAW), fetch: r2FirstFetcher(env.RAW, archiveFetcher(), env.CACHE_AUTHORITATIVE_UNTIL), now: () => new Date(), cachedFromR2: true };
         r = (await maybeCaughtUp(deps)) ? ((await repairFactors(m, d1Sql(env.DB_APP, meter), new Date())) ?? { done: true }) : { done: false, waiting: "prices not caught up" };
@@ -102,6 +107,13 @@ export default {
       await chargeBudget(d1Sql(env.DB_MARKET), new Date(), meter.rows);
       await chargeReads(d1Sql(env.DB_MARKET), new Date(), meter.reads ?? 0);
       return Response.json({ cost: { rows_read: meter.reads ?? 0, rows_written: meter.rows }, ...(r as object) }, { headers: { "cache-control": "no-store" } });
+    }
+    if (url.pathname === "/price-features") {
+      // Field catalogue §3 (read-only): one security's stored price features
+      const sym = url.searchParams.get("symbol") ?? "";
+      const rows = (await env.DB_MARKET.prepare("SELECT f.field, f.value, f.reason, f.as_of FROM security_identifier i JOIN price_feature f ON f.security_id = i.security_id WHERE i.id_type='nse_symbol' AND i.value=?1 ORDER BY f.field").bind(sym).all()).results;
+      const [n] = (await env.DB_MARKET.prepare("SELECT count(DISTINCT security_id) AS companies, max(as_of) AS as_of FROM price_feature WHERE field='close'").all()).results;
+      return Response.json({ symbol: sym, rows, stored: n }, { headers: { "cache-control": "no-store" } });
     }
     if (url.pathname === "/closes") {
       // D141 second cycle: one security's closes in a window (read-only).
