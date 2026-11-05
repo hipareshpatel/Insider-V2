@@ -999,8 +999,11 @@ export async function fyReread(deps: Deps, jobIds: number[]): Promise<{ done: tr
     if (!xml) { notes.push(`${id}: file not stored`); continue; }
     try {
       const inst = parseXbrl(xml);
-      const r = await loadFy(inst, canonicalResult(inst), f.security_id, f.disclosed_at, f.filing_id, deps);
-      rows += r.rows; files++; notes.push(`${id}${r.note || ": no full year in file"}`);
+      const q = canonicalResult(inst);
+      const r = await loadFy(inst, q, f.security_id, f.disclosed_at, f.filing_id, deps);
+      // why no attempt was made (loadFy is silent then): the file's financial-year start and the quarter's end
+      const fyStart = inst.facts.find((x) => /:DateOfStartOfFinancialYear$/.test(x.tag))?.value ?? null;
+      rows += r.rows; files++; notes.push(`${id}${r.note || `: no full-year attempt (kind ${q.periodKind}, end ${q.periodEnd}, FY start ${fyStart ?? "missing"}, months ${fyStart ? months(fyStart, q.periodEnd) : "-"})`}`);
     } catch (e) { notes.push(`${id}: ${String(e).slice(0, 80)}`); }
   }
   return { done: true, files, rows, notes };
