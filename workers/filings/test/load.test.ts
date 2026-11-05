@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
+import { buildFeatures } from "../src/features.js";
 import { backfillBsCf, nbfcBalanceSheets, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
@@ -699,5 +700,38 @@ describe("item 5: NBFC Division III balance-sheet pass", () => {
     const again = await nbfcBalanceSheets({ ...deps, focus: ["INFY"] });
     expect(again.done).toBe(true);
     expect(again.files).toBe(1);
+  });
+});
+
+describe("D171: feature table build", () => {
+  it("stores computed values with their inputs; a rebuild writes nothing; a restatement changes only what it touches; fin_value untouched", async () => {
+    const { filings, deps } = setup({});
+    filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (9, 7, 'results_quarterly', '2026-09-30', 'Q', 'consolidated', '2026-10-15T00:00:00Z', 'u9')");
+    const ins = filings.raw.prepare(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'industrial','pl',?,'',?,'Q','consolidated',?,?,NULL,?,9,'t','reported','results-v1')`);
+    const ends = ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"];
+    ends.forEach((e, i) => { for (const [k, x] of Object.entries({ revenue: 100 + 10 * i, pat: 20 + i, total_expenses: 70, finance_cost: 2, depreciation: 3 })) ins.run(k, e, "original", String(x), `${e}T12:00:00Z`); });
+    const before = (filings.raw.prepare("SELECT count(*) AS n FROM fin_value").get() as { n: number }).n;
+    const r = await buildFeatures({ ...deps, focus: ["INFY"] }, 25, true);
+    expect(r).toMatchObject({ done: true, companies: 1 });
+    const get = (f: string, e: string) => filings.raw.prepare("SELECT value, reason, inputs FROM feature_value WHERE security_id=7 AND field=? AND period_end=?").get(f, e) as { value: string | null; reason: string | null; inputs: string };
+    expect(get("revenue_ttm", "2026-09-30")).toMatchObject({ value: "540", inputs: JSON.stringify(["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"]) });
+    // too few quarters before Sep 2025: stored as unavailable, with the reason (never a sentinel)
+    expect(get("revenue_ttm", "2025-09-30")).toMatchObject({ value: null, reason: "quarter 2025-03-31 (consolidated) has no filed revenue" });
+    expect(filings.raw.prepare("SELECT count(*) AS n FROM feature_value WHERE period_end < '2024-01-01'").get()).toEqual({ n: 0 });
+    // rebuild: nothing changes
+    const t0 = (filings.raw.prepare("SELECT max(computed_at) AS t FROM feature_value").get() as { t: string }).t;
+    const later = { ...deps, focus: ["INFY"], now: () => new Date("2026-11-04T02:00:00Z") };
+    await buildFeatures(later, 25, true);
+    expect((filings.raw.prepare("SELECT max(computed_at) AS t FROM feature_value").get() as { t: string }).t).toBe(t0);
+    // a restated Sep 2026 revenue changes the TTM and growth of that quarter only
+    ins.run("revenue", "2026-09-30", "restated", "160", "2026-10-30T12:00:00Z");
+    await buildFeatures(later, 25, true);
+    expect(get("revenue_ttm", "2026-09-30").value).toBe("550");
+    const changed = (filings.raw.prepare("SELECT count(*) AS n FROM feature_value WHERE computed_at = ?").get("2026-11-04T02:00:00.000Z") as { n: number }).n;
+    expect(changed).toBeGreaterThan(0);
+    expect(changed).toBeLessThan(10);
+    // fin_value holds filed rows only: the feature build added nothing there (D170)
+    expect((filings.raw.prepare("SELECT count(*) AS n FROM fin_value").get() as { n: number }).n).toBe(before + 1);
   });
 });

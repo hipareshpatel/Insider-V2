@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustedPat, adjustedPbt, capitalEmployed, ebitda, isLargeOrder, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
+import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, ebitda, isLargeOrder, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
 
 const q = (periodEnd: string, lines: Record<string, string>, basis = "consolidated"): FiledPeriod => ({ periodEnd, periodKind: "Q", basis, lines });
 const four = [q("2025-12-31", { revenue: "100" }), q("2026-03-31", { revenue: "110" }), q("2026-06-30", { revenue: "120" }), q("2026-09-30", { revenue: "130" })];
@@ -50,5 +50,38 @@ describe("item 6: computed views (worked out when shown, never stored)", () => {
     expect(isLargeOrder("20", t).large).toBe(true);
     expect(isLargeOrder("19.99", t).large).toBe(false);
     expect(isLargeOrder("20", { value: null, reason: "quarter missing" }).large).toBeNull();
+  });
+});
+
+describe("item 6: feature-table values for one company (D171)", () => {
+  const qs = ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"].map((e, i) =>
+    ({ periodEnd: e, periodKind: "Q", basis: "consolidated", lines: { revenue: String(100 + 10 * i), total_expenses: String(70 + 5 * i), finance_cost: "2", depreciation: "3",
+      pat: String(20 + i), pat_owners: String(19 + i), pbt_before_exceptional: String(28 + i), exceptional_items: "0" } }));
+  const bs = new Map([["2025-09-30", { "x:EquityAttributableToOwnersOfParent": "400", "x:Equity": "420", "x:BorrowingsNoncurrent": "50", "x:BorrowingsCurrent": "30" }],
+    ["2026-09-30", { "x:EquityAttributableToOwnersOfParent": "500", "x:Equity": "520", "x:BorrowingsNoncurrent": "50", "x:BorrowingsCurrent": "30" }]]);
+  const rows = companyFeatures(qs, bs, "consolidated", "industrial");
+  const at = (f: string, e: string) => rows.find((r) => r.field === f && r.periodEnd === e)!;
+  it("TTM, EBITDA, margin and growth from the filed quarters, each with its inputs", () => {
+    expect(at("revenue_ttm", "2026-09-30")).toMatchObject({ value: "540", inputs: ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"] });
+    expect(at("revenue_ttm", "2025-12-31")).toMatchObject({ value: null });
+    expect(at("revenue_ttm", "2025-12-31").reason).toMatch(/2025-03-31/);
+    // EBITDA = revenue − expenses + finance + depreciation: 150 − 95 + 5 = 60
+    expect(at("ebitda_q", "2026-09-30").value).toBe("60");
+    expect(at("ebitda_margin_q", "2026-09-30").value).toBe("40");
+    expect(at("revenue_yoy_q", "2026-09-30").value).toBe("36.36"); // 150 vs 110
+    expect(at("revenue_qoq", "2026-09-30").value).toBe("7.14"); // 150 vs 140
+  });
+  it("ROE on average equity to owners at balance-sheet dates; ROCE on average capital employed", () => {
+    // TTM PAT to owners to Sep 2026 = 21+22+23+24 = 90; average equity (400+500)/2 = 450 → 20 %
+    expect(at("roe", "2026-09-30").value).toBe("20");
+    // TTM EBIT = (pbt_be + finance) = 30+31+32+33 + 4×2 = 134; capital employed 500 and 600 → avg 550 → 24.36 %
+    expect(at("roce", "2026-09-30").value).toBe("24.36");
+    expect(rows.some((r) => r.field === "roe" && r.periodEnd === "2026-06-30")).toBe(false); // no balance sheet that date
+  });
+  it("a bank gets no EBITDA or ROCE (reasons stored) and uses total income as revenue", () => {
+    const bank = qs.map((q) => ({ ...q, lines: { total_income: q.lines.revenue, pat: q.lines.pat, pat_after_minority: q.lines.pat_owners } }));
+    const b = companyFeatures(bank, new Map(), "consolidated", "bank");
+    expect(b.find((r) => r.field === "ebitda_q")!.reason).toMatch(/not used for bank/);
+    expect(b.find((r) => r.field === "revenue_ttm" && r.periodEnd === "2026-09-30")!.value).toBe("540");
   });
 });

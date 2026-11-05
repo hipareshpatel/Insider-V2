@@ -111,3 +111,71 @@ export function isLargeOrder(amount: string, ttmRevenue: View): { large: boolean
   if (ttmRevenue.value === null) return { large: null, reason: ttmRevenue.reason };
   return { large: cmp(mul(dec(amount), dec("50")), dec(ttmRevenue.value)) >= 0 };
 }
+
+/** One stored row of the feature table (D171). */
+export interface FeatureRow { basis: string; field: string; periodEnd: string; value: string | null; reason: string | null; inputs: string[] }
+
+const QUARTER_KIND = "Q";
+const yearBefore = (end: string) => previousQuarterEnd(previousQuarterEnd(previousQuarterEnd(previousQuarterEnd(end))));
+
+/** Growth in % from `base` to `now` (2 places); unavailable when either is missing or the base is not positive. */
+export function growth(now: View, base: View, what: string): View {
+  if (now.value === null) return now;
+  if (base.value === null) return base;
+  const b = dec(base.value);
+  if (b.units <= 0n) return no(`${what}: base period is zero or a loss`);
+  return ok(div(mul(sub(dec(now.value), b), dec("100")), b, 2), [...new Set([...base.from, ...now.from])]);
+}
+
+/** The line that stands for "revenue" per format (D38: total income for banks and NBFCs; insurers: not settled). */
+function revenueLine(layout: string): string | null {
+  return layout === "industrial" ? "revenue" : layout === "bank" || layout === "nbfc" ? "total_income" : null;
+}
+const ownersLine = (layout: string) => (layout === "bank" ? "pat_after_minority" : "pat_owners");
+
+/** D171: every feature-table value of one company on one basis, from its filed quarters (`periods` with kind Q) and its
+ *  balance sheets (`balanceSheets`, by date). `layout` as chosen by chooseLayout. Pure: the caller stores the rows. */
+export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string): FeatureRow[] {
+  const qs = periods.filter((p) => p.periodKind === QUARTER_KIND && p.basis === basis).sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+  const by = new Map(qs.map((q) => [q.periodEnd, q]));
+  const out: FeatureRow[] = [];
+  const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
+  const line = (p: FiledPeriod | undefined, k: string | null, end: string): View => {
+    if (!k) return no(`no revenue line is defined for ${layout} yet`);
+    const x = p ? v(p, k) : null;
+    return x ? ok(x, [end]) : no(`quarter ${end} (${basis}) has no filed ${k}`);
+  };
+  const rev = revenueLine(layout), owners = ownersLine(layout);
+  const ebitdaTtm = (end: string): View => {
+    let sum = dec("0"); const from: string[] = []; let e = end;
+    for (let i = 0; i < 4; i++) { const x = by.get(e) ? ebitda(by.get(e)!, layout) : no(`quarter ${e} (${basis}) not filed`); if (x.value === null) return x; sum = add(sum, dec(x.value)); from.push(e); e = previousQuarterEnd(e); }
+    return ok(sum, from.reverse());
+  };
+  for (const q of qs) {
+    const e = q.periodEnd, ya = yearBefore(e), pq = previousQuarterEnd(e);
+    const r = line(q, rev, e), p = line(q, "pat", e), po = line(q, owners, e), eb = ebitda(q, layout);
+    put("revenue_q", e, r); put("pat_q", e, p); put("pat_owners_q", e, po); put("ebitda_q", e, eb);
+    put("ebitda_margin_q", e, pct(eb, r, "EBITDA margin"));
+    put("adj_pbt_q", e, adjustedPbt(q)); put("adj_pat_q", e, adjustedPat(q));
+    put("revenue_yoy_q", e, growth(r, line(by.get(ya), rev, ya), "revenue YoY"));
+    put("pat_yoy_q", e, growth(p, line(by.get(ya), "pat", ya), "PAT YoY"));
+    put("revenue_qoq", e, growth(r, line(by.get(pq), rev, pq), "revenue QoQ"));
+    put("pat_qoq", e, growth(p, line(by.get(pq), "pat", pq), "PAT QoQ"));
+    const rT = rev ? ttm(qs, rev, e, basis) : no(`no revenue line is defined for ${layout} yet`), pT = ttm(qs, "pat", e, basis), poT = ttm(qs, owners, e, basis), eT = ebitdaTtm(e);
+    put("revenue_ttm", e, rT); put("pat_ttm", e, pT); put("pat_owners_ttm", e, poT); put("ebitda_ttm", e, eT);
+    put("ebitda_margin_ttm", e, pct(eT, rT, "EBITDA margin TTM"));
+    put("revenue_ttm_yoy", e, growth(rT, rev ? ttm(qs, rev, ya, basis) : rT, "revenue TTM YoY"));
+    put("pat_ttm_yoy", e, growth(pT, ttm(qs, "pat", ya, basis), "PAT TTM YoY"));
+    // ROE / ROCE at balance-sheet dates (balance sheets are filed at the half-year and the year end)
+    const bsEnd = balanceSheets.get(e), bsStart = balanceSheets.get(ya);
+    if (bsEnd) {
+      const eq = (b: Record<string, string | null | undefined> | undefined) => (b ? b["x:EquityAttributableToOwnersOfParent"] ?? b.equity_owners ?? (layout === "bank" && b.capital != null && b.reserves != null ? toText(add(dec(b.capital), dec(b.reserves))) : null) ?? null : null);
+      put("roe", e, roe(poT, eq(bsStart), eq(bsEnd)));
+      if (layout === "industrial") {
+        const ebitT = (() => { let s = dec("0"); const f: string[] = []; let k = e; for (let i = 0; i < 4; i++) { const x = by.get(k); const a = x ? v(x, "pbt_before_exceptional") : null, b = x ? v(x, "finance_cost") : null; if (!a || !b) return no(`quarter ${k} (${basis}): profit before exceptional items and finance costs must be filed`); s = add(s, add(a, b)); f.push(k); k = previousQuarterEnd(k); } return ok(s, f.reverse()); })();
+        put("roce", e, roce(ebitT, bsStart ?? null, bsEnd));
+      } else put("roce", e, no(`ROCE is not used for ${layout}`));
+    }
+  }
+  return out;
+}
