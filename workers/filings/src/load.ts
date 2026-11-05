@@ -272,9 +272,13 @@ const FIN_PK = "security_id=? AND statement=? AND line=? AND dims=? AND period_e
 export async function versionPeriod(db: Sql, sid: number, periodEnd: string, periodKind: string, basis: string): Promise<number> {
   const all = await db.all<{ statement: string; line: string; dims: string; version: string; value: string | null; disclosed_at: string }>(SQL_VERSION_ROWS, [sid, periodEnd, periodKind, basis]);
   if (!all.length) return 0;
-  let first = all[0]!.disclosed_at;
-  for (const r of all) if (r.disclosed_at < first) first = r.disclosed_at;
-  if (all.every((r) => r.disclosed_at === first) && all.every((r) => r.version === "original")) return 0; // one filing: nothing to do
+  // 2.12 (5 Nov): 'original' is the earliest disclosure of each line (statement, line, dims), not of the whole period.
+  // Per period, a half-year file's balance sheet dated at the year end (H2, kind FY) made the later full-year P&L of
+  // the Q4 file 'restated' with no original at all (NAM-INDIA FY25, TATAINVEST FY26), so the FY P&L was invisible.
+  const cell = (r: { statement: string; line: string; dims: string }) => `${r.statement}|${r.line}|${r.dims}`;
+  const firstOf = new Map<string, string>();
+  for (const r of all) { const k = cell(r), f = firstOf.get(k); if (f === undefined || r.disclosed_at < f) firstOf.set(k, r.disclosed_at); }
+  if (all.every((r) => r.version === (r.disclosed_at === firstOf.get(cell(r)) ? "original" : "restated"))) return 0; // labels right: nothing to do
   // Version is part of the key: a filing re-written after an earlier pass can hold the same figure under both labels
   // (4 Nov: UNIQUE constraint). Relabel where no twin exists, else drop the mislabelled copy (derived rows only).
   const key = (r: { statement: string; line: string; dims: string; disclosed_at: string }, v: string) => `${r.statement}|${r.line}|${r.dims}|${r.disclosed_at}|${v}`;
@@ -282,7 +286,7 @@ export async function versionPeriod(db: Sql, sid: number, periodEnd: string, per
   const stmts: { sql: string; params: unknown[] }[] = [];
   const kept: typeof all = [];
   for (const r of all) {
-    const want = r.disclosed_at === first ? (r.version !== "original" ? "original" : null) : (r.version === "original" ? "restated" : null);
+    const want = r.disclosed_at === firstOf.get(cell(r)) ? (r.version !== "original" ? "original" : null) : (r.version === "original" ? "restated" : null);
     const pk = [sid, r.statement, r.line, r.dims, periodEnd, periodKind, basis, r.version, r.disclosed_at];
     if (!want) { kept.push(r); continue; }
     if (have.has(key(r, want))) { stmts.push({ sql: `DELETE FROM fin_value WHERE ${FIN_PK}`, params: pk }); continue; } // twin with the right label exists
@@ -980,6 +984,52 @@ export async function sharesConsistent(deps: Deps, sid: number, r: CanonicalResu
 export const SQL_REVENUE_KINDS = "SELECT security_id, period_end, period_kind, basis FROM fin_value WHERE security_id IN (SELECT value FROM json_each(?1)) AND statement = 'pl' AND line = 'revenue' AND period_kind IN ('Q', 'FY') AND version = 'original' AND +period_end >= ?2";
 /** the load outcome of the files filed for one company, period end and basis (why its full year is not stored) */
 export const SQL_PERIOD_LOADS = "SELECT f.kind, j.job_id, substr(l.detail, 1, 200) AS detail FROM filing f JOIN fetch_job j ON j.url = f.source_url JOIN fin_load l ON l.job_id = j.job_id WHERE f.security_id = ?1 AND f.period_end = ?2 AND f.basis = ?3 LIMIT 4";
+
+/** 2.12 one-off: re-read the full year of named, already loaded results files (after a loadFy fix). Bounded (≤ 20);
+ *  inserts only (ON CONFLICT DO NOTHING), then the usual version pass. */
+export async function fyReread(deps: Deps, jobIds: number[]): Promise<{ done: true; files: number; rows: number; notes: string[] }> {
+  const ids = jobIds.filter((n) => Number.isInteger(n) && n > 0).slice(0, 20);
+  let rows = 0, files = 0; const notes: string[] = [];
+  for (const id of ids) {
+    const [j] = await deps.filings.all<{ url: string; kind: string }>("SELECT url, kind FROM fetch_job WHERE job_id=?", [id]);
+    if (!j) { notes.push(`${id}: no job`); continue; }
+    const [f] = await deps.filings.all<{ filing_id: number; security_id: number; disclosed_at: string }>("SELECT filing_id, security_id, disclosed_at FROM filing WHERE kind=? AND source_url=?", [j.kind.replace(/^xbrl_/, ""), j.url]);
+    if (!f) { notes.push(`${id}: no filing`); continue; }
+    const xml = await deps.getText(`att/${new URL(j.url).pathname.replace(/^\/corporate\//, "")}`).catch(() => null);
+    if (!xml) { notes.push(`${id}: file not stored`); continue; }
+    try {
+      const inst = parseXbrl(xml);
+      const r = await loadFy(inst, canonicalResult(inst), f.security_id, f.disclosed_at, f.filing_id, deps);
+      rows += r.rows; files++; notes.push(`${id}${r.note || ": no full year in file"}`);
+    } catch (e) { notes.push(`${id}: ${String(e).slice(0, 80)}`); }
+  }
+  return { done: true, files, rows, notes };
+}
+
+/** 2.12 one-off (after the per-line version fix): periods of the focus companies from the floor where a line is
+ *  'restated' with no 'original' of its own; dry = count only, else re-run versionPeriod on them (labels only). */
+export const SQL_ORPHAN_RESTATED = `SELECT DISTINCT a.period_end, a.period_kind, a.basis, count(*) AS n FROM fin_value a WHERE a.security_id = ?1 AND a.version = 'restated'
+  AND +a.period_end >= ?2 AND NOT EXISTS (SELECT 1 FROM fin_value b WHERE b.security_id = a.security_id AND b.statement = a.statement AND b.line = a.line AND b.dims = a.dims
+  AND b.period_end = a.period_end AND b.period_kind = a.period_kind AND b.basis = a.basis AND b.version = 'original') GROUP BY 1, 2, 3`;
+export async function versionFix(deps: Deps, opts: { dry: boolean }, limit = 25): Promise<{ done: boolean; companies: number; periods: number; rows: number; sample: string[] }> {
+  const slot = opts.dry ? "version_fix_census" : "version_fix";
+  const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot=?", [slot]);
+  const cur = st ? JSON.parse(st.detail) as { sids: number[]; i: number; periods: number; rows: number; done: boolean; sample: string[] } : { sids: [] as number[], i: 0, periods: 0, rows: 0, done: false, sample: [] as string[] };
+  if (!st) cur.sids = (await deps.market.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?)) ORDER BY 1", [JSON.stringify(deps.focus ?? [])])).map((r) => r.security_id);
+  let n = 0;
+  while (!cur.done && cur.i < cur.sids.length && n < limit) {
+    const sid = cur.sids[cur.i++]!; n++;
+    const ps = await deps.filings.all<{ period_end: string; period_kind: string; basis: string; n: number }>(SQL_ORPHAN_RESTATED, [sid, deps.floor ?? COVERAGE_FLOOR]);
+    for (const p of ps) {
+      cur.periods++; cur.rows += p.n;
+      if (cur.sample.length < 40) cur.sample.push(`${sid} ${p.period_end} ${p.period_kind} ${p.basis}: ${p.n}`);
+      if (!opts.dry) await versionPeriod(deps.filings, sid, p.period_end, p.period_kind, p.basis);
+    }
+  }
+  cur.done = cur.i >= cur.sids.length;
+  await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once',?,?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [slot, new Date().toISOString(), JSON.stringify(cur)]);
+  return { done: cur.done, companies: cur.sids.length, periods: cur.periods, rows: cur.rows, sample: cur.sample };
+}
 
 /** D157 read-only statement view: one period's original rows of one company and basis (P&L of the given kind; the
  *  balance sheet and cash flow filed with it, whatever their own period kind). ix_fin_value_period by kind. */

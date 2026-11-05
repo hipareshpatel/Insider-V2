@@ -534,6 +534,22 @@ describe("version pass with twin rows (4 Nov: UNIQUE constraint stopped the pass
   });
 });
 
+describe("version per line (2.12: NAM-INDIA FY25 P&L was 'restated' with no original)", () => {
+  it("a statement first filed by a later file is 'original'; a line filed twice is original then restated", async () => {
+    const filings = sqlite("filings");
+    filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url, status) VALUES (1, 7, 'integrated_financials', '2025-03-31', 'FY', 'consolidated', '2025-04-28T14:17:06Z', 'u', 'loaded')");
+    const ins = (st: string, line: string, version: string, at: string, value: string) => filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version)
+      VALUES (7,'industrial','${st}','${line}','','2025-03-31','FY','consolidated','${version}','${value}','${at}',1,'reported','t')`);
+    ins("bs", "total_assets", "original", "2025-04-28T14:17:06Z", "1000000000"); // H2 file: balance sheet at the year end
+    ins("pl", "revenue", "original", "2025-05-09T09:36:58Z", "500000000"); // Q4 file: the full-year P&L, filed once
+    ins("bs", "total_assets", "original", "2025-05-09T09:36:58Z", "1000000000"); // Q4 file repeats the balance sheet
+    await versionPeriod(filings, 7, "2025-03-31", "FY", "consolidated");
+    expect(await filings.all("SELECT statement, version, disclosed_at FROM fin_value ORDER BY statement, disclosed_at")).toEqual([
+      { statement: "bs", version: "original", disclosed_at: "2025-04-28T14:17:06Z" }, { statement: "bs", version: "restated", disclosed_at: "2025-05-09T09:36:58Z" },
+      { statement: "pl", version: "original", disclosed_at: "2025-05-09T09:36:58Z" }]);
+  });
+});
+
 describe("file selection without scanning the ledger (audit P0)", () => {
   it("the cursor waits at a file not downloaded yet, later files still load, nothing is read twice", async () => {
     const { filings, deps } = setup({ "att/xbrl/a.xml": xml, "api/results_quarterly/INFY/x.json": list });
