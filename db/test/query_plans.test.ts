@@ -103,6 +103,19 @@ describe("market: the focus companies' ISINs for the credit-rating issuer match 
   });
 });
 
+describe("market: price features of the focus companies (field catalogue §3, once per loaded session)", async () => {
+  const t = await import("../../workers/market/src/technicals.js");
+  it.each([
+    ["sessions of one security in a date range", t.SQL_SESSIONS, [1, 20250101, 20260101], /SEARCH price_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
+    ["applied factors of one security", t.SQL_APPLIED_FACTORS, [1], /USING (PRIMARY KEY|INDEX sqlite_autoindex_adj_factor_1) \(security_id=\?\)/],
+    ["focus symbols to securities", t.SQL_FOCUS_SIDS, ['["INFY"]'], /ix_sid_lookup \(id_type=\? AND value=\?\)/],
+  ] as [string, string, unknown[], RegExp][])("%s", (_n, sql, params, want) => {
+    const p = plan(M, sql, params);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
+  });
+});
+
 describe("readiness probes (D123 map, read-only page) use an index prefix, never a scan", async () => {
   const { FIN_PROBES, SYM_PROBES } = await import("../../workers/filings/src/readiness.js");
   it.each([...Object.entries(FIN_PROBES), ...Object.entries(SYM_PROBES)])("%s", (_k, sql) => {
