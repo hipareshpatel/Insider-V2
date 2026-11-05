@@ -4,7 +4,7 @@ import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
-import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE } from "./events.js";
+import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
 import { ratingCoverage } from "./ratingcov.js";
 import { readiness } from "./readiness.js";
@@ -372,6 +372,8 @@ export default {
         no_ratings: rows.filter((r) => r.ratings === 0).map((r) => r.symbol),
         old_list_only: rows.filter((r) => r.trades > 0 && r.new_system === 0).map((r) => r.symbol),
         downloads_pending: rows.filter(pending).length,
+        by_year: (await env.DB_FILINGS.prepare(SQL_INSIDER_YEARS).bind(list).all()).results,
+        new_system_all: (await env.DB_FILINGS.prepare(SQL_PITX_SYMBOLS).all()).results[0],
       }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/segments") {

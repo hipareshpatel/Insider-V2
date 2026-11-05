@@ -15,6 +15,10 @@ export const SQL_INSIDER_SINCE = "SELECT symbol, count(*) AS trades, sum(key >= 
 export const SQL_INSIDER_UNDATED = "SELECT symbol, count(*) AS trades FROM insider_trade WHERE symbol IN (SELECT value FROM json_each(?1)) AND from_d IS NULL AND disclosed_at >= ?2 GROUP BY symbol";
 /** The per-company PIT list downloads (quarterly windows and full lists) — kind range of the ledger. */
 export const SQL_PIT_JOBS = "SELECT symbol, r2_key, status, http_status FROM fetch_job WHERE kind = 'pit' AND job_id > 0";
+/** Shape check (read-only): the 250's insider trades per trade year and source (old list vs new system). */
+export const SQL_INSIDER_YEARS = "SELECT from_d / 10000 AS y, (key >= 'pitx:' AND key < 'pitx;') AS new_system, count(*) AS trades, count(DISTINCT symbol) AS companies FROM insider_trade WHERE symbol IN (SELECT value FROM json_each(?1)) AND from_d >= 20210101 GROUP BY 1, 2";
+/** Every company in NSE's new-system rows (key range 'pitx:'), to tell "the 250 file nothing" from "only some are read". */
+export const SQL_PITX_SYMBOLS = "SELECT count(DISTINCT symbol) AS companies, count(DISTINCT did) AS filings, min(disclosed_at) AS first_at, max(disclosed_at) AS last_at FROM insider_trade WHERE key >= 'pitx:' AND key < 'pitx;'";
 /** Credit ratings from a date (owner #365 names them with insider trades), ix_credit_rating_symbol per symbol. */
 export const SQL_RATINGS_SINCE = "SELECT symbol, count(*) AS ratings FROM credit_rating WHERE symbol IN (SELECT value FROM json_each(?1)) AND rated_on >= ?2 GROUP BY symbol";
 export const SQL_EVENTS_NEXT = "SELECT job_id, kind, r2_key, status, attempts FROM fetch_job WHERE kind = ? AND job_id > ? ORDER BY job_id LIMIT ?";
