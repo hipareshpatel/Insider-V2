@@ -247,10 +247,21 @@ export default {
       const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
       if (!sid || !/^\d{4}-\d{2}-\d{2}$/.test(period)) return Response.json({ error: "symbol or period" }, { status: 400 });
       const rows = (await env.DB_FILINGS.prepare(SQL_STATEMENT_ROWS).bind(sid, period, basis, kind).all<{ statement: string; line: string; value: string | null; period_kind: string }>()).results;
-      const of = (st: string) => Object.fromEntries(rows.filter((r) => r.statement === st).map((r) => [r.line, r.value]));
-      const pl = of("pl");
+      // One period length per statement, and say which: a quarter's cash flow is filed only year to date (six months at
+      // Sep, nine at Dec), so it must never be shown as the quarter's. Prefer the asked kind, then the longest filed.
+      const order = [kind, "FY", "9M", "H", "Q"];
+      const pick = (st: string) => {
+        const mine = rows.filter((r) => r.statement === st);
+        const k = order.find((o) => mine.some((r) => r.period_kind === o)) ?? null;
+        return { kind: k, values: Object.fromEntries(mine.filter((r) => r.period_kind === k).map((r) => [r.line, r.value])) };
+      };
+      const months: Record<string, string> = { Q: "3 months", H: "6 months", "9M": "9 months", FY: "12 months" };
+      const pl = pick("pl"), bs = pick("bs"), cf = pick("cf");
+      const span = (k: string | null, flow: boolean) => (k === null ? null : flow ? `${months[k] ?? k} to ${period}` : `as at ${period}`);
       return Response.json({ symbol: sym, period, basis, kind, template: "industrial (Schedule III Div II)",
-        pl: [...layoutStatement(PL_INDUSTRIAL, pl), ...derivedPl(pl)], bs: layoutStatement(BS_INDUSTRIAL, of("bs")), cf: layoutStatement(CF_INDUSTRIAL, of("cf")) }, { headers: { "cache-control": "no-store" } });
+        periods: { pl: span(pl.kind, true), bs: span(bs.kind, false), cf: span(cf.kind, true) },
+        pl: [...layoutStatement(PL_INDUSTRIAL, pl.values), ...derivedPl(pl.values)],
+        bs: layoutStatement(BS_INDUSTRIAL, bs.values, { hideZeros: true }), cf: layoutStatement(CF_INDUSTRIAL, cf.values, { hideZeros: true }) }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/coverage-gaps") {
       // Work list item 2: coverage gaps of the focus companies by class (coverage_gap.status, set by /maint/coverage_classify)

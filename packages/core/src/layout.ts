@@ -8,8 +8,11 @@
 import { CF_ADJUSTMENTS, CF_FINANCING, CF_INVESTING, CF_OPERATING, BS_GROUPS } from "./detail.js";
 import { type Dec, add, dec, div, mul, sub, toText } from "./decimal.js";
 
-export interface LayoutNode { key: string; label: string; children?: LayoutNode[] }
-export interface LayoutRow { key: string; label: string; level: number; value: string | null; kind: "filed" | "head" | "derived" }
+/** `sign: -1` marks a line the filing deducts from its head (an outflow such as purchase of fixed assets, or interest
+ *  income taken out of operating profit). The value stays exactly as filed (positive); the sign tells the page to show
+ *  it in brackets, as the printed statement does. */
+export interface LayoutNode { key: string; label: string; sign?: -1; children?: LayoutNode[] }
+export interface LayoutRow { key: string; label: string; level: number; value: string | null; kind: "filed" | "head" | "derived"; sign?: -1 }
 
 /** "TradeReceivablesCurrent" → "Trade receivables current" (label for a filed tag that has no curated label). */
 export function tagLabel(tag: string): string {
@@ -56,7 +59,7 @@ export const BS_INDUSTRIAL: LayoutNode[] = [
   ]),
 ];
 
-const lines = (s: Record<string, 1 | -1>) => Object.keys(s).map((t) => x(t));
+const lines = (s: Record<string, 1 | -1>) => Object.entries(s).map(([t, sg]) => (sg === -1 ? { ...x(t), sign: -1 as const } : x(t)));
 /** Cash flow, indirect method (filed tags; sections as the loader checks them). */
 export const CF_INDUSTRIAL: LayoutNode[] = [
   x("CashFlowsFromUsedInOperatingActivities", "Cash from operating activities", [
@@ -71,16 +74,19 @@ export const CF_INDUSTRIAL: LayoutNode[] = [
 ];
 
 /** Lays stored figures out in a tree: depth first, filed values only; a head whose own total is not filed keeps its
- *  filed sub-rows and shows no value (kind 'head'); branches with nothing filed are left out. */
-export function layoutStatement(tree: LayoutNode[], values: Record<string, string | null | undefined>): LayoutRow[] {
+ *  filed sub-rows and shows no value (kind 'head'); branches with nothing filed are left out. With `hideZeros`, a row
+ *  filed as 0 with nothing non-zero under it is left out too (the XBRL forms carry every line, mostly as 0). */
+export function layoutStatement(tree: LayoutNode[], values: Record<string, string | null | undefined>, opts: { hideZeros?: boolean } = {}): LayoutRow[] {
   const out: LayoutRow[] = [];
+  const zero = (v: string | null) => v !== null && /^-?0*(\.0*)?$/.test(v);
   const walk = (nodes: LayoutNode[], level: number): boolean => {
     let any = false;
     for (const nd of nodes) {
       const at = out.length, v = values[nd.key] ?? null;
-      out.push({ key: nd.key, label: nd.label, level, value: v, kind: v !== null ? "filed" : "head" });
+      out.push({ key: nd.key, label: nd.label, level, value: v, kind: v !== null ? "filed" : "head", ...(nd.sign ? { sign: nd.sign } : {}) });
       const kids = nd.children ? walk(nd.children, level + 1) : false;
-      if (v === null && !kids) out.splice(at); else any = true;
+      const empty = v === null || (opts.hideZeros === true && zero(v));
+      if (empty && !kids) out.splice(at); else any = true;
     }
     return any;
   };
