@@ -131,7 +131,7 @@ You are continuing the build of **Disclo** (disclo.in), an Indian-equities data 
 
 **Running now (check, don't restart):** insider trades from NSE's new system loading (count check vs 3,298 filings when done); bulk/block CSV windows downloading + capped days refilling; one-off version and revision-remark passes; daily primary basis + coverage gaps.
 
-**Next, in order:** (1) insider count check and freshness rule for every feed (owner to-do: NSE inventory with daily evidence, Part 2); (2) coverage gaps for the 250 (`coverage_gap`), fix by class; (3) ~~verify bulk/block refill~~ moved to the end (owner #355); (4) ~~2.8 shareholding counts vs NSE~~ ✅ 2,820 / 2,824 (5 Nov); (5) D157 statement layout (Schedule III heads with sub-rows); (6) computed views D49/D52/D66 and the feature table; **last, before the universe expansion:** (a) sign off the bulk/block refill (checked 4 Nov: 0 capped days); (b) short selling: 304 days at the API's 70-row cap — find an uncapped source (owner #356). **Waiting on the owner:** a/b for cash-flow files with untagged adjustments (recommended a: labelled "Other adjustments (not itemised in the filing)" line when the three section totals check).
+**Next, in order:** (1) insider count check and freshness rule for every feed (owner to-do: NSE inventory with daily evidence, Part 2); (2) coverage gaps for the 250 (`coverage_gap`), fix by class; (3) ~~verify bulk/block refill~~ moved to the end (owner #355); (4) ~~2.8 shareholding counts vs NSE~~ ✅ 2,820 / 2,824 (5 Nov); (5) D157 statement layout (Schedule III heads with sub-rows); (6) computed views D49/D52/D66 and the feature table; **parked until the site is live (owner #359):** (a) sign off the bulk/block refill (checked 4 Nov: 0 capped days); (b) short selling: 304 days at the API's 70-row cap — find an uncapped source (owner #356). Until (b) is done, any short-selling view must label those 304 days "partial — NSE's list stops at 70 rows" or leave them out (website Part 4). **Waiting on the owner:** a/b for cash-flow files with untagged adjustments (recommended a: labelled "Other adjustments (not itemised in the filing)" line when the three section totals check).
 ---
 
 ### Build state — 2026-11-04 05:40 IST (check-ins 7–10 closed; session was down 22:00–05:15 IST)
@@ -3059,6 +3059,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 356 | "Short selling has 304 days at the same 70-row cap … Add it also in last" | Added to the end of the work list with the bulk/block sign-off, before the universe expansion: find an uncapped short-selling source for the 304 capped days | ✅ |
 | 357 | "Anything missing will be noted and we will move forward" | Item 4 run on all 250 (5 read-only calls): 2,820 of 2,824 loaded; the 9 missing and 3 companies without a list noted in Part 1, not chased; next item 5 | ✅ |
 | 358 | (asked: the nightly feature table stores P/E TTM, ROE, EBITDA margin; #350 said TTM is never stored; computing live costs ≈ 120k rows per search) "Keep TTM stored" | D171: computed values (TTM, ratios, D66) are stored in the feature table only, labelled `computed` with their inputs, rebuilt after each load and nightly; `fin_value` stays filed cells only (D170 and its database triggers unchanged). Item 5 closed with its gaps noted (bank / insurer cash-flow detail, insurer balance sheet, NBFC revenue lines other than interest and fees); item 6 started: computed views as tested functions (`packages/core/src/views.ts`) | 🔶 |
+| 359 | (on the next five tasks) "Last-before-expansion item (a) … item (b) … will be parked for longer, will come back once site is live." | Bulk/block sign-off and the uncapped short-selling source parked until the site is live. Raised: the 304 capped short-selling days must be labelled partial (or left out) on the site meanwhile. Next: verify INFY P/E after the standalone fix (PR #34), then item 6 gaps (insurer revenue base, P/E history), then item 5 leftovers (bank/insurer cash-flow detail, insurer balance sheet, NBFC revenue lines) | ✅ |
 
 ### Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -3067,7 +3068,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-05 after entry #358: all checks pass (171 decisions, 358 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
+*Last run 2026-11-05 after entry #359: all checks pass (171 decisions, 359 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
 
 ### Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
