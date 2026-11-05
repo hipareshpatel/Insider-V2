@@ -349,7 +349,7 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | D66 | Catalogue conventions (rising trend, large order ≥ 2% TTM revenue) | 🔶 functions built 5 Nov (`trend`, `isLargeOrder`); not yet stored (needs series fields and order events) | With the query builder (D64) |
 | §5.8, §6 | **Feature table** + nightly derived job (adjusted series, dashboard snapshots, trackers) | 🔶 5 Nov: financial fields for the 250 (≈ 92k values, kept current by the filings cron) | Price, valuation, technical and event fields |
 | D170, #350 | **TTM kept (owner #350)** as a computed view: TTM = sum of the four latest **filed** quarters (each from its own 3-month column), same basis, computed from filed quarters, **never stored in `fin_value`** (stored only in the feature table, D171, owner #358); if any of the four is missing (e.g. a half-year filer with no 3-month column) TTM is unavailable — no substitute (no FY + YTD − prior YTD, no estimate). Used by D38, D52, D66 and the feature columns `pe_ttm`, `ev_ebitda_ttm`, `revenue_ttm_yoy`, `pat_ttm_yoy`, `order_inflow_ttm_cr` | ⬜ | Build with the computed views (item 6) |
-| D123, field catalogue | 114 fields (§2–§14 public, §15 owner-only ⏭) | ⬜ readiness per field unknown | **Data-readiness map**: field → source, computed?, verified |
+| D123, field catalogue | 114 fields (§2–§14 public, §15 owner-only ⏭) | 🔶 **Data-readiness map started 5 Nov** (Part 5, after the field catalogue): coverage of every stored area across the 250 from `/readiness`; field-by-field status per catalogue group | Fix the gaps it found: MCX/ABBOTINDIA (nothing stored), insider trades 2022→May 2026, Bajaj Finance ratings |
 | D59, D62, D67 | Dashboard (indices + valuation vs history, breadth, sectors, FII/DII, results season, calendar, search) | 🔶 v0 part (offline) | Data map; nightly precompute |
 | D91, D92 | Stock page sections 0–13 | 🔶 v0 part | Data map (sections 1–2 need AI ⏭ M6) |
 | D93, D94, D108, D110 | One API; milestones; aggregated cached endpoints; scale on Cloudflare | 🔶 v0 API (offline) | Redesign with the data map |
@@ -2214,6 +2214,40 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 - **Trend:** "rising" = positive linear-fit slope over *n* quarters **and** ≥ (n−2) positive quarter-on-quarter changes ("falling" mirrors this).
 - **Large order:** ≥ 2% of TTM revenue (same as D38).
 - **Delivery %:** `sec_bhavdata_full_DDMMYYYY.csv` added to daily market-data sources.
+
+### Data-readiness map (D123 / D152, 5 Nov 2026, `/readiness`, 5 read-only calls)
+
+**Coverage across the 250 focus companies, from 2024-01-01** (companies with at least one stored row):
+
+| Area | Companies | Note |
+|---|---|---|
+| P&L, full-year P&L, cash flow (totals and filed detail), shareholding, primary basis | 247 | Missing: EMBASSY (REIT, no company results — expected), **MCX and ABBOTINDIA (nothing stored at all — NSE's stored results list for MCX is empty; to investigate)** |
+| Balance sheet | 247 | Filed line-by-line detail: 229 (most of the 18 others are banks, which keep their 13 named lines) |
+| Board meetings | 248 | |
+| SAST Reg 29 disclosures | 192 | Plausible: not every company has a 5% holder change |
+| **Insider trades** | **127** | **Gap:** NSE's per-company PIT list for TCS, asked for 2021 → 2026, ends at 25 May 2022; NSE's new system (C53) starts 3 May 2026. Trades between mid-2022 and May 2026 look missing for many companies — source to find |
+| Credit ratings | 48 | Fixed today (matched by ISIN issuer code, then exact company name); many large companies have no rated debt. **Bajaj Finance shows none — to check** |
+
+**Feature table (computed, D171)** — first page (60 companies; same pattern on all): quarterly revenue / PAT / adjusted PAT, TTM revenue / PAT, ROE, P/B, P/E (reported), market cap ÷ sales: 59 of 59 with a value. EBITDA, EBITDA margin, net debt, ROCE, EV/EBITDA: 37–43 of 59 — industrial companies only, by design (D49; banks, NBFCs and insurers have no EBITDA). `pe_ttm` (adjusted): 0 by design (tax on exceptional items not filed).
+
+**Status by catalogue group** (✅ stored and checked · 🔶 partly · ⬜ not built · ⏭ later milestone):
+
+| Group | Status |
+|---|---|
+| §2 Identity & classification | ✅ symbol, name, ISIN, sector, index, template, primary basis · ⬜ `group` (D40) · ⬜ `listing_age_years` |
+| §3 Price, liquidity, technicals | ✅ prices, market cap, delivery %, surveillance, bulk/block deals (stored, M1) · ⬜ the derived fields (returns, DMAs, RSI, EMAs, volatility) — to compute in the feature table |
+| §4 Valuation | ✅ `pe_ttm_rep`, `pb`, `ev_ebitda_ttm`, `mcap_to_sales_ttm`, `earnings_yield`, daily P/E history from 5 Nov · ⬜ `dividend_yield_ttm`, `pe_vs_industry_median` · 🔶 `pe_vs_own_median_2y` (needs history to build up) · `pe_ttm` unavailable by design |
+| §5 Growth | ✅ quarterly and TTM revenue / PAT growth · ⬜ `eps_yoy_q`, `revenue_vs_trend_q`, `pat_vs_trend_q` · ⬜ segment growth (D47, next item) |
+| §6 Profitability | ✅ EBITDA, margin, ROE, ROCE · ⬜ `roa`, other-income share, exceptional TTM, tax rate, OCF ÷ PAT, FCF, margin flags · ⏭ BRSR fields (M9) |
+| §7 Balance sheet & working capital | ✅ net debt · ⬜ debt/equity, interest cover, working-capital days, capex, CWIP (lines stored; fields not computed) · ⏭ annual-report fields |
+| §8 Sector packs | ⏭ M6 (AI extraction); bank NPA / CET1 lines stored where filed |
+| §9 Guidance, §10 orders & capacity | ⏭ M5–M9 (AI) |
+| §11 Ownership & insiders | 🔶 shareholding ✅ (2,820 of 2,824 filings) · insider fields blocked by the 2022–2026 gap above · SAST ✅ |
+| §12 Events & governance | 🔶 credit ratings ✅ (48 companies) · governance / auditor / filing-timeliness fields ⬜ |
+| §13 Corporate actions & results timing | ✅ dividends, splits, bonus (market DB) · ✅ board meetings · ⬜ `next_result_date` etc. as fields |
+| §14 Data quality | ✅ basis, restatements, freshness per feed |
+
+**Next:** find the source for insider trades 2022 → May 2026; investigate MCX / ABBOTINDIA; check Bajaj Finance ratings; then compute the ⬜ fields that need no new data (returns, technicals, ratios from stored lines).
 
 ### Change list (additions after approval, D123)
 - 2026-11-03: `sector` (22 NSE sectors) and `industry_detail` replace the 4-level classification fields (D121).
