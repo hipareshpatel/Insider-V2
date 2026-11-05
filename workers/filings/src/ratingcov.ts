@@ -13,12 +13,16 @@ export const SQL_CR_STORED = "SELECT key, substr(disclosed_at, 1, 7) AS month FR
 export async function ratingCoverage(db: Sql, getText: (k: string) => Promise<string | null>, focus: string[], floor: string) {
   const lists = await db.all<{ job_id: number; r2_key: string }>(SQL_CR_LISTS, [`api/credit_rating/all/${floor.slice(0, 7)}`]);
   const fs = new Set(focus), want = new Map<string, { month: string; symbol: string; agency: string; rating: string; action: string; disclosedAt: string | null }>();
-  let unreadable = 0, notStored = 0;
+  let unreadable = 0, notStored = 0, parsedRows = 0, focusRows = 0;
+  let sample: unknown = null;
   for (const l of lists) {
     const t = await getText(l.r2_key).catch(() => null);
     if (!t) { notStored++; continue; }
     let rows; try { rows = parseCreditRatings(t); } catch { unreadable++; continue; }
+    parsedRows += rows.length;
+    sample ??= rows[0] ?? null;
     for (const r of rows) {
+      if (fs.has(r.symbol)) focusRows++;
       const when = r.disclosedAt ?? r.ratedOn;
       if (!fs.has(r.symbol) || !when || when < floor) continue;
       want.set(r.key, { month: when.slice(0, 7), symbol: r.symbol, agency: r.agency, rating: r.rating, action: r.action, disclosedAt: r.disclosedAt });
@@ -34,5 +38,6 @@ export async function ratingCoverage(db: Sql, getText: (k: string) => Promise<st
   for (const s of stored) if (!want.has(s.key)) m(s.month).extra++;
   const byMonth = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, v]) => ({ month, ...v }));
   const tot = byMonth.reduce((a, x) => ({ listed: a.listed + x.listed, loaded: a.loaded + x.loaded, extra: a.extra + x.extra }), { listed: 0, loaded: 0, extra: 0 });
-  return { lists: lists.length, lists_not_stored: notStored, lists_unreadable: unreadable, totals: tot, months: byMonth.filter((x) => x.listed !== x.loaded || x.extra), all_months: byMonth.length, missing: missing.slice(0, 40) };
+  const [tbl] = await db.all<{ n: number; focus_rows: number }>("SELECT count(*) AS n, sum(symbol IN (SELECT value FROM json_each(?1))) AS focus_rows FROM credit_rating", [JSON.stringify(focus)]);
+  return { focus: focus.length, parsed_rows: parsedRows, focus_rows_any_date: focusRows, sample, table: tbl, lists: lists.length, lists_not_stored: notStored, lists_unreadable: unreadable, totals: tot, months: byMonth.filter((x) => x.listed !== x.loaded || x.extra), all_months: byMonth.length, missing: missing.slice(0, 40) };
 }
