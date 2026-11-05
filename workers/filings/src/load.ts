@@ -663,6 +663,11 @@ export async function cfUntaggedPass(deps: Deps, limit = 30, budgetMs = 20_000) 
   return { done: cur.done, companies: cur.sids.length, at: cur.i, files: cur.files, loaded: cur.loaded, rows: cur.rows, notes: notes.slice(0, 30) };
 }
 
+/** D47 live check (read-only /segments): one company's stored segment rows for one period end (all period kinds). */
+export const SQL_SEGMENT_ROWS = "SELECT line, dims, source_tag, value, period_kind, filing_id FROM fin_value WHERE security_id = ?1 AND statement = 'segment' AND +period_end = ?2 AND basis = ?3 AND version = 'original'";
+/** periods with stored segments, newest first (the page lists them when no period is asked) */
+export const SQL_SEGMENT_PERIODS = "SELECT DISTINCT period_end, basis FROM fin_value WHERE security_id = ?1 AND statement = 'segment' AND line = 'segment_revenue' ORDER BY +period_end DESC LIMIT 40";
+
 /** D47 segment results: stored results files (2024 on) of the focus companies, re-read; each period's reportable
  *  segments (revenue, result, assets, liabilities; filed values) load only when its checks pass (segment revenues and
  *  results add up to the filed totals) and the company files multi-segment. statement 'segment', dims = segment key,

@@ -2,7 +2,7 @@
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
-import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
@@ -319,6 +319,29 @@ export default {
         not_in_layout: { pl: left(pl.values, plRows), bs: left(bs.values, bsRows), cf: left(cf.values, cfRows) },
         periods: { pl: span(pl.kind, true), bs: span(bs.kind, false), cf: span(cf.kind, true) },
         pl: plRows, bs: bsRows, cf: cfRows }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/segments") {
+      // D47 live check (read-only): one company's stored segment results for one period end, per period kind, with the
+      // sums of segment revenue and result (each period loaded only when these matched the filed totals) next to the
+      // stored P&L revenue (which can differ by inter-segment eliminations). ?symbol= or ?sid=, &period=, &basis=
+      const u = new URL(req.url), basis = u.searchParams.get("basis") === "standalone" ? "standalone" : "consolidated";
+      let sym = u.searchParams.get("symbol") ?? "", sid = Number(u.searchParams.get("sid") ?? 0) || undefined;
+      if (!sid) sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
+      else sym = (await env.DB_MARKET.prepare("SELECT value FROM security_identifier WHERE id_type='nse_symbol' AND security_id=?1 LIMIT 1").bind(sid).first<{ value: string }>())?.value ?? "";
+      if (!sid) return Response.json({ error: "symbol" }, { status: 400 });
+      const periods = (await env.DB_FILINGS.prepare(SQL_SEGMENT_PERIODS).bind(sid).all<{ period_end: string; basis: string }>()).results;
+      const period = u.searchParams.get("period") ?? periods.find((p) => p.basis === basis)?.period_end ?? "";
+      const rows = /^\d{4}-\d{2}-\d{2}$/.test(period) ? (await env.DB_FILINGS.prepare(SQL_SEGMENT_ROWS).bind(sid, period, basis).all<{ line: string; dims: string; source_tag: string; value: string; period_kind: string; filing_id: number }>()).results : [];
+      const pl = /^\d{4}-\d{2}-\d{2}$/.test(period) ? (await env.DB_FILINGS.prepare(SQL_STATEMENT_ROWS).bind(sid, period, basis, "Q").all<{ statement: string; line: string; value: string | null; period_kind: string }>()).results.filter((r) => r.statement === "pl" && r.line === "revenue") : [];
+      const kinds = [...new Set(rows.map((r) => r.period_kind))].map((k) => {
+        const mine = rows.filter((r) => r.period_kind === k), segs = new Map<string, Record<string, string>>();
+        for (const r of mine) (segs.get(r.dims) ?? segs.set(r.dims, { name: r.source_tag }).get(r.dims)!)[r.line.replace("segment_", "")] = r.value;
+        const sum = (f: string) => [...segs.values()].reduce((a, s) => a + (s[f] ? Number(s[f]) : 0), 0) / 1e7;
+        return { kind: k, filing_ids: [...new Set(mine.map((r) => r.filing_id))], segments: [...segs.entries()].map(([key, v]) => ({ key, ...v })),
+          sums_cr: { revenue: sum("revenue"), result: sum("result"), assets: sum("assets"), liabilities: sum("liabilities") },
+          pl_revenue_cr: pl.filter((r) => r.period_kind === k).map((r) => Number(r.value) / 1e7)[0] ?? null };
+      });
+      return Response.json({ symbol: sym, sid, period, basis, periods_stored: periods, kinds }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/features") {
       // D171 (read-only): one company's stored feature-table values (computed from filed figures, with their inputs)
