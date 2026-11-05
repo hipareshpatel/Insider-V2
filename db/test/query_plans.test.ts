@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
-import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_VERSION_ROWS } from "../../workers/filings/src/load.js";
+import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS } from "../../workers/filings/src/load.js";
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT } from "../../workers/filings/src/events.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
@@ -56,6 +56,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: re-read named files after a reader fix (manual, bounded)", SQL_RELOAD, ["2026-11-04T00:00:00Z", "[1,2]", '["INFY"]'], /SEARCH (fin_load|fetch_job|j) USING (INTEGER PRIMARY KEY|INDEX \w+) \(/],
   ["filings: one company's shareholding lists (2.8 coverage, read-only)", SQL_SHP_LISTS, ['["INFY"]'], /ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/],
   ["filings: listed shareholding files' download, load and filing (2.8 coverage, read-only)", SQL_SHP_FILES, ['["u"]'], /SEARCH j USING INDEX sqlite_autoindex_fetch_job_1 \(url=\?\)/],
+  ["filings: one period's statements of one company (D157 view, read-only)", SQL_STATEMENT_ROWS, [1, "2026-09-30", "consolidated", "Q"], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 

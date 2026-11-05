@@ -740,3 +740,8 @@ export function epsConsistent(inst: XbrlInstance, r: CanonicalResult): boolean {
   const shares = paidUp / face;
   return [fact("ProfitOrLossAttributableToOwnersOfParent"), fact("ProfitLossForPeriod")].some((p) => p !== null && p !== 0 && Math.abs(p / shares / eps - 1) <= 0.02);
 }
+
+/** D157 read-only statement view: one period's original rows of one company and basis (P&L of the given kind; the
+ *  balance sheet and cash flow filed with it, whatever their own period kind). ix_fin_value_period by kind. */
+export const SQL_STATEMENT_ROWS = `SELECT statement, line, value, period_kind FROM fin_value INDEXED BY ix_fin_value_period
+  WHERE security_id=?1 AND period_end=?2 AND period_kind IN (?4, 'Q', 'H', '9M', 'FY') AND basis=?3 AND version='original' AND (statement <> 'pl' OR period_kind=?4)`;
