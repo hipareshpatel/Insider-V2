@@ -112,6 +112,16 @@ export function isLargeOrder(amount: string, ttmRevenue: View): { large: boolean
   return { large: cmp(mul(dec(amount), dec("50")), dec(ttmRevenue.value)) >= 0 };
 }
 
+/** Equity to owners from a balance sheet: the owners' line; for a standalone statement (no minority) total equity;
+ *  for a bank capital + reserves (Third Schedule has no owners' line). */
+export function ownersEquity(b: Record<string, string | null | undefined>, basis: string, layout: string): string | null {
+  const owners = b["x:EquityAttributableToOwnersOfParent"] ?? b.equity_owners;
+  if (owners != null) return owners;
+  if (layout === "bank" && b.capital != null && b.reserves != null) return toText(add(dec(b.capital), dec(b.reserves)));
+  if (basis === "standalone") return b["x:Equity"] ?? b.total_equity ?? null;
+  return null;
+}
+
 /** One stored row of the feature table (D171). */
 export interface FeatureRow { basis: string; field: string; periodEnd: string; value: string | null; reason: string | null; inputs: string[] }
 
@@ -145,7 +155,8 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
     const x = p ? v(p, k) : null;
     return x ? ok(x, [end]) : no(`quarter ${end} (${basis}) has no filed ${k}`);
   };
-  const rev = revenueLine(layout), owners = ownersLine(layout);
+  // a standalone statement has no minority share: its net profit is the owners' profit (no owners line is filed)
+  const rev = revenueLine(layout), owners = basis === "standalone" ? "pat" : ownersLine(layout);
   const ebitdaTtm = (end: string): View => {
     let sum = dec("0"); const from: string[] = []; let e = end;
     for (let i = 0; i < 4; i++) { const x = by.get(e) ? ebitda(by.get(e)!, layout) : no(`quarter ${e} (${basis}) not filed`); if (x.value === null) return x; sum = add(sum, dec(x.value)); from.push(e); e = previousQuarterEnd(e); }
@@ -169,7 +180,7 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
     // ROE / ROCE at balance-sheet dates (balance sheets are filed at the half-year and the year end)
     const bsEnd = balanceSheets.get(e), bsStart = balanceSheets.get(ya);
     if (bsEnd) {
-      const eq = (b: Record<string, string | null | undefined> | undefined) => (b ? b["x:EquityAttributableToOwnersOfParent"] ?? b.equity_owners ?? (layout === "bank" && b.capital != null && b.reserves != null ? toText(add(dec(b.capital), dec(b.reserves))) : null) ?? null : null);
+      const eq = (b: Record<string, string | null | undefined> | undefined) => (b ? ownersEquity(b, basis, layout) : null);
       put("roe", e, roe(poT, eq(bsStart), eq(bsEnd)));
       if (layout === "industrial") {
         const ebitT = (() => { let s = dec("0"); const f: string[] = []; let k = e; for (let i = 0; i < 4; i++) { const x = by.get(k); const a = x ? v(x, "pbt_before_exceptional") : null, b = x ? v(x, "finance_cost") : null; if (!a || !b) return no(`quarter ${k} (${basis}): profit before exceptional items and finance costs must be filed`); s = add(s, add(a, b)); f.push(k); k = previousQuarterEnd(k); } return ok(s, f.reverse()); })();
@@ -192,7 +203,7 @@ export interface ValuationInputs {
 export function valuationFeatures(basis: string, x: ValuationInputs): FeatureRow[] {
   const mcap = dec(x.mcapRs), rows: FeatureRow[] = [];
   const put = (field: string, r: View) => rows.push({ basis, field, periodEnd: "latest", value: r.value, reason: r.value === null ? r.reason : null, inputs: r.value === null ? [] : r.from });
-  const close = `close ${x.mcapDate}`;
+  const close = `close ${x.mcapDate}: market cap ₹${x.mcapRs}`;
   const ratio = (num: Dec, den: View, what: string, positive = true): View => {
     if (den.value === null) return den;
     const d = dec(den.value);
@@ -203,7 +214,7 @@ export function valuationFeatures(basis: string, x: ValuationInputs): FeatureRow
   put("pe_ttm", no("adjusted profit to owners is not filed (the tax and minority share of exceptional items are not given); use pe_ttm_rep"));
   put("earnings_yield", x.patOwnersTtm.value === null ? x.patOwnersTtm : mcap.units === 0n ? no("market cap is zero") : ok(div(mul(dec(x.patOwnersTtm.value), dec("100")), mcap, 2), [close, ...x.patOwnersTtm.from]));
   put("mcap_to_sales_ttm", ratio(mcap, x.revenueTtm, "market cap to sales"));
-  const eqOwners = x.bs["x:EquityAttributableToOwnersOfParent"] ?? x.bs.equity_owners ?? (x.layout === "bank" && x.bs.capital != null && x.bs.reserves != null ? toText(add(dec(x.bs.capital), dec(x.bs.reserves))) : null);
+  const eqOwners = ownersEquity(x.bs, basis, x.layout);
   put("pb", eqOwners == null || !x.bsDate ? no("equity to owners is not filed on the latest balance sheet") : ratio(mcap, ok(dec(eqOwners), [`balance sheet ${x.bsDate}`]), "P/B"));
   // EV/EBITDA: industrial companies only (no EBITDA for lenders and insurers, D49). Net debt = borrowings (current +
   // non-current) − cash and cash equivalents − other bank balances; investments are not netted (documented).

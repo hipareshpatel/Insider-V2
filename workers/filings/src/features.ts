@@ -100,7 +100,7 @@ export const SQL_LATEST_SESSION = "SELECT max(trade_date) AS d FROM trading_cale
 export const SQL_LATEST_MCAP = "SELECT d, mcap_paise FROM shares_daily WHERE security_id = ?1 ORDER BY d DESC LIMIT 1";
 export const SQL_LATEST_TTM = `SELECT field, period_end, value, reason, inputs FROM feature_value WHERE security_id = ?1 AND basis = ?2
    AND field IN ('pat_owners_ttm','revenue_ttm','ebitda_ttm') AND period_end <> 'latest' ORDER BY field, period_end`;
-const VAL_BS = ["x:EquityAttributableToOwnersOfParent", "equity_owners", "capital", "reserves", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent",
+const VAL_BS = ["x:EquityAttributableToOwnersOfParent", "equity_owners", "x:Equity", "total_equity", "capital", "reserves", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent",
   "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents", "x:NonControllingInterest"];
 export const SQL_LATEST_BS = `SELECT line, value, period_end FROM fin_value INDEXED BY ix_fin_value_period
    WHERE security_id = ?1 AND period_end >= ?2 AND basis = ?3 AND dims = '' AND statement = 'bs' AND line IN (SELECT value FROM json_each(?4))

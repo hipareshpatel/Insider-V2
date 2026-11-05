@@ -112,6 +112,12 @@ export default {
       if (name === "bscf_backfill") r = await backfillBsCf(ldeps, 60, 20_000);
       else if (name === "nbfc_bs") r = await nbfcBalanceSheets(ldeps, 40, 20_000); // item 5: Division III balance-sheet lines
       else if (name === "features") r = await buildFeatures(ldeps, 25, new URL(req.url).searchParams.get("restart") === "1"); // D171 feature table
+      else if (name === "valuations") {
+        // D171: today's valuations again (e.g. after a fix); ?restart=1 resets today's cursor first, then 50 per call
+        if (new URL(req.url).searchParams.get("restart") === "1") await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','valuations',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify({ day: "", after: 0, done: false })]);
+        const sids = new Set((await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id));
+        r = await valuationsStep(ldeps, sids, 50);
+      }
       else if (name === "version_backfill") {
         // focus companies only (owner #343), company by company over ix_filing_sec (was: a GROUP BY over all of filing per call)
         const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);

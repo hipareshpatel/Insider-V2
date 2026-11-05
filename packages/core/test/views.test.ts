@@ -94,7 +94,7 @@ describe("item 6: valuation on the latest close (D171)", () => {
   it("P/E, earnings yield, P/B, market cap to sales and EV/EBITDA, each naming the close and the periods used", () => {
     const r = valuationFeatures("consolidated", base);
     expect(get(r, "pe_ttm_rep")).toMatchObject({ value: "20", periodEnd: "latest" });
-    expect(get(r, "pe_ttm_rep").inputs[0]).toBe("close 2026-11-04");
+    expect(get(r, "pe_ttm_rep").inputs[0]).toBe("close 2026-11-04: market cap ₹1000");
     expect(get(r, "earnings_yield").value).toBe("5");
     expect(get(r, "pb").value).toBe("4");
     expect(get(r, "mcap_to_sales_ttm").value).toBe("2.5");
@@ -111,5 +111,18 @@ describe("item 6: valuation on the latest close (D171)", () => {
     const bank = valuationFeatures("consolidated", { ...base, layout: "bank", bs: { capital: "50", reserves: "200" } });
     expect(get(bank, "ev_ebitda_ttm").reason).toMatch(/not used for bank/);
     expect(get(bank, "pb").value).toBe("4");
+  });
+});
+
+describe("standalone statements have no owners' line (live INFY check, 5 Nov)", () => {
+  it("standalone owners' profit is net profit and equity to owners is total equity", () => {
+    const qs = ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"].map((e) => ({ periodEnd: e, periodKind: "Q", basis: "standalone", lines: { revenue: "100", pat: "20" } }));
+    const bs = new Map([["2025-09-30", { "x:Equity": "180" }], ["2026-09-30", { "x:Equity": "220" }]]);
+    const rows = companyFeatures(qs, bs, "standalone", "industrial");
+    expect(rows.find((r) => r.field === "pat_owners_ttm" && r.periodEnd === "2026-09-30")!.value).toBe("80");
+    expect(rows.find((r) => r.field === "roe" && r.periodEnd === "2026-09-30")!.value).toBe("40"); // 80 ÷ avg 200
+    // consolidated still needs the owners' line (never assumed equal to net profit)
+    const cons = companyFeatures(qs.map((q) => ({ ...q, basis: "consolidated" })), new Map(), "consolidated", "industrial");
+    expect(cons.find((r) => r.field === "pat_owners_ttm" && r.periodEnd === "2026-09-30")!.value).toBeNull();
   });
 });
