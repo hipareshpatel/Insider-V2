@@ -12,6 +12,7 @@ import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT } from "../../workers/filings/src/events.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
+import { SQL_SHP_FILES, SQL_SHP_LISTS } from "../../workers/filings/src/shpcov.js";
 import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
 import { SQL_FOCUS } from "../../packages/core/src/focus.js";
 
@@ -53,6 +54,8 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: relabel a proven quarter (C62, per half-year file)", SQL_RELABEL_Q, [1, "2026-09-30", "consolidated", 50], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
   ["filings: out-of-focus due retries leave the queue (C63, every 5 min)", SQL_RETRY_OFF, ["[1,2]"], /SEARCH fin_load USING (INTEGER PRIMARY KEY|INDEX \w+) \(/],
   ["filings: re-read named files after a reader fix (manual, bounded)", SQL_RELOAD, ["2026-11-04T00:00:00Z", "[1,2]", '["INFY"]'], /SEARCH (fin_load|fetch_job|j) USING (INTEGER PRIMARY KEY|INDEX \w+) \(/],
+  ["filings: one company's shareholding lists (2.8 coverage, read-only)", SQL_SHP_LISTS, ['["INFY"]'], /ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/],
+  ["filings: listed shareholding files' download, load and filing (2.8 coverage, read-only)", SQL_SHP_FILES, ['["u"]'], /SEARCH j USING INDEX sqlite_autoindex_fetch_job_1 \(url=\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 
