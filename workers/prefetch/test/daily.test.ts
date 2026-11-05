@@ -117,3 +117,20 @@ describe("universe lock and insider XBRL (owner 4 Nov; audit P0)", () => {
     expect((await db.all<{ symbol: string }>("SELECT symbol FROM fetch_job WHERE kind='integrated_financials' AND r2_key LIKE '%-sweep.json' ORDER BY symbol")).map((r) => r.symbol)).toEqual(["INFY", "TCS"]);
   });
 });
+
+describe("item 7: insider-trade lists by calendar quarter (NSE's dated PIT list answers about a year)", async () => {
+  const { pitWindows, seedPitWindows } = await import("../src/daily.js");
+  it("quarters from 2022-Q1 to 2 May 2026; one call per focus company per quarter, queued once", async () => {
+    const w = pitWindows();
+    expect(w[0]).toEqual(["2022-01-01", "2022-03-31"]);
+    expect(w[1]).toEqual(["2022-04-01", "2022-06-30"]);
+    expect(w[w.length - 1]).toEqual(["2026-04-01", "2026-05-02"]);
+    expect(w).toHaveLength(18);
+    const db = sqlite("filings");
+    expect(await seedPitWindows(db, new Date("2026-11-05T10:00:00Z"), ["TCS", "M&M"])).toBe(36);
+    expect(await seedPitWindows(db, new Date("2026-11-05T10:00:00Z"), ["TCS"])).toBe(0);
+    const urls = (await db.all<{ url: string; kind: string }>("SELECT url, kind FROM fetch_job WHERE symbol = 'M&M' ORDER BY url LIMIT 1"));
+    expect(urls[0]).toMatchObject({ kind: "pit" });
+    expect(urls[0]!.url).toContain("symbol=M%26M&from_date=01-01-2022&to_date=31-03-2022");
+  });
+});

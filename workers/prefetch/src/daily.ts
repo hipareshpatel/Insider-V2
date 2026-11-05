@@ -85,6 +85,33 @@ export async function seedStructureHistory(db: Sql, now: Date): Promise<number> 
   return rows.length;
 }
 
+/** Item 7 (data-readiness map, 5 Nov): NSE's dated per-company PIT list answers only about a year from its start date —
+ *  TCS and PERSISTENT asked 2021-01-01 → 2026-11-03 both stop in early 2022 (74 and 70 rows) while the new system (C53)
+ *  starts 3 May 2026, so trades between look missing for many companies. Queued once: one call per focus company per
+ *  calendar quarter, 2022-Q1 → the quarter of 2 May 2026 (≈ 18 calls each). Same kind ('pit'), so the event loader
+ *  reads them; rows are keyed, a trade already stored is not added twice. */
+export const PIT_WINDOW_FROM = "2022-01-01", PIT_WINDOW_TO = "2026-05-02";
+export function pitWindows(from = PIT_WINDOW_FROM, to = PIT_WINDOW_TO): [string, string][] {
+  const out: [string, string][] = [];
+  for (let y = Number(from.slice(0, 4)), q = Math.floor((Number(from.slice(5, 7)) - 1) / 3); ; q === 3 ? (y++, (q = 0)) : q++) {
+    const a = `${y}-${String(q * 3 + 1).padStart(2, "0")}-01`;
+    if (a > to) break;
+    const endM = q * 3 + 3, last = new Date(Date.UTC(y, endM, 0)).getUTCDate();
+    const b = `${y}-${String(endM).padStart(2, "0")}-${last}`;
+    out.push([a, b > to ? to : b]);
+  }
+  return out;
+}
+export async function seedPitWindows(db: Sql, now: Date, focus: string[]): Promise<number> {
+  if ((await db.all("SELECT 1 FROM daily_refresh WHERE day='once' AND slot='pit_windows'")).length) return 0;
+  const rows: unknown[][] = [];
+  for (const s of focus) for (const [a, b] of pitWindows())
+    rows.push(["pit", s, `${API}corporates-pit?index=equities&symbol=${encodeURIComponent(s)}&from_date=${dmy(a)}&to_date=${dmy(b)}`, `api/pit/${s}/${a}_${b}.json`]);
+  await batchAll(db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key)", 4, rows));
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once', 'pit_windows', ?, ?)", [now.toISOString(), JSON.stringify({ queued: rows.length })]);
+  return rows.length;
+}
+
 /** Owner #289 / C40: several per-company lists return only the latest 20 rows (PIT, SAST, board meetings, corporate
  *  actions, governance; BRSR only 1). Queue the full history once: all-company monthly feeds where NSE supports them
  *  (SAST, board meetings, corporate actions, credit ratings; checked uncapped), and one dated call per company for PIT,
