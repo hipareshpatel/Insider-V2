@@ -53,6 +53,15 @@
 
 **Repo:** `hipareshpatel/Insider-V2`, branch **`ccr-eb822347-c3zp4b`** (only branch). All documents are in `docs/`.
 
+### Build state — 2026-11-05 06:45 IST (item 2 closed: remaining gaps accepted, owner #354; item 3 moved last, owner #355)
+| Area | State |
+|---|---|
+| **Item 2 — closed (owner #354: "accept the gap and move to next item")** | Active gaps from the 2024-01-01 floor: **39 in 16 companies → 25 in 10** (`/coverage-gaps`, 5 Nov 06:43 IST). Fixed on 4 Nov: COFORGE Q3 FY26 (filed with Symbol NUCLEUS, C61), COFORGE and BALKRISIND Mar 2025 (half-year-dated quarter, C62), BAJAJ-AUTO Mar 2026 (retry starvation, C63), HDFCLIFE and ICICILIFE Q3 FY26 (start-date typo, C64), SIEMENS Q2 FY25 (mis-dated contexts, C65 b), BAJAJHLDNG Sep 2025, BAJAJFINSV Sep 2025, ABCAPITAL Mar 2025 (scale guard released by the EPS check, C65 a); FY25 full-year figures for 3 half-year filers (D169) |
+| **Accepted gaps (25, not chased further)** | **12** NSE answers 404 for the standalone XBRL, re-fetched once on 4 Nov and 404 again: ADANIENT Mar/Sep 2025, Mar/Sep 2026; ADANIGREEN Mar/Sep 2026; JSWENERGY Mar/Sep 2026; UPL Mar/Sep 2025, Mar/Sep 2026 (consolidated loaded). **9** no quarter in the filed XBRL: COFORGE Sep 2026 (both) and COALINDIA Sep 2026 (both) are genuine half-years; COFORGE Mar 2025 consolidated and MANKIND Mar 2025 (both) fail the C62 proof; CGPOWER Mar 2025 (both) — the linked file holds H1 FY25. **2** SIEMENS Q3 FY26 (both) — the file holds Apr–Jun 2025. **2** BAJAJFINSV standalone Jun and Sep 2026 — held: profit ÷ shares does not match the filed EPS within 2%. Possible later sources (not built): iXBRL files, the next quarter's comparative column, PDF extraction |
+| **Item 3 — deals refill (owner #355: moved to the end, before the universe expansion)** | Checked 4 Nov 22:08 IST (market `/status`): bulk and block 0 days still marked "possibly truncated" over 706 sessions (bulk 71,190 rows, block 4,929; 5 days with no file each). Short selling has 304 days at the same 70-row cap and no CSV source — **added to the end of the list (owner #356)**: find an uncapped source. Both kept as the last items before the universe expansion |
+| **Cost** | D1 writes this month 48.1M of 50M included (cap 54M; 15.9M on 4 Nov, mostly the morning's index build). One-off passes kept small |
+| **Next** | Item 4 — 2.8 shareholding counts vs NSE |
+
 ### Build state — 2026-11-04 12:20 IST (owner #343: paused passes restarted behind a cost gate; work list item 1)
 | Area | State |
 |---|---|
@@ -120,7 +129,7 @@ You are continuing the build of **Disclo** (disclo.in), an Indian-equities data 
 
 **Running now (check, don't restart):** insider trades from NSE's new system loading (count check vs 3,298 filings when done); bulk/block CSV windows downloading + capped days refilling; one-off version and revision-remark passes; daily primary basis + coverage gaps.
 
-**Next, in order:** (1) insider count check and freshness rule for every feed (owner to-do: NSE inventory with daily evidence, Part 2); (2) coverage gaps for the 250 (`coverage_gap`), fix by class; (3) verify bulk/block refill; (4) 2.8 shareholding counts vs NSE; (5) D157 statement layout (Schedule III heads with sub-rows); (6) computed views D49/D52/D66 and the feature table. **Waiting on the owner:** a/b for cash-flow files with untagged adjustments (recommended a: labelled "Other adjustments (not itemised in the filing)" line when the three section totals check).
+**Next, in order:** (1) insider count check and freshness rule for every feed (owner to-do: NSE inventory with daily evidence, Part 2); (2) coverage gaps for the 250 (`coverage_gap`), fix by class; (3) ~~verify bulk/block refill~~ moved to the end (owner #355); (4) 2.8 shareholding counts vs NSE; (5) D157 statement layout (Schedule III heads with sub-rows); (6) computed views D49/D52/D66 and the feature table; **last, before the universe expansion:** (a) sign off the bulk/block refill (checked 4 Nov: 0 capped days); (b) short selling: 304 days at the API's 70-row cap — find an uncapped source (owner #356). **Waiting on the owner:** a/b for cash-flow files with untagged adjustments (recommended a: labelled "Other adjustments (not itemised in the filing)" line when the three section totals check).
 ---
 
 ### Build state — 2026-11-04 05:40 IST (check-ins 7–10 closed; session was down 22:00–05:15 IST)
@@ -3042,6 +3051,9 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 351 | "go ahead, fix COFORGE and continue with the gaps, download only missing XBRL if needed." + all four half-year filers released quarterly results | COFORGE Q3 FY26 moved from Nucleus Software (C61). Checked COFORGE Mar 2025 "half-year" file: its 6-month-dated column holds Q4 FY25 figures (revenue ₹3,410 cr) — filer mis-tagged the dates; relabelling proposal put to the owner (C62, not built). 404 class: 16 standalone XBRL files failed once with 404 and were never retried; `/maint/requeue_404?jobs=…` re-queues named failed-404 focus jobs once for the next attachment run | ✅ |
 | 352 | "Ok" (to relabelling proven mis-tagged half-year columns as quarters) | C62 built: relabel only on proof (earlier filed quarters + this column = the file's year to date, core line and PAT, ₹1 lakh); values untouched; D169/D170 unchanged — nothing is computed into `fin_value`. 404 class: the 18 re-queued files 404 again (NSE does not serve them) — those 12 standalone gaps stay | ✅ |
 | 353 | "Ok, do both" — (1) release scale-guard holds that pass the in-file EPS check; (2) place SIEMENS Q2 FY25 as the Jan–Mar 2025 quarter when its "Quarterly" label and the C62 proof agree | C65 built; the 5 holds and the 2 SIEMENS files re-read | ✅ |
+| 354 | "After this let's accept the gap and move to next item" | Item 2 closed: 25 remaining gaps (10 companies) accepted with reasons (Part 1, 5 Nov) | ✅ |
+| 355 | "Item 3, bulk/block deals … Ignore it and keep it at last before we expand universe" | Item 3 moved to the end of the work list, before the universe expansion (checked 4 Nov: 0 capped days); next item 4 | ✅ |
+| 356 | "Short selling has 304 days at the same 70-row cap … Add it also in last" | Added to the end of the work list with the bulk/block sign-off, before the universe expansion: find an uncapped short-selling source for the 304 capped days | ✅ |
 
 ### Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -3050,7 +3062,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-04 after entry #353: all checks pass (170 decisions, 353 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
+*Last run 2026-11-04 after entry #356: all checks pass (170 decisions, 356 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
 
 ### Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*

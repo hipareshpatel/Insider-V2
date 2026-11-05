@@ -1,9 +1,10 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { RESULT_KINDS, backfillBsCf, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { COVERAGE_FLOOR, RESULT_KINDS, backfillBsCf, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
+import { shpCoverage } from "./shpcov.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
 import { BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
@@ -223,6 +224,20 @@ export default {
         out[sym] = { security_id: sid, symbols: allSyms, gaps: detail, stored_pl: stored };
       }
       return Response.json(out, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/shp-coverage") {
+      // Work list 2.8 (read-only): shareholding filings NSE lists for the focus companies (from the D168 floor) vs those
+      // loaded, with the reason for each one missing. ?offset=&limit= (≤ 60 companies per call: one list query, the
+      // stored lists and one file query per company).
+      const u = new URL(req.url), offset = Math.max(0, Number(u.searchParams.get("offset") ?? 0)), limit = Math.min(60, Math.max(1, Number(u.searchParams.get("limit") ?? 50)));
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      const ids = (await env.DB_MARKET.prepare("SELECT security_id, value FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) ORDER BY security_id").bind(JSON.stringify(focus ?? [])).all<{ security_id: number; value: string }>()).results;
+      const bySid = new Map<number, string[]>();
+      for (const r of ids) (bySid.get(r.security_id) ?? bySid.set(r.security_id, []).get(r.security_id)!).push(r.value);
+      const all = [...bySid].map(([sid, symbols]) => ({ sid, symbols }));
+      const res = await shpCoverage(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), all.slice(offset, offset + limit), COVERAGE_FLOOR);
+      const t = res.companies.reduce((a, c) => ({ listed: a.listed + c.listed, loaded: a.loaded + c.loaded }), { listed: 0, loaded: 0 });
+      return Response.json({ companies_total: all.length, offset, limit, totals: t, list_row_keys: res.keys, none_listed: res.companies.filter((c) => !c.listed).map((c) => c.symbol), with_missing: res.companies.filter((c) => c.missing.length) }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/coverage-gaps") {
       // Work list item 2: coverage gaps of the focus companies by class (coverage_gap.status, set by /maint/coverage_classify)
