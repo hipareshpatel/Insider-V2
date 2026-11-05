@@ -9,7 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
 import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, SQL_ORPHAN_RESTATED } from "../../workers/filings/src/load.js";
-import { SQL_EVENTS_NEXT, SQL_PITX_NEXT } from "../../workers/filings/src/events.js";
+import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE } from "../../workers/filings/src/events.js";
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
@@ -74,6 +74,10 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: the 250's revenue rows by kind (2.12 FY gaps, read-only)", SQL_REVENUE_KINDS, ["[1,2]", "2024-01-01"], /USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\? AND line=\?/],
   ["filings: load outcome of one period's files (2.12 FY gaps, read-only)", SQL_PERIOD_LOADS, [1, "2025-03-31", "consolidated"], /ix_filing_sec \(security_id=\?/],
   ["filings: one company's restated lines without an original (2.12 version fix, one-off)", SQL_ORPHAN_RESTATED, [1, "2024-01-01"], /SEARCH b USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\? AND line=\? AND dims=\? AND period_end=\? AND period_kind=\? AND basis=\? AND version=\?\)/],
+  ["filings: the 250's insider trades from 2026 (owner #365, read-only)", SQL_INSIDER_SINCE, ['["INFY"]', 20260101], /ix_insider_symbol \(symbol=\? AND from_d>\?\)/],
+  ["filings: the 250's undated insider trades (owner #365, read-only)", SQL_INSIDER_UNDATED, ['["INFY"]', "2026-01-01"], /ix_insider_symbol \(symbol=\? AND from_d=\?\)/],
+  ["filings: per-company PIT list downloads (owner #365, read-only)", SQL_PIT_JOBS, [], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
+  ["filings: the 250's credit ratings from 2026 (owner #365, read-only)", SQL_RATINGS_SINCE, ['["INFY"]', 20260101], /ix_credit_rating_symbol \(symbol=\? AND rated_on>\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 

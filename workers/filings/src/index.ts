@@ -4,7 +4,7 @@ import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
-import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink } from "./events.js";
+import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
 import { ratingCoverage } from "./ratingcov.js";
 import { readiness } from "./readiness.js";
@@ -344,6 +344,35 @@ export default {
       const detail = [];
       for (const m of missing.slice(0, 40)) detail.push({ ...m, loads: (await env.DB_FILINGS.prepare(SQL_PERIOD_LOADS).bind(m.sid, m.fy_end, m.basis).all()).results });
       return Response.json({ floor: COVERAGE_FLOOR, companies: sym.size, company_bases: qEnds.size, full_years_stored: rows.filter((r) => r.period_kind === "FY").length, missing: missing.length, detail }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/insider-2026") {
+      // Owner #365 (read-only): 2026 insider trades and credit ratings for each of the 250, with the state of each
+      // company's 2026 PIT list downloads, so "no rows" can be told apart from "not downloaded yet".
+      const from = new URL(req.url).searchParams.get("from") ?? "2026-01-01", fromN = Number(from.replace(/-/g, ""));
+      const focus = (await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES)) ?? [];
+      const list = JSON.stringify(focus);
+      const dated = new Map((await env.DB_FILINGS.prepare(SQL_INSIDER_SINCE).bind(list, fromN).all<{ symbol: string; trades: number; new_system: number; first_d: number; last_d: number }>()).results.map((r) => [r.symbol, r]));
+      const undated = new Map((await env.DB_FILINGS.prepare(SQL_INSIDER_UNDATED).bind(list, from).all<{ symbol: string; trades: number }>()).results.map((r) => [r.symbol, r.trades]));
+      const ratings = new Map((await env.DB_FILINGS.prepare(SQL_RATINGS_SINCE).bind(list, fromN).all<{ symbol: string; ratings: number }>()).results.map((r) => [r.symbol, r.ratings]));
+      const jobs = (await env.DB_FILINGS.prepare(SQL_PIT_JOBS).all<{ symbol: string | null; r2_key: string; status: string; http_status: number | null }>()).results;
+      const byStatus: Record<string, number> = {}, win = new Map<string, Record<string, number>>();
+      for (const j of jobs) {
+        byStatus[j.status] = (byStatus[j.status] ?? 0) + 1;
+        const m = /\/(\d{4}-\d{2}-\d{2})_\d{4}-\d{2}-\d{2}\.json$/.exec(j.r2_key);
+        if (j.symbol && m && m[1]! >= from.slice(0, 4)) { const w = win.get(j.symbol) ?? win.set(j.symbol, {}).get(j.symbol)!; w[j.status] = (w[j.status] ?? 0) + 1; }
+      }
+      const rows = focus.map((s) => ({ symbol: s, trades: (dated.get(s)?.trades ?? 0) + (undated.get(s) ?? 0), new_system: dated.get(s)?.new_system ?? 0, first_d: dated.get(s)?.first_d ?? null, last_d: dated.get(s)?.last_d ?? null, ratings: ratings.get(s) ?? 0, windows: win.get(s) ?? {} }));
+      const pending = (r: (typeof rows)[number]) => Object.entries(r.windows).some(([k, n]) => k !== "done" && n > 0);
+      return Response.json({
+        from, companies: focus.length, pit_jobs: byStatus,
+        with_trades: rows.filter((r) => r.trades > 0).length,
+        with_new_system: rows.filter((r) => r.new_system > 0).length,
+        with_ratings: rows.filter((r) => r.ratings > 0).length,
+        no_trades: rows.filter((r) => r.trades === 0).map((r) => ({ symbol: r.symbol, ratings: r.ratings, windows: r.windows, downloads_pending: pending(r) })),
+        no_ratings: rows.filter((r) => r.ratings === 0).map((r) => r.symbol),
+        old_list_only: rows.filter((r) => r.trades > 0 && r.new_system === 0).map((r) => r.symbol),
+        downloads_pending: rows.filter(pending).length,
+      }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/segments") {
       // D47 live check (read-only): one company's stored segment results for one period end, per period kind, with the
