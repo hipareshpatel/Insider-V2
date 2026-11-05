@@ -173,6 +173,8 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
     for (let i = 0; i < 4; i++) { const x = by.get(e) ? ebitda(by.get(e)!, layout) : no(`quarter ${e} (${basis}) not filed`); if (x.value === null) return x; sum = add(sum, dec(x.value)); from.push(e); e = previousQuarterEnd(e); }
     return ok(sum, from.reverse());
   };
+  // TTM EBIT = profit before exceptional items + finance costs, four filed quarters
+  const ebitTtm = (end: string): View => { let s = dec("0"); const f: string[] = []; let k = end; for (let i = 0; i < 4; i++) { const x = by.get(k); const a = x ? v(x, "pbt_before_exceptional") : null, b = x ? v(x, "finance_cost") : null; if (!a || !b) return no(`quarter ${k} (${basis}): profit before exceptional items and finance costs must be filed`); s = add(s, add(a, b)); f.push(k); k = previousQuarterEnd(k); } return ok(s, f.reverse()); };
   for (const q of qs) {
     const e = q.periodEnd, ya = yearBefore(e), pq = previousQuarterEnd(e);
     const r = line(q, rev, e), p = line(q, "pat", e), po = line(q, owners, e), eb = ebitda(q, layout);
@@ -188,6 +190,8 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
     put("ebitda_margin_ttm", e, pct(eT, rT, "EBITDA margin TTM"));
     put("revenue_ttm_yoy", e, growth(rT, rev ? ttm(qs, rev, ya, basis) : rT, "revenue TTM YoY"));
     put("pat_ttm_yoy", e, growth(pT, ttm(qs, "pat", ya, basis), "PAT TTM YoY"));
+    // field catalogue §7: interest cover = TTM EBIT ÷ TTM finance costs (industrial; lenders' interest is their cost of goods)
+    put("interest_coverage_ttm", e, layout === "industrial" ? interestCover(ebitTtm(e), ttm(qs, "finance_cost", e, basis)) : no(`interest cover is not used for ${layout}`));
     // ROE / ROCE at balance-sheet dates (balance sheets are filed at the half-year and the year end)
     const bsEnd = balanceSheets.get(e), bsStart = balanceSheets.get(ya);
     if (bsEnd) {
@@ -199,13 +203,31 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       put("nci", e, bsEnd["x:NonControllingInterest"] != null ? ok(dec(bsEnd["x:NonControllingInterest"]!), [`balance sheet ${e}`]) : basis === "standalone" ? ok(dec("0"), [`balance sheet ${e}`], "standalone: no minority") : no(`balance sheet ${e}: non-controlling interest not filed`));
       put("roe", e, roe(poT, eq(bsStart), eq(bsEnd)));
       if (layout === "industrial") {
-        const ebitT = (() => { let s = dec("0"); const f: string[] = []; let k = e; for (let i = 0; i < 4; i++) { const x = by.get(k); const a = x ? v(x, "pbt_before_exceptional") : null, b = x ? v(x, "finance_cost") : null; if (!a || !b) return no(`quarter ${k} (${basis}): profit before exceptional items and finance costs must be filed`); s = add(s, add(a, b)); f.push(k); k = previousQuarterEnd(k); } return ok(s, f.reverse()); })();
-        put("roce", e, roce(ebitT, bsStart ?? null, bsEnd));
-      } else put("roce", e, no(`ROCE is not used for ${layout}`));
+        put("roce", e, roce(ebitTtm(e), bsStart ?? null, bsEnd));
+        put("debt_to_equity", e, debtToEquity(bsEnd, eq(bsEnd), e));
+      } else { put("roce", e, no(`ROCE is not used for ${layout}`)); put("debt_to_equity", e, no(`debt to equity is not used for ${layout}`)); }
     }
   }
   if (qs.length) put("layout", "latest", { value: layout, from: [] });
   return out;
+}
+
+/** Field catalogue §7: TTM EBIT ÷ TTM finance costs, 2 places; unavailable when there are no finance costs. */
+export function interestCover(ebit: View, finance: View): View {
+  if (ebit.value === null) return ebit;
+  if (finance.value === null) return finance;
+  if (dec(finance.value).units <= 0n) return no("no finance costs in the last four quarters");
+  return ok(div(dec(ebit.value), dec(finance.value), 2), [...new Set([...ebit.from, ...finance.from])]);
+}
+
+/** Field catalogue §7: gross borrowings (current + non-current) ÷ equity to owners at a balance-sheet date, 2 places
+ *  (industrial only; minority interest left out of the equity, as for ROE). */
+export function debtToEquity(b: Record<string, string | null | undefined>, owners: string | null, date: string): View {
+  const miss = ["x:BorrowingsNoncurrent", "x:BorrowingsCurrent"].filter((k) => b[k] == null);
+  if (miss.length) return no(`balance sheet ${date} lacks ${miss.join(", ")}`);
+  if (owners == null) return no(`balance sheet ${date}: equity to owners not filed`);
+  if (dec(owners).units <= 0n) return no(`balance sheet ${date}: equity to owners is zero or negative`);
+  return ok(div(add(dec(b["x:BorrowingsNoncurrent"]!), dec(b["x:BorrowingsCurrent"]!)), dec(owners), 2), [`balance sheet ${date}`]);
 }
 
 /** Net debt for EV (industrial only): borrowings (current + non-current) − cash and cash equivalents − other bank

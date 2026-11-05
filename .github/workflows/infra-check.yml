@@ -49,9 +49,12 @@ jobs:
           d = json.load(urllib.request.urlopen(req, timeout=60))
           if d.get("errors"): print("graphql errors:", [e.get("message") for e in d["errors"]]); sys.exit(0)
           g = d["data"]["viewer"]["accounts"][0]["d1AnalyticsAdaptiveGroups"]
-          by_day = {}
-          for r in g: by_day[r["dimensions"]["date"]] = by_day.get(r["dimensions"]["date"], 0) + r["sum"]["rowsWritten"]
-          for k in sorted(by_day): print(k, by_day[k])
+          by_day, rd_day = {}, {}
+          for r in g:
+              by_day[r["dimensions"]["date"]] = by_day.get(r["dimensions"]["date"], 0) + r["sum"]["rowsWritten"]
+              rd_day[r["dimensions"]["date"]] = rd_day.get(r["dimensions"]["date"], 0) + r["sum"]["rowsRead"]
+          # C18 re-measure: rows read per day next to rows written (reads are the larger bill line)
+          for k in sorted(by_day): print(k, "written", by_day[k], "read", rd_day[k])
           print("MONTH_ROWS_WRITTEN", sum(by_day.values()), "rows_read", sum(r["sum"]["rowsRead"] for r in g))
           # Workers CPU time this period (included 30M ms; owner #269)
           q2 = {"query": "query($a:String!,$f:Date!){viewer{accounts(filter:{accountTag:$a}){workersInvocationsAdaptive(limit:1000,filter:{date_geq:$f}){sum{requests}quantiles{cpuTimeP50}dimensions{scriptName date}}}}}", "variables": q["variables"]}
