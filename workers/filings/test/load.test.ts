@@ -877,3 +877,36 @@ describe("work list 2.10: credit ratings coverage vs NSE's lists", async () => {
     expect(r.missing[0]).toMatchObject({ symbol: "INFY", agency: "CRISIL" });
   });
 });
+
+describe("item 7: credit ratings matched to companies by the issuer part of the ISIN", async () => {
+  const { issuerOf, ratingSymbol, ratingsRelink, loadEvents } = await import("../src/events.js");
+  const row = (isin: string, app: string) => ({ AppID: app, Symbol: null, CompanyName: "HDFC Bank Limited", ISIN: isin, NameOfCRAgency: "CRISIL Ratings Limited", CreditRating: "CRISIL AAA",
+    RatingAction: "Reaffirmed", DateofCR: "01-10-2026", BroadcastDateTime: "05-OCT-2026 10:00:00" });
+  const list = JSON.stringify([row("INE040A08AB1", "1"), row("INE0L6807393", "2")]); // HDFC Bank bond; an unlisted issuer
+  const issuers = new Map([["INE040A", "HDFCBANK"]]);
+  it("issuer code = first 7 characters of an Indian ISIN; a rating with no symbol takes the matching focus company's", () => {
+    expect(issuerOf("INE040A01034")).toBe("INE040A");
+    expect(issuerOf("")).toBeNull();
+    expect(ratingSymbol({ symbol: "", isin: "INE040A08AB1" }, issuers)).toBe("HDFCBANK");
+    expect(ratingSymbol({ symbol: "", isin: "INE0L6807393" }, issuers)).toBe("");
+    expect(ratingSymbol({ symbol: "INFY", isin: "INE040A08AB1" }, issuers)).toBe("INFY");
+  });
+  it("the loader keeps the focus company's rating (with its symbol) and drops the unmatched one", async () => {
+    const { filings } = setup({ "api/credit_rating/all/2026-10.json": list });
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,url,r2_key,status) VALUES (60,'credit_rating','c','api/credit_rating/all/2026-10.json','done')`);
+    await loadEvents(filings, async (k) => (k === "api/credit_rating/all/2026-10.json" ? list : null), 50, { focus: ["HDFCBANK"], issuers });
+    expect(filings.raw.prepare("SELECT symbol, isin FROM credit_rating").all()).toEqual([{ symbol: "HDFCBANK", isin: "INE040A08AB1" }]);
+  });
+  it("the relink pass adds the missing rating and fills the symbol of a stored one; a second call does nothing", async () => {
+    const { filings } = setup({});
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,url,r2_key,status) VALUES (61,'credit_rating','c','api/credit_rating/all/2026-10.json','done')`);
+    const { parseCreditRatings } = await import("@disclo/core");
+    const [first] = parseCreditRatings(list);
+    filings.raw.prepare("INSERT INTO credit_rating (key,symbol,isin,agency,rating) VALUES (?, '', ?, 'x', 'y')").run(first!.key, first!.isin);
+    const get = async (k: string) => (k === "api/credit_rating/all/2026-10.json" ? list : null);
+    const r = await ratingsRelink(filings, get, ["HDFCBANK"], issuers, 12);
+    expect(r).toMatchObject({ done: true, lists: 1, rows: 1, inserted: 0, linked: 1 });
+    expect(filings.raw.prepare("SELECT symbol FROM credit_rating").all()).toEqual([{ symbol: "HDFCBANK" }]);
+    expect((await ratingsRelink(filings, get, ["HDFCBANK"], issuers, 12)).linked).toBe(1); // done: the saved totals, nothing re-run
+  });
+});
