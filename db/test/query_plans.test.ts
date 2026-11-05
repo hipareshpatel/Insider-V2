@@ -80,6 +80,15 @@ describe("market: the focus list (every filings run) starts from the index membe
   });
 });
 
+describe("market: the focus companies' ISINs for the credit-rating issuer match (every filings run, item 7)", () => {
+  it("identifiers by symbol (ix_sid_lookup), then that security's ISINs (ix_sid_security)", async () => {
+    const { SQL_FOCUS_ISSUERS } = await import("../../workers/filings/src/events.js");
+    const p = plan(M, SQL_FOCUS_ISSUERS, ['["INFY"]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_sid_lookup \(id_type=\? AND value=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
+
 describe("recurring queries read only what they need (C56)", () => {
   it.each(cases)("%s", (_name, sql, params, want) => {
     const p = plan(F, sql, params);

@@ -4,7 +4,7 @@ import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
-import { loadEvents, loadPitXbrl } from "./events.js";
+import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
 import { ratingCoverage } from "./ratingcov.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
@@ -68,7 +68,9 @@ export default {
         const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES, meter);
         const ldeps = { filings: d1Sql(env.DB_FILINGS, meter), market, getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: env.BSCF_LOAD === "1", focus, deadline };
         // C47: events first, each with its own budget of lists (D161: rows of the focus companies only).
-        await step("events", () => loadEvents(ldeps.filings, ldeps.getText, 150, { focus, deadline })); // PIT, SAST, board meetings, credit ratings
+        // item 7: credit ratings carry no symbol; they are matched to the focus companies by the issuer part of the ISIN
+        const issuers = focus ? await focusIssuers(market, focus) : undefined;
+        await step("events", () => loadEvents(ldeps.filings, ldeps.getText, 150, { focus, deadline, issuers })); // PIT, SAST, board meetings, credit ratings
         await step("insider_xbrl", () => loadPitXbrl(ldeps.filings, ldeps.getText, 150, { focus, deadline })); // C53: NSE's system since 3 May 2026
         out = (await step("results", () => loadBatch(ldeps, level === "hard" ? 60 : 300, 8))) ?? [];
         // D50/D51: primary basis + basis-switch breaks, only for focus companies with newly loaded filings (live delta).
@@ -113,6 +115,8 @@ export default {
       if (name === "bscf_backfill") r = await backfillBsCf(ldeps, 60, 20_000);
       else if (name === "nbfc_bs") r = await nbfcBalanceSheets(ldeps, 40, 20_000); // item 5: Division III balance-sheet lines
       else if (name === "nbfc_rev") r = await nbfcRevenueLines(ldeps, 40, 20_000); // item 5 leftover 3: the rest of NBFC revenue
+      // item 7 (owner #363): credit ratings re-read with the issuer match; missing ones added, stored ones get their symbol
+      else if (name === "ratings_relink") r = await ratingsRelink(db, ldeps.getText, focus ?? [], await focusIssuers(mk, focus ?? []), 12);
       else if (name === "bank_ins_cf") r = await bankInsurerCashFlows(ldeps, 40, 20_000); // item 5: bank / insurer cash-flow detail
       else if (name === "ins_bs") r = await insurerBalanceSheets(ldeps, 40, 20_000); // item 5: insurers' IRDAI balance sheet
       // second run after general insurers got their own groups (B-BS); life rows already stored are left as they are
@@ -250,7 +254,8 @@ export default {
       // Work list 2.10 (item 7, read-only): credit ratings of the focus companies from the D168 floor vs NSE's stored
       // lists, by month (lists listed / loaded / stored-but-not-listed), with the first 40 missing.
       const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
-      return Response.json(await ratingCoverage(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), focus ?? [], COVERAGE_FLOOR), { headers: { "cache-control": "no-store" } });
+      const issuers = await focusIssuers(d1Sql(env.DB_MARKET), focus ?? []);
+      return Response.json({ issuers: issuers.size, ...(await ratingCoverage(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), focus ?? [], COVERAGE_FLOOR, issuers)) }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/shp-coverage") {
       // Work list 2.8 (read-only): shareholding filings NSE lists for the focus companies (from the D168 floor) vs those

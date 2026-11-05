@@ -4,13 +4,14 @@
 // distinct rating is looked up in credit_rating by its key (primary key). Stored ratings of the 250 that no list has
 // are counted as extra.
 import { type Sql, parseCreditRatings } from "@disclo/core";
+import { ratingSymbol } from "./events.js";
 
 export const SQL_CR_LISTS = `SELECT job_id, r2_key FROM fetch_job WHERE kind = 'credit_rating' AND status = 'done'
   AND (r2_key >= ?1 OR r2_key LIKE 'api/credit_rating/daily/%') ORDER BY job_id`;
 export const SQL_CR_KEYS = "SELECT key FROM credit_rating WHERE key IN (SELECT value FROM json_each(?1))";
 export const SQL_CR_STORED = "SELECT key, substr(disclosed_at, 1, 7) AS month FROM credit_rating WHERE symbol IN (SELECT value FROM json_each(?1)) AND disclosed_at >= ?2";
 
-export async function ratingCoverage(db: Sql, getText: (k: string) => Promise<string | null>, focus: string[], floor: string) {
+export async function ratingCoverage(db: Sql, getText: (k: string) => Promise<string | null>, focus: string[], floor: string, issuers?: Map<string, string>) {
   const lists = await db.all<{ job_id: number; r2_key: string }>(SQL_CR_LISTS, [`api/credit_rating/all/${floor.slice(0, 7)}`]);
   const fs = new Set(focus), want = new Map<string, { month: string; symbol: string; agency: string; rating: string; action: string; disclosedAt: string | null }>();
   let unreadable = 0, notStored = 0, parsedRows = 0, focusRows = 0;
@@ -18,10 +19,9 @@ export async function ratingCoverage(db: Sql, getText: (k: string) => Promise<st
   for (const l of lists) {
     const t = await getText(l.r2_key).catch(() => null);
     if (!t) { notStored++; continue; }
-    let rows; try { rows = parseCreditRatings(t); } catch { unreadable++; continue; }
+    let rows; try { rows = parseCreditRatings(t).map((c) => ({ ...c, symbol: ratingSymbol(c, issuers) })); } catch { unreadable++; continue; }
     parsedRows += rows.length;
-    if (!sample) { try { const d = JSON.parse(t) as unknown; const a = (Array.isArray(d) ? d : ((d as { data?: unknown[] }).data ?? [])) as Record<string, unknown>[];
-      sample = { raw_keys: Object.keys(a[0] ?? {}), raw_first: a[0] ?? null, raw_with_symbol: a.filter((x) => Object.values(x).some((v) => fs.has(String(v)))).slice(0, 2) }; } catch { /* counted below */ } }
+    sample ??= rows.find((r) => fs.has(r.symbol)) ?? null;
     for (const r of rows) {
       if (fs.has(r.symbol)) focusRows++;
       const when = r.disclosedAt ?? r.ratedOn;
