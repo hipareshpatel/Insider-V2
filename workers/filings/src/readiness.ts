@@ -22,17 +22,19 @@ export const SYM_PROBES: Record<string, string> = {
 export const SQL_FEATURE_COVERAGE = `SELECT field, count(DISTINCT security_id) AS companies, count(DISTINCT CASE WHEN value IS NOT NULL THEN security_id END) AS with_value,
   sum(value IS NULL) AS unavailable FROM feature_value WHERE security_id IN (SELECT value FROM json_each(?1)) GROUP BY field ORDER BY field`;
 
+/** D1 wants exactly as many bindings as the query's highest ?N. */
+const bind = (q: string, all: unknown[]) => all.slice(0, Math.max(...[...q.matchAll(/\?(\d)/g)].map((m) => Number(m[1]))));
 export async function readiness(db: Sql, companies: { sid: number; symbols: string[] }[], floor: string, withFeatures = true) {
   const fin: Record<string, number> = {}, sym: Record<string, number> = {}, missing: Record<string, string[]> = {};
   const day = Number(floor.replace(/-/g, ""));
   for (const c of companies) {
     for (const [k, q] of Object.entries(FIN_PROBES)) {
-      const [r] = await db.all<{ ok: number }>(q, [c.sid, floor]);
+      const [r] = await db.all<{ ok: number }>(q, bind(q, [c.sid, floor]));
       if (r) fin[k] = (fin[k] ?? 0) + 1; else (missing[k] ??= []).length < 12 && missing[k]!.push(c.symbols[0]!);
     }
     for (const [k, q] of Object.entries(SYM_PROBES)) {
       let hit = false;
-      for (const s of c.symbols) if ((await db.all<{ ok: number }>(q, [s, day, floor])).length) { hit = true; break; }
+      for (const s of c.symbols) if ((await db.all<{ ok: number }>(q, bind(q, [s, day, floor]))).length) { hit = true; break; }
       if (hit) sym[k] = (sym[k] ?? 0) + 1; else (missing[k] ??= []).length < 12 && missing[k]!.push(c.symbols[0]!);
     }
   }

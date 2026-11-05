@@ -959,3 +959,21 @@ describe("item 7: credit-rating company-name fallback", async () => {
     expect(ratingSymbol({ symbol: "", isin: "INE530B08144", company: "IIFL Finance Limited" }, issuers)).toBe("");
   });
 });
+
+describe("D123 readiness page", async () => {
+  const { readiness } = await import("../src/readiness.js");
+  it("binds exactly the parameters each probe uses and counts a company with a P&L from the floor", async () => {
+    const { filings } = setup({});
+    const strict: Sql = { ...filings, async all<T>(sql: string, params: unknown[] = []) {
+      const n = Math.max(0, ...[...sql.matchAll(/\?(\d)/g)].map((m) => Number(m[1])));
+      if (params.length !== n) throw new Error(`Wrong number of parameter bindings (${params.length} for ${n})`);
+      return filings.all<T>(sql, params);
+    } };
+    filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (70, 7, 'results_quarterly', '2026-09-30', 'Q', 'consolidated', '2026-10-15T00:00:00Z', 'r')");
+    filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'industrial','pl','revenue','','2026-09-30','Q','consolidated','original','1',NULL,'2026-10-15T00:00:00Z',70,'t','reported','v')`);
+    const r = await readiness(strict, [{ sid: 7, symbols: ["INFY"] }], "2024-01-01");
+    expect(r.statements_and_filings).toMatchObject({ pl: 1 });
+    expect(r.missing_sample.bs).toEqual(["INFY"]);
+  });
+});
