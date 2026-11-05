@@ -13,6 +13,7 @@ export const SQL_CR_STORED = "SELECT key, substr(disclosed_at, 1, 7) AS month FR
 
 export async function ratingCoverage(db: Sql, getText: (k: string) => Promise<string | null>, focus: string[], floor: string, issuers?: Map<string, string>) {
   const lists = await db.all<{ job_id: number; r2_key: string }>(SQL_CR_LISTS, [`api/credit_rating/all/${floor.slice(0, 7)}`]);
+  const perList: { list: string; rows: number; focus: number; first: string | null; last: string | null }[] = [];
   const fs = new Set(focus), want = new Map<string, { month: string; symbol: string; agency: string; rating: string; action: string; disclosedAt: string | null }>();
   let unreadable = 0, notStored = 0, parsedRows = 0, focusRows = 0;
   let sample: unknown = null;
@@ -21,6 +22,8 @@ export async function ratingCoverage(db: Sql, getText: (k: string) => Promise<st
     if (!t) { notStored++; continue; }
     let rows; try { rows = parseCreditRatings(t).map((c) => ({ ...c, symbol: ratingSymbol(c, issuers) })); } catch { unreadable++; continue; }
     parsedRows += rows.length;
+    const ds = rows.map((r) => r.disclosedAt ?? "").filter(Boolean).sort();
+    perList.push({ list: l.r2_key.replace("api/credit_rating/", ""), rows: rows.length, focus: rows.filter((r) => fs.has(r.symbol)).length, first: ds[0] ?? null, last: ds[ds.length - 1] ?? null });
     sample ??= rows.find((r) => fs.has(r.symbol)) ?? null;
     for (const r of rows) {
       if (fs.has(r.symbol)) focusRows++;
@@ -40,5 +43,5 @@ export async function ratingCoverage(db: Sql, getText: (k: string) => Promise<st
   const byMonth = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, v]) => ({ month, ...v }));
   const tot = byMonth.reduce((a, x) => ({ listed: a.listed + x.listed, loaded: a.loaded + x.loaded, extra: a.extra + x.extra }), { listed: 0, loaded: 0, extra: 0 });
   const [tbl] = await db.all<{ n: number; focus_rows: number }>("SELECT count(*) AS n, sum(symbol IN (SELECT value FROM json_each(?1))) AS focus_rows FROM credit_rating", [JSON.stringify(focus)]);
-  return { focus: focus.length, parsed_rows: parsedRows, focus_rows_any_date: focusRows, sample, table: tbl, lists: lists.length, lists_not_stored: notStored, lists_unreadable: unreadable, totals: tot, months: byMonth.filter((x) => x.listed !== x.loaded || x.extra), all_months: byMonth.length, missing: missing.slice(0, 40) };
+  return { focus: focus.length, parsed_rows: parsedRows, focus_rows_any_date: focusRows, sample, table: tbl, lists: lists.length, lists_not_stored: notStored, lists_unreadable: unreadable, totals: tot, months: byMonth.filter((x) => x.listed !== x.loaded || x.extra), all_months: byMonth.length, by_month: byMonth.map((x) => `${x.month}:${x.listed}`).join(" "), per_list: perList, missing: missing.slice(0, 40) };
 }
