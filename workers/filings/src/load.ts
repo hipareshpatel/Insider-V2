@@ -370,7 +370,10 @@ export async function loadBsCf(inst: XbrlInstance, sid: number, template: string
   // D154: every reported line item, stored as "x:<tag>" next to the named lines, only when the statement's totals pass
   // AND its detail adds up to its own subtotals; otherwise the checked totals load alone and the detail is noted.
   const refs = new Set(inst.facts.map((f) => f.contextRef));
-  const det = template === "industrial" ? statementDetail(inst, refs.has("OneI") ? "OneI" : null, refs.has("FourD") ? "FourD" : null) : { bs: null, cf: null };
+  // item 5: banks and insurers file the same cash-flow lines as companies (HDFCBANK Sep 2026: all four section checks
+  // exact), so their cash-flow detail is read too; their balance sheet keeps its own named lines (Third Schedule / IRDAI)
+  const det = template === "industrial" ? statementDetail(inst, refs.has("OneI") ? "OneI" : null, refs.has("FourD") ? "FourD" : null)
+    : template === "bank" || template === "insurance" ? { bs: null, cf: statementDetail(inst, null, refs.has("FourD") ? "FourD" : null).cf } : { bs: null, cf: null };
   const detailRows = (st: "bs" | "cf", d: typeof det.bs, end: string, k: string) => {
     if (!d || !Object.keys(d.lines).length) return;
     const bad = d.checks.filter((c) => !c.ok);
@@ -571,16 +574,37 @@ export async function backfillBsCf(deps: Deps, limit = 200, budgetMs = 45_000): 
 export const SQL_NBFC_SIDS = "SELECT DISTINCT security_id FROM filing WHERE kind='integrated_financials' AND source_url LIKE '%INTEGRATED_FILING_NBFC_%'";
 export const SQL_NBFC_FILINGS = `SELECT filing_id, security_id, kind, basis, disclosed_at, source_url FROM filing INDEXED BY ix_filing_sec
    WHERE security_id = ? AND kind IN ('results_quarterly','results_annual','integrated_financials') AND period_end >= '2024-01-01' AND filing_id > ? ORDER BY filing_id LIMIT ?`;
-export async function nbfcBalanceSheets(deps: Deps, limit = 40, budgetMs = 20_000): Promise<{ done: boolean; companies: number; files: number; rows: number; notes: string[] }> {
-  const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='nbfc_bs'");
+export async function nbfcBalanceSheets(deps: Deps, limit = 40, budgetMs = 20_000) {
+  return rereadPass(deps, "nbfc_bs", async () => (await deps.filings.all<{ security_id: number }>(SQL_NBFC_SIDS)).map((r) => r.security_id), limit, budgetMs);
+}
+
+/** Item 5: banks' and insurers' cash-flow detail (read since this change) for their stored results files from 2024. The
+ *  companies are the focus companies whose stored P&L uses the bank or insurance template (one indexed row each). */
+export const SQL_SID_TEMPLATE = "SELECT template FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND period_end >= '2024-01-01' AND statement = 'pl' LIMIT 1";
+export async function bankInsurerCashFlows(deps: Deps, limit = 40, budgetMs = 20_000) {
+  return rereadPass(deps, "bank_ins_cf", async (focus) => {
+    const out: number[] = [];
+    for (const sid of focus ?? []) {
+      const [t] = await deps.filings.all<{ template: string }>(SQL_SID_TEMPLATE, [sid]);
+      if (t && (t.template === "bank" || t.template === "insurance")) out.push(sid);
+    }
+    return out;
+  }, limit, budgetMs);
+}
+
+/** One-off re-read of stored results files (2024 on) for a set of focus companies: balance sheet + cash flow offered
+ *  again (inserts only, ON CONFLICT DO NOTHING: existing rows untouched). Cursor by (company, filing_id) in `slot`. */
+async function rereadPass(deps: Deps, slot: string, pick: (focus: number[] | null) => Promise<number[]>, limit: number, budgetMs: number): Promise<{ done: boolean; companies: number; files: number; rows: number; notes: string[] }> {
+  const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot=?", [slot]);
   const cur = st ? JSON.parse(st.detail) as { sids: number[]; i: number; after: number; files: number; rows: number; done: boolean }
     : { sids: [] as number[], i: 0, after: 0, files: 0, rows: 0, done: false };
   if (cur.done) return { done: true, companies: cur.sids.length, files: cur.files, rows: cur.rows, notes: [] };
   if (!st) {
-    const all = (await deps.filings.all<{ security_id: number }>(SQL_NBFC_SIDS)).map((r) => r.security_id);
     // focus companies only (owner universe lock)
-    const focus = deps.focus ? new Set((await deps.market.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(deps.focus)])).map((r) => r.security_id)) : null;
-    cur.sids = all.filter((x) => !focus || focus.has(x)).sort((a, b) => a - b);
+    const focus = deps.focus ? (await deps.market.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(deps.focus)])).map((r) => r.security_id) : null;
+    const all = await pick(focus);
+    const fs = focus ? new Set(focus) : null;
+    cur.sids = [...new Set(all)].filter((x) => !fs || fs.has(x)).sort((a, b) => a - b);
   }
   const t0 = Date.now(), notes: string[] = [];
   let n = 0;
@@ -604,7 +628,7 @@ export async function nbfcBalanceSheets(deps: Deps, limit = 40, budgetMs = 20_00
     }
   }
   cur.done = cur.i >= cur.sids.length;
-  await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','nbfc_bs',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
+  await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once',?,?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [slot, new Date().toISOString(), JSON.stringify(cur)]);
   return { done: cur.done, companies: cur.sids.length, files: cur.files, rows: cur.rows, notes: notes.slice(0, 30) };
 }
 

@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
 import { buildFeatures, featuresStep, valuationsStep } from "../src/features.js";
-import { backfillBsCf, nbfcBalanceSheets, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
+import { backfillBsCf, bankInsurerCashFlows, nbfcBalanceSheets, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 function sqlite(domain: string): Sql & { raw: DatabaseSync } {
@@ -771,5 +771,22 @@ describe("D171: valuations once per trading day", () => {
     expect(get("pb").value).toBe("6.57"); // 6,50,000 ÷ 99,000 = 6.566
     expect(get("ev_ebitda_ttm").value).toBe("13.62"); // (6,50,000 − 24,000 + 500) ÷ 46,000 = 13.619
     expect(await valuationsStep(deps, new Set([7]))).toEqual({ day: "2026-11-04", companies: 0, done: true });
+  });
+});
+
+describe("item 5: bank / insurer cash-flow detail", () => {
+  it("HDFCBANK Sep 2026: the pass re-reads the stored file and adds the cash-flow lines (sections check exactly)", async () => {
+    const bankXml = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_HDFCBANK_IF_Q2FY27_full.xml"), "utf8");
+    const url = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_BANKING_1_WEB.xml";
+    const { filings, deps } = setup({ "att/xbrl/INTEGRATED_FILING_BANKING_1_WEB.xml": bankXml });
+    filings.raw.exec(`INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (40, 7, 'integrated_financials', '2026-09-30', 'Q', 'standalone', '2026-10-18T00:00:00Z', '${url}')`);
+    filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'bank','pl','interest_earned','','2026-09-30','Q','standalone','original','1',NULL,'2026-10-18T00:00:00Z',40,'t','reported','v')`);
+    const r = await bankInsurerCashFlows({ ...deps, focus: ["INFY"] });
+    expect(r).toMatchObject({ done: true, companies: 1, files: 1 });
+    const cf = Object.fromEntries((filings.raw.prepare("SELECT line, value FROM fin_value WHERE statement='cf' AND line LIKE 'x:%'").all() as { line: string; value: string }[]).map((x) => [x.line, x.value]));
+    expect(cf["x:CashFlowsFromUsedInOperatingActivities"]).toBe("-289673700000");
+    expect(cf["x:AdjustmentsForDepreciationAndAmortisationExpense"]).toBe("19293000000");
+    expect(Object.keys(cf).length).toBeGreaterThan(30);
   });
 });

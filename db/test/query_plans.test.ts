@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
-import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS } from "../../workers/filings/src/load.js";
+import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE } from "../../workers/filings/src/load.js";
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT } from "../../workers/filings/src/events.js";
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
@@ -65,6 +65,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: results filings since the feature cursor (cron, D171)", SQL_FEATURE_NEW, [0, 2000], /SEARCH filing USING INTEGER PRIMARY KEY \(rowid>\?\)/],
   ["filings: latest TTM values for valuations (D171)", SQL_LATEST_TTM, [1, "consolidated"], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\? AND field=\?\)/],
   ["filings: one company's feature-table values (read-only page)", SQL_FEATURES_OF, [1, ""], /SEARCH feature_value USING PRIMARY KEY \(security_id=\?\)/],
+  ["filings: one company's stored P&L template (bank / insurer cash-flow pass, item 5)", SQL_SID_TEMPLATE, [1], /ix_fin_value_period \(security_id=\? AND period_end>\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 
