@@ -381,8 +381,12 @@ export default {
       // section checks of its latest stored results files (2024 on), re-read from storage. ?sid=&n= (files, ≤ 4)
       const q = new URL(req.url).searchParams, sid = Number(q.get("sid") ?? 0), n = Math.min(4, Number(q.get("n") ?? 2));
       const syms = (await env.DB_MARKET.prepare("SELECT DISTINCT value FROM security_identifier WHERE security_id=?1 AND id_type='nse_symbol'").bind(sid).all<{ value: string }>()).results.map((r) => r.value);
-      const fs = (await env.DB_FILINGS.prepare("SELECT filing_id, kind, period_end, period_kind, basis, source_url FROM filing INDEXED BY ix_filing_sec WHERE security_id=?1 AND period_end >= '2024-01-01' AND kind IN ('results_quarterly','results_annual','integrated_financials') ORDER BY period_end DESC LIMIT ?2")
-        .bind(sid, n).all<{ filing_id: number; kind: string; period_end: string; period_kind: string; basis: string; source_url: string }>()).results;
+      // ?filings=a,b,… (≤ 6, this company's) picks the files; else its latest n
+      const pick = (q.get("filings") ?? "").split(",").map(Number).filter((x) => x > 0).slice(0, 6);
+      const fs = (await (pick.length
+        ? env.DB_FILINGS.prepare("SELECT filing_id, kind, period_end, period_kind, basis, source_url FROM filing WHERE security_id=?1 AND filing_id IN (SELECT value FROM json_each(?2))").bind(sid, JSON.stringify(pick))
+        : env.DB_FILINGS.prepare("SELECT filing_id, kind, period_end, period_kind, basis, source_url FROM filing INDEXED BY ix_filing_sec WHERE security_id=?1 AND period_end >= '2024-01-01' AND kind IN ('results_quarterly','results_annual','integrated_financials') ORDER BY period_end DESC LIMIT ?2").bind(sid, n))
+        .all<{ filing_id: number; kind: string; period_end: string; period_kind: string; basis: string; source_url: string }>()).results;
       const files = [];
       for (const f of fs) {
         const xml = await getText(env.RAW, `att/${new URL(f.source_url).pathname.replace(/^\/corporate\//, "")}`).catch(() => null);
