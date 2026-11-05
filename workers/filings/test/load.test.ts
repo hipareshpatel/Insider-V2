@@ -96,6 +96,24 @@ describe("FY22 old-format March-quarter file (contexts referenced but undefined)
   });
 });
 
+describe("full year with only the expense breakdown failing (2.12: NAM-INDIA, PFC FY24)", () => {
+  it("loads the full-year totals and records the breakdown lines as missing with the reason, as for the quarter", async () => {
+    const URL22 = "https://nsearchives.nseindia.com/corporate/xbrl/INDAS_83516_634679_13042022084838_WEB.xml";
+    const filings = sqlite("filings"), market = sqlite("market");
+    market.raw.exec("DELETE FROM job_lock; INSERT INTO security (security_id,name) VALUES (7,'Infosys'); INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (7,'nse_symbol','INFY','2020-01-01','t')");
+    const list22 = JSON.stringify([{ broadCastDate: "13-Apr-2022 20:48:38", resultDetailedDataLink: URL22 }]);
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status) VALUES (1,'results_quarterly','INFY','u1','api/results_quarterly/INFY/x.json','done');
+      INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status,parent_id) VALUES (2,'xbrl_results_quarterly','INFY','${URL22}','att/xbrl/fy22.xml','done',1)`);
+    // the year's employee cost no longer adds up with the other expense lines (the quarter's still does)
+    const x22 = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_Q4FY22_cons_undefinedctx.xml"), "utf8")
+      .replace(/(EmployeeBenefitExpense contextRef="FourD"[^>]*>)639860000000/, "$1629860000000");
+    const deps = { filings, market, getText: async (k: string) => (k === "att/xbrl/fy22.xml" ? x22 : list22), now: () => new Date("2026-11-03T02:00:00Z"), floor: "2000-01-01" };
+    expect((await loadBatch(deps))[0]).toMatchObject({ status: "loaded", detail: expect.stringContaining("FY22 loaded (expense breakdown not in filing)") });
+    expect(await filings.all("SELECT value FROM fin_value WHERE line='revenue' AND period_kind='FY'")).toEqual([{ value: "1216410000000" }]);
+    expect(await filings.all("SELECT value, null_reason FROM fin_value WHERE line='employee_cost' AND period_kind='FY'")).toEqual([{ value: null, null_reason: "breakdown does not add up to total expenses in the filing" }]);
+  });
+});
+
 describe("revised filing of a half year: balance sheet and cash flow versioned and flagged (owner #334)", () => {
   it("INFY Sep 2026 filed twice, the second with every balance-sheet figure 2% larger: H-period rows original/restated, BS lines flagged", async () => {
     const UA = "https://nsearchives.nseindia.com/corporate/xbrl/IF_A.xml", UB = "https://nsearchives.nseindia.com/corporate/xbrl/IF_B.xml";

@@ -198,8 +198,6 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   const failed = r.checks.filter((c) => !c.ok);
   // FMEA C7: if the only failure is the expense breakdown (the filing leaves an expense line untagged), the totals are
   // still proven by the other checks: load them, and record the breakdown lines as missing with the reason.
-  const BREAKDOWN = ["materials", "purchases_stock_in_trade", "inventory_change", "employee_cost", "finance_cost", "depreciation", "other_expenses",
-    "fees_commission_expense", "impairment_financial_instruments", "net_loss_fair_value", "net_loss_derecognition"];
   const onlyBreakdown = failed.length === 1 && failed[0]!.name === "expense lines = total expenses" && r.checks.filter((c) => c.ok).length >= 2;
   const nulls: Record<string, string> = {};
   if (onlyBreakdown) for (const k of BREAKDOWN) if (r.lines[k] !== undefined) { delete r.lines[k]; nulls[k] = "breakdown does not add up to total expenses in the filing"; }
@@ -417,6 +415,10 @@ export async function loadBsCf(inst: XbrlInstance, sid: number, template: string
   return { rows: rows.length, note: notes.length ? `; ${notes.join("; ")}` : "", by: { bs: rows.filter((r) => r[2] === "bs").length, cf: rows.filter((r) => r[2] === "cf").length } };
 }
 
+/** Expense breakdown lines (FMEA C7): dropped with a reason when they alone fail "expense lines = total expenses". */
+const BREAKDOWN = ["materials", "purchases_stock_in_trade", "inventory_change", "employee_cost", "finance_cost", "depreciation", "other_expenses",
+  "fees_commission_expense", "impairment_financial_instruments", "net_loss_fair_value", "net_loss_derecognition"];
+
 /** D90: full-year P&L from a March-quarter (fiscal-year-end) file's year-to-date context, loaded only when its own
  *  identities pass and FY ÷ quarter of the core line is plausible (1–12×). Same filing, disclosed_at and basis. */
 export async function loadFy(inst: XbrlInstance, q: CanonicalResult, sid: number, disclosedAt: string, filingId: number, deps: Deps): Promise<{ rows: number; note: string }> {
@@ -430,14 +432,25 @@ export async function loadFy(inst: XbrlInstance, q: CanonicalResult, sid: number
   if (fy.periodKind !== "FY" || fy.template !== q.template) return { rows: 0, note: "; FY not loaded: year-to-date context is not a full year" };
   const core = CORE[fy.template];
   if (core.some((k) => fy.lines[k] === undefined)) return { rows: 0, note: `; FY not loaded: missing ${core.filter((k) => fy.lines[k] === undefined).join(",")}` };
-  if (fy.checks.length < 2 || fy.checks.some((c) => !c.ok)) return { rows: 0, note: `; FY not loaded: ${fy.checks.filter((c) => !c.ok).map((c) => c.name).join(", ") || "too few checks"}` };
+  // 2.12: the same C7 rule as the quarter — when the expense breakdown is the only failing check and two others pass,
+  // the totals are proven: load them and record the breakdown lines as missing with the reason (NAM-INDIA, PFC FY24)
+  const failed = fy.checks.filter((c) => !c.ok);
+  const onlyBreakdown = failed.length === 1 && failed[0]!.name === "expense lines = total expenses" && fy.checks.length - failed.length >= 2;
+  const nulls: Record<string, string> = {};
+  if (onlyBreakdown) for (const k of BREAKDOWN) if (fy.lines[k] !== undefined) { delete fy.lines[k]; nulls[k] = "breakdown does not add up to total expenses in the filing"; }
+  if (fy.checks.length < 2 || (failed.length && !onlyBreakdown)) return { rows: 0, note: `; FY not loaded: ${failed.map((c) => c.name).join(", ") || "too few checks"}` };
   const qv = Number(q.lines[core[0]!]), fv = Number(fy.lines[core[0]!]);
-  if (qv > 0 && fv > 0 && (fv / qv < 1 || fv / qv > 12)) return { rows: 0, note: `; FY not loaded: FY ÷ ${q.periodKind === "H" ? "half-year" : "quarter"} ${(fv / qv).toFixed(2)}` };
-  const rows = Object.entries(fy.lines).map(([line, value]) => [sid, TEMPLATE[fy.template], "pl", line, "", fy.periodEnd, "FY", fy.basis, "original", value, null, disclosedAt, filingId, line, "reported", "results-fy-v1"]);
+  // a full year outside 1–12× its last quarter loads only when the file's own profit ÷ shares matches its filed EPS for
+  // the year (amounts in the right unit; holding / investment companies with a dividend-light last quarter, TATAINVEST)
+  if (qv > 0 && fv > 0 && (fv / qv < 1 || fv / qv > 12) && !epsConsistent(inst, fy)) return { rows: 0, note: `; FY not loaded: FY ÷ ${q.periodKind === "H" ? "half-year" : "quarter"} ${(fv / qv).toFixed(2)}` };
+  const rows = [
+    ...Object.entries(fy.lines).map(([line, value]) => [sid, TEMPLATE[fy.template], "pl", line, "", fy.periodEnd, "FY", fy.basis, "original", value, null, disclosedAt, filingId, line, "reported", "results-fy-v1"]),
+    ...Object.entries(nulls).map(([line, reason]) => [sid, TEMPLATE[fy.template], "pl", line, "", fy.periodEnd, "FY", fy.basis, "original", null, reason, disclosedAt, filingId, line, "reported", "results-fy-v1"]),
+  ];
   await batchAll(deps.filings, insertRows(
     "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, rows, "ON CONFLICT DO NOTHING"));
   await versionPeriod(deps.filings, sid, fy.periodEnd, "FY", fy.basis);
-  return { rows: rows.length, note: `; ${fy.label} loaded` };
+  return { rows: rows.length, note: `; ${fy.label} loaded${onlyBreakdown ? " (expense breakdown not in filing)" : ""}` };
 }
 
 const ymd = (y: number, m: number, d: number) => `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
@@ -966,7 +979,7 @@ export async function sharesConsistent(deps: Deps, sid: number, r: CanonicalResu
 /** 2.12 FY gaps (read-only /fy-gaps): stored revenue rows of the given companies by period kind from the floor. */
 export const SQL_REVENUE_KINDS = "SELECT security_id, period_end, period_kind, basis FROM fin_value WHERE security_id IN (SELECT value FROM json_each(?1)) AND statement = 'pl' AND line = 'revenue' AND period_kind IN ('Q', 'FY') AND version = 'original' AND +period_end >= ?2";
 /** the load outcome of the files filed for one company, period end and basis (why its full year is not stored) */
-export const SQL_PERIOD_LOADS = "SELECT f.kind, substr(l.detail, 1, 200) AS detail FROM filing f JOIN fetch_job j ON j.url = f.source_url JOIN fin_load l ON l.job_id = j.job_id WHERE f.security_id = ?1 AND f.period_end = ?2 AND f.basis = ?3 LIMIT 4";
+export const SQL_PERIOD_LOADS = "SELECT f.kind, j.job_id, substr(l.detail, 1, 200) AS detail FROM filing f JOIN fetch_job j ON j.url = f.source_url JOIN fin_load l ON l.job_id = j.job_id WHERE f.security_id = ?1 AND f.period_end = ?2 AND f.basis = ?3 LIMIT 4";
 
 /** D157 read-only statement view: one period's original rows of one company and basis (P&L of the given kind; the
  *  balance sheet and cash flow filed with it, whatever their own period kind). ix_fin_value_period by kind. */
