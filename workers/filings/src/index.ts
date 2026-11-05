@@ -376,6 +376,24 @@ export default {
       }
       return Response.json(out, { headers: { "cache-control": "no-store" } });
     }
+    if (path === "/cf-detail-check") {
+      // Read-only (item 5 follow-up): which company an internal id is, and why its cash-flow detail did not load — the
+      // section checks of its latest stored results files (2024 on), re-read from storage. ?sid=&n= (files, ≤ 4)
+      const q = new URL(req.url).searchParams, sid = Number(q.get("sid") ?? 0), n = Math.min(4, Number(q.get("n") ?? 2));
+      const syms = (await env.DB_MARKET.prepare("SELECT DISTINCT value FROM security_identifier WHERE security_id=?1 AND id_type='nse_symbol'").bind(sid).all<{ value: string }>()).results.map((r) => r.value);
+      const fs = (await env.DB_FILINGS.prepare("SELECT filing_id, kind, period_end, period_kind, basis, source_url FROM filing INDEXED BY ix_filing_sec WHERE security_id=?1 AND period_end >= '2024-01-01' AND kind IN ('results_quarterly','results_annual','integrated_financials') ORDER BY period_end DESC LIMIT ?2")
+        .bind(sid, n).all<{ filing_id: number; kind: string; period_end: string; period_kind: string; basis: string; source_url: string }>()).results;
+      const files = [];
+      for (const f of fs) {
+        const xml = await getText(env.RAW, `att/${new URL(f.source_url).pathname.replace(/^\/corporate\//, "")}`).catch(() => null);
+        if (!xml) { files.push({ ...f, read: "not stored" }); continue; }
+        const inst = parseXbrl(xml);
+        const cf = statementDetail(inst, null, inst.contexts.has("FourD") ? "FourD" : null).cf;
+        files.push({ filing_id: f.filing_id, period_end: f.period_end, period_kind: f.period_kind, basis: f.basis, checks: cf?.checks ?? null,
+          adjustments: cf ? Object.fromEntries(Object.entries(cf.lines).filter(([k]) => /^Adjustments|^OtherAdjustments|ProfitBeforeTax|CashFlowsFromUsedInOperations$/.test(k))) : null });
+      }
+      return Response.json({ sid, symbols: syms, files }, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/cf-totals") {
       // Read-only comparison aid (owner #331): stored full-year cash-flow totals for one company, both bases, ₹ crore.
       const sym = new URL(req.url).searchParams.get("symbol") ?? "";
