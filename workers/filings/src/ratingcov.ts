@@ -13,7 +13,7 @@ export const SQL_CR_STORED = "SELECT key, substr(disclosed_at, 1, 7) AS month FR
 
 export async function ratingCoverage(db: Sql, getText: (k: string) => Promise<string | null>, focus: string[], floor: string, issuers?: Map<string, string>) {
   const lists = await db.all<{ job_id: number; r2_key: string }>(SQL_CR_LISTS, [`api/credit_rating/all/${floor.slice(0, 7)}`]);
-  const perList: { list: string; rows: number; focus: number; first: string | null; last: string | null }[] = [];
+  const perList: { list: string; rows: number; focus: number; first: string | null; last: string | null; isin_blank: number; unmatched: unknown[] }[] = [];
   const fs = new Set(focus), want = new Map<string, { month: string; symbol: string; agency: string; rating: string; action: string; disclosedAt: string | null }>();
   let unreadable = 0, notStored = 0, parsedRows = 0, focusRows = 0;
   let sample: unknown = null;
@@ -23,7 +23,9 @@ export async function ratingCoverage(db: Sql, getText: (k: string) => Promise<st
     let rows; try { rows = parseCreditRatings(t).map((c) => ({ ...c, symbol: ratingSymbol(c, issuers) })); } catch { unreadable++; continue; }
     parsedRows += rows.length;
     const ds = rows.map((r) => r.disclosedAt ?? "").filter(Boolean).sort();
-    perList.push({ list: l.r2_key.replace("api/credit_rating/", ""), rows: rows.length, focus: rows.filter((r) => fs.has(r.symbol)).length, first: ds[0] ?? null, last: ds[ds.length - 1] ?? null });
+    const um = rows.filter((r) => !fs.has(r.symbol));
+    perList.push({ list: l.r2_key.replace("api/credit_rating/", ""), rows: rows.length, focus: rows.length - um.length, first: ds[0] ?? null, last: ds[ds.length - 1] ?? null,
+      isin_blank: rows.filter((r) => !r.isin).length, unmatched: um.filter((r, i) => i % Math.max(1, Math.floor(um.length / 3)) === 0).slice(0, 3).map((r) => ({ c: r.company.slice(0, 40), i: r.isin, s: r.symbol })) });
     sample ??= rows.find((r) => fs.has(r.symbol)) ?? null;
     for (const r of rows) {
       if (fs.has(r.symbol)) focusRows++;
