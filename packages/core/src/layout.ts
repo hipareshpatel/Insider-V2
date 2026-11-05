@@ -5,7 +5,7 @@
 // Values are only ever the filed figures. A head that is not filed shows its filed sub-rows and no total (never a sum
 // — D170). Summary rows that no filing carries (operating profit, OPM %) are computed when shown, labelled `derived`,
 // and never stored (owner #350, as for TTM).
-import { CF_ADJUSTMENTS, CF_FINANCING, CF_INVESTING, CF_OPERATING, BS_GROUPS, BS_GROUPS_DIV3, BS_GROUPS_GI, BS_GROUPS_INS } from "./detail.js";
+import { CF_ADJUSTMENTS, CF_FINANCING, CF_INVESTING, CF_OPERATING, BS_GROUPS, BS_GROUPS_DIV3, BS_GROUPS_GI, BS_GROUPS_INS, cfAdjustmentGap } from "./detail.js";
 import { type Dec, add, dec, div, mul, sub, toText } from "./decimal.js";
 
 /** `sign: -1` marks a line the filing deducts from its head (an outflow such as purchase of fixed assets, or interest
@@ -239,6 +239,19 @@ export function layoutStatement(tree: LayoutNode[], values: Record<string, strin
   };
   walk(tree, 0);
   return out;
+}
+
+/** D167 (b): under "Adjustments to profit", the part the filing does not itemise (filed total − its tagged lines), as a
+ *  labelled derived row after the tagged lines — computed when shown, never stored. Rows unchanged when they add up. */
+export function withAdjustmentGap(rows: LayoutRow[], values: Record<string, string | null | undefined>): LayoutRow[] {
+  const bare = Object.fromEntries(Object.entries(values).filter(([k]) => k.startsWith("x:")).map(([k, v]) => [k.slice(2), v]));
+  const gap = cfAdjustmentGap(bare);
+  const at = rows.findIndex((r) => r.key === "x:AdjustmentsForReconcileProfitLoss");
+  if (!gap || at < 0) return rows;
+  let end = at + 1;
+  while (end < rows.length && rows[end]!.level > rows[at]!.level) end++;
+  const row: LayoutRow = { key: "derived:cf_adjustments_not_itemised", label: "Other adjustments (not itemised in the filing; derived)", level: rows[at]!.level + 1, value: gap, kind: "derived" };
+  return [...rows.slice(0, end), row, ...rows.slice(end)];
 }
 
 /** D157 summary rows no filing carries, computed when shown and never stored: operating profit (revenue − expenses

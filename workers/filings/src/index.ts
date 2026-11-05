@@ -2,14 +2,14 @@
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
-import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
 import { ratingCoverage } from "./ratingcov.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
-import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
+import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; WRITE_SOFT_CAP?: string; WRITE_HARD_CAP?: string; WRITE_CAP_MONTH?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string; STATUS_TOKEN?: string; DAILY_READ_CAP?: string }
 
@@ -115,6 +115,7 @@ export default {
       if (name === "bscf_backfill") r = await backfillBsCf(ldeps, 60, 20_000);
       else if (name === "nbfc_bs") r = await nbfcBalanceSheets(ldeps, 40, 20_000); // item 5: Division III balance-sheet lines
       else if (name === "nbfc_rev") r = await nbfcRevenueLines(ldeps, 40, 20_000); // item 5 leftover 3: the rest of NBFC revenue
+      else if (name === "cf_untagged") r = await cfUntaggedPass(ldeps, 30, 20_000); // D167 (b): cash-flow detail with untagged adjustments
       // item 7 (owner #363): credit ratings re-read with the issuer match; missing ones added, stored ones get their symbol
       else if (name === "ratings_relink") r = await ratingsRelink(db, ldeps.getText, focus ?? [], await focusIssuers(mk, focus ?? []), 12);
       else if (name === "bank_ins_cf") r = await bankInsurerCashFlows(ldeps, 40, 20_000); // item 5: bank / insurer cash-flow detail
@@ -296,7 +297,7 @@ export default {
       const plRows = [...layoutStatement(lay.pl, pl.values), ...derivedPl(pl.values, lay.name)];
       const bsRows = layoutStatement(lay.bs, bs.values, { hideZeros: true });
       // line-by-line cash flow where it was loaded (x: tags), else the named totals every template stores
-      const cfRows = layoutStatement(Object.keys(cf.values).some((k) => k.startsWith("x:")) ? CF_INDUSTRIAL : CF_SUMMARY, cf.values, { hideZeros: true });
+      const cfRows = withAdjustmentGap(layoutStatement(Object.keys(cf.values).some((k) => k.startsWith("x:")) ? CF_INDUSTRIAL : CF_SUMMARY, cf.values, { hideZeros: true }), cf.values);
       // where the line-by-line detail (x: tags) is stored, the named summary lines duplicate it and are not listed
       const left = (vals: Record<string, string | null>, rs: { key: string }[]) => { const p = placed(rs), detail = Object.keys(vals).some((k) => k.startsWith("x:")); return Object.fromEntries(Object.entries(vals).filter(([k, v]) => !p.has(k) && (!detail || k.startsWith("x:")) && v !== null && !/^-?0*(\.0*)?$/.test(v))); };
       return Response.json({ symbol: sym, period, basis, kind, stored_template: [...new Set(rows.map((r) => r.template))], layout: lay.label,

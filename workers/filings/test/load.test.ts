@@ -910,3 +910,32 @@ describe("item 7: credit ratings matched to companies by the issuer part of the 
     expect((await ratingsRelink(filings, get, ["HDFCBANK"], issuers, 12)).linked).toBe(1); // done: the saved totals, nothing re-run
   });
 });
+
+describe("D167 (b): cash-flow detail with untagged adjustments", async () => {
+  const core = await import("@disclo/core");
+  it("gap = filed total adjustments − tagged lines (signed); shown as a derived row under the adjustments, never when they add up", () => {
+    expect(core.cfAdjustmentGap({ AdjustmentsForReconcileProfitLoss: "100000000", AdjustmentsForFinanceCosts: "30000000", AdjustmentsForDepreciationAndAmortisationExpense: "20000000" })).toBe("50000000");
+    expect(core.cfAdjustmentGap({ AdjustmentsForReconcileProfitLoss: "50000000", AdjustmentsForFinanceCosts: "30000000", AdjustmentsForDepreciationAndAmortisationExpense: "20000000" })).toBeNull();
+    const vals = { "x:CashFlowsFromUsedInOperatingActivities": "1", "x:AdjustmentsForReconcileProfitLoss": "100000000", "x:AdjustmentsForFinanceCosts": "30000000", "x:AdjustmentsForDepreciationAndAmortisationExpense": "20000000" };
+    const rows = core.withAdjustmentGap(core.layoutStatement(core.CF_INDUSTRIAL, vals), vals);
+    const i = rows.findIndex((r) => r.key === "derived:cf_adjustments_not_itemised");
+    expect(rows[i]).toMatchObject({ kind: "derived", value: "50000000", level: 2 });
+    expect(rows[i - 1]!.level).toBe(2); // after the tagged lines
+  });
+  it("HDFCBANK Sep 2026 with its total adjustments off by ₹500 cr: the filed lines load (other checks pass), noted; nothing derived is stored", async () => {
+    const full = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_HDFCBANK_IF_Q2FY27_full.xml"), "utf8");
+    const bank = full.replace(/(AdjustmentsForReconcileProfitLoss contextRef="FourD"[^>]*>)(-?\d+)/, (_m, a, v) => `${a}${BigInt(v) + 5000000000n}`);
+    expect(bank).not.toBe(full);
+    const url = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_BANKING_9_WEB.xml";
+    const { filings, deps } = setup({ "att/xbrl/INTEGRATED_FILING_BANKING_9_WEB.xml": bank });
+    filings.raw.exec(`INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (42, 7, 'integrated_financials', '2026-09-30', 'Q', 'standalone', '2026-10-18T00:00:00Z', '${url}')`);
+    filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'bank','cf','cfo','','2026-09-30','H','standalone','original','1',NULL,'2026-10-18T00:00:00Z',42,'t','reported','v')`);
+    const r = await (await import("../src/load.js")).cfUntaggedPass({ ...deps, focus: ["INFY"] });
+    expect(r).toMatchObject({ done: true, files: 1, loaded: 1 });
+    expect(r.notes.join(" ")).toContain("cf detail loaded with untagged adjustments");
+    const n = (filings.raw.prepare("SELECT count(*) AS n FROM fin_value WHERE statement='cf' AND line LIKE 'x:%'").get() as { n: number }).n;
+    expect(n).toBeGreaterThan(30);
+    expect(filings.raw.prepare("SELECT count(*) AS n FROM fin_value WHERE line LIKE 'derived:%'").get()).toEqual({ n: 0 });
+  });
+});
