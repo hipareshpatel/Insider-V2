@@ -9,7 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
 import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, SQL_ORPHAN_RESTATED } from "../../workers/filings/src/load.js";
-import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE } from "../../workers/filings/src/events.js";
+import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS } from "../../workers/filings/src/events.js";
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
@@ -78,6 +78,8 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: the 250's undated insider trades (owner #365, read-only)", SQL_INSIDER_UNDATED, ['["INFY"]', "2026-01-01"], /ix_insider_symbol \(symbol=\? AND from_d=\?\)/],
   ["filings: per-company PIT list downloads (owner #365, read-only)", SQL_PIT_JOBS, [], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
   ["filings: the 250's credit ratings from 2026 (owner #365, read-only)", SQL_RATINGS_SINCE, ['["INFY"]', 20260101], /ix_credit_rating_symbol \(symbol=\? AND rated_on>\?\)/],
+  ["filings: the 250's insider trades per year (owner #365, read-only)", SQL_INSIDER_YEARS, ['["INFY"]'], /ix_insider_symbol \(symbol=\? AND from_d>\?\)/],
+  ["filings: new-system insider rows, all companies (owner #365, read-only)", SQL_PITX_SYMBOLS, [], /SEARCH insider_trade USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_insider_trade_1) \(key>\? AND key<\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 
