@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { BANK_TAGS, BS_BANK, BS_NBFC, BS_LINES_DIV3, BS_INSURANCE, BS_LINES_INS, BS_INDUSTRIAL, BS_LINES, CF_INDUSTRIAL, CF_LINES, CF_SUMMARY, GI_TAGS, LIFE_TAGS, PL_BANK, PL_GENERAL, PL_INDUSTRIAL, PL_LIFE, PL_NBFC, PL_TAGS, balanceAndCash, canonicalResult, chooseLayout, derivedPl, layoutStatement, parseXbrl, statementDetail, tagLabel, type LayoutNode } from "../src/index.js";
+import { BANK_TAGS, BS_BANK, BS_NBFC, BS_LINES_DIV3, BS_INSURANCE, BS_LINES_INS, BS_GENERAL_INSURANCE, BS_LINES_GI, BS_INDUSTRIAL, BS_LINES, CF_INDUSTRIAL, CF_LINES, CF_SUMMARY, GI_TAGS, LIFE_TAGS, PL_BANK, PL_GENERAL, PL_INDUSTRIAL, PL_LIFE, PL_NBFC, PL_TAGS, balanceAndCash, canonicalResult, chooseLayout, derivedPl, layoutStatement, parseXbrl, statementDetail, tagLabel, type LayoutNode } from "../src/index.js";
 
 const keys = (t: LayoutNode[]): string[] => t.flatMap((nd) => [nd.key, ...(nd.children ? keys(nd.children) : [])]);
 const inst = parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_INFY_IF_Q2FY27_cons_full.xml"), "utf8"));
@@ -116,6 +116,25 @@ describe("D157 statement layout (Schedule III Div II, industrial)", () => {
     expect(rows.some((r) => r.key === "x:InsuranceReserve")).toBe(false);
     const k = keys(BS_INSURANCE); expect(BS_LINES_INS.filter((t) => !k.includes(`x:${t}`))).toEqual([]);
     expect(chooseLayout("insurance", { gross_premium: "1" }).bs).toBe(BS_INSURANCE);
+  });
+  it("general insurer balance sheet (IRDAI B-BS): ICICIGI Sep 2026 adds up; its fair value change accounts are not read as funds", () => {
+    const v: Record<string, string> = { ShareCapital: "4996100000", ReservesAndSurplus: "175056900000", ShareApplicationMoneyReceivedPendingAllotmentOfShares: "34300000",
+      PolicyholdersFunds: "20681800000", ShareholdersFunds: "8146100000", Borrowings: "0", MinorityInterest: "0", SourcesOfFunds: "208915200000",
+      InvestmentsShareholders: "169531700000", InvestmentsPolicyholders: "473785100000", Loans: "0", FixedAssets: "8624500000", DeferredTaxAsset: "1153700000",
+      CashAndBankBalances: "5231100000", AdvancesAndOtherAssets: "184030000000", CurrentAssets: "189261100000", CurrentLiabilities: "507793300000",
+      Provisions: "125647600000", CurrentLiabilitiesAndProvisions: "633440900000", NetCurrentAssets: "-444179800000",
+      MiscellaneousExpenditureToTheExtentNotWrittenOffOrAdjusted: "0", DebitBalanceInProfitAndLossAccountShareholdersAccount: "0", ApplicationOfFunds: "208915200000",
+      PaidUpEquityCapital: "4996100000", Investments: "643316800000", Assets: "208915200000" };
+    const facts = Object.entries(v).map(([t, x]) => `<in-capmkt:${t} contextRef="OneI" unitRef="INR" decimals="-5">${x}</in-capmkt:${t}>`).join("");
+    const xml = `<?xml version="1.0"?><xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:in-capmkt="x"><xbrli:context id="OneI"><xbrli:entity><xbrli:identifier scheme="s">1</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>2026-09-30</xbrli:instant></xbrli:period></xbrli:context><in-capmkt:DateOfEndOfReportingPeriod contextRef="OneI">2026-09-30</in-capmkt:DateOfEndOfReportingPeriod>${facts}</xbrli:xbrl>`;
+    const d = statementDetail(parseXbrl(xml), "OneI", null).bs!;
+    expect(d.checks.map((c) => c.name).sort()).toEqual(["ApplicationOfFunds = its parts", "CurrentAssets = its parts", "CurrentLiabilitiesAndProvisions = its parts",
+      "NetCurrentAssets = its parts", "SourcesOfFunds = its parts", "sources of funds = application of funds"]);
+    expect(d.checks.filter((c) => !c.ok)).toEqual([]);
+    const rows = layoutStatement(BS_GENERAL_INSURANCE, Object.fromEntries(Object.entries(d.lines).map(([k, x]) => [`x:${k}`, x])), { hideZeros: true });
+    expect(rows.find((r) => r.key === "x:ShareholdersFunds")).toMatchObject({ level: 1, label: "Fair value change account – shareholders' funds", value: "8146100000" });
+    const k = keys(BS_GENERAL_INSURANCE); expect(BS_LINES_GI.filter((t) => !k.includes(`x:${t}`))).toEqual([]);
+    expect(chooseLayout("insurance", { premium_earned: "1" }).bs).toBe(BS_GENERAL_INSURANCE);
   });
   it("labels unlabelled tags readably", () => {
     expect(tagLabel("x:TradeReceivablesCurrent")).toBe("Trade receivables current");

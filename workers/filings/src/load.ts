@@ -605,8 +605,8 @@ export async function bankInsurerCashFlows(deps: Deps, limit = 40, budgetMs = 20
   return rereadPass(deps, "bank_ins_cf", byTemplate(deps, ["bank", "insurance"]), limit, budgetMs);
 }
 /** Item 5: insurers' IRDAI balance sheet (read since this change) for their stored results files from 2024. */
-export async function insurerBalanceSheets(deps: Deps, limit = 40, budgetMs = 20_000) {
-  return rereadPass(deps, "ins_bs", byTemplate(deps, ["insurance"]), limit, budgetMs);
+export async function insurerBalanceSheets(deps: Deps, limit = 40, budgetMs = 20_000, slot = "ins_bs") {
+  return rereadPass(deps, slot, byTemplate(deps, ["insurance"]), limit, budgetMs);
 }
 
 /** One-off re-read of stored results files (2024 on) for a set of focus companies: balance sheet + cash flow offered

@@ -147,7 +147,10 @@ describe("standalone statements have no owners' line (live INFY check, 5 Nov)", 
 describe("owners' equity by layout", () => {
   it("insurers use IRDAI shareholders' funds (either basis); industrial consolidated needs the owners' line", () => {
     expect(ownersEquity({ "x:ShareholdersFunds": "193977400000" }, "consolidated", "life_insurance")).toBe("193977400000");
-    expect(ownersEquity({ "x:ShareholdersFunds": "1" }, "standalone", "general_insurance")).toBe("1");
+    // ICICIGI Sep 2026: capital + share application money + reserves + FV change (shareholders) = 1,88,233.4 (₹ million)
+    expect(ownersEquity({ "x:ShareCapital": "4996100000", "x:ShareApplicationMoneyReceivedPendingAllotmentOfShares": "34300000", "x:ReservesAndSurplus": "175056900000",
+      "x:ShareholdersFunds": "8146100000" }, "standalone", "general_insurance")).toBe("188233400000");
+    expect(ownersEquity({ "x:ShareholdersFunds": "8146100000" }, "standalone", "general_insurance")).toBeNull(); // never the FV change account alone
     expect(ownersEquity({}, "standalone", "life_insurance")).toBeNull();
     expect(ownersEquity({ "x:Equity": "5" }, "consolidated", "industrial")).toBeNull();
     expect(ownersEquity({ capital: "1", reserves: "2" }, "consolidated", "bank")).toBe("3");
