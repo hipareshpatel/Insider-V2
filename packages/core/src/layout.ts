@@ -5,7 +5,7 @@
 // Values are only ever the filed figures. A head that is not filed shows its filed sub-rows and no total (never a sum
 // — D170). Summary rows that no filing carries (operating profit, OPM %) are computed when shown, labelled `derived`,
 // and never stored (owner #350, as for TTM).
-import { CF_ADJUSTMENTS, CF_FINANCING, CF_INVESTING, CF_OPERATING, BS_GROUPS } from "./detail.js";
+import { CF_ADJUSTMENTS, CF_FINANCING, CF_INVESTING, CF_OPERATING, BS_GROUPS, BS_GROUPS_DIV3 } from "./detail.js";
 import { type Dec, add, dec, div, mul, sub, toText } from "./decimal.js";
 
 /** `sign: -1` marks a line the filing deducts from its head (an outflow such as purchase of fixed assets, or interest
@@ -123,6 +123,20 @@ export const PL_NBFC: LayoutNode[] = [
   ]),
   ...PL_INDUSTRIAL.slice(4),
 ];
+const div3 = (tag: string, label?: string): LayoutNode => x(tag, label, BS_GROUPS_DIV3[tag]?.map((t) => div3(t)));
+/** NBFC balance sheet, Schedule III Division III (filed tags; groups from BS_GROUPS_DIV3, the same groups the loader
+ *  checks). Both spellings of the financial-assets total are placed; a file carries one. */
+export const BS_NBFC: LayoutNode[] = [
+  x("Assets", "Total assets", [
+    div3("FinanicalAssets", "Financial assets"), x("FinancialAssets", "Financial assets"),
+    div3("NonFinancialAssets", "Non-financial assets"), x("NoncurrentAssetsClassifiedAsHeldForSale"),
+  ]),
+  x("EquityAndLiabilities", "Total liabilities and equity", [
+    x("Liabilities", "Total liabilities", [div3("FinancialLiabilities", "Financial liabilities"), div3("NonFinancialLiabilities", "Non-financial liabilities"),
+      x("LiabilitiesDirectlyAssociatedWithAssetsInDisposalGroupClassifiedAsHeldForSale")]),
+    x("Equity", "Total equity", [div3("EquityAttributableToOwnersOfParent"), x("NonControllingInterest")]),
+  ]),
+];
 /** Life insurer (IRDAI: policyholders' account, then shareholders'; canonical keys of LIFE_TAGS). */
 export const PL_LIFE: LayoutNode[] = [
   n("gross_premium", "Gross premium income", [n("premium_first_year", "First-year premium"), n("premium_renewal", "Renewal premium"), n("premium_single", "Single premium")]),
@@ -170,7 +184,7 @@ export function chooseLayout(template: string | null, pl: Record<string, unknown
     ? { name: "general_insurance", label: "general insurer (IRDAI)", pl: PL_GENERAL, bs: [], cfDetail: false }
     : { name: "life_insurance", label: "life insurer (IRDAI)", pl: PL_LIFE, bs: [], cfDetail: false };
   if (["interest_earned", "impairment_financial_instruments", "fees_commission_income", "fees_commission_expense", "net_loss_fair_value"].some((k) => k in pl))
-    return { name: "nbfc", label: "NBFC (Schedule III Div III)", pl: PL_NBFC, bs: BS_INDUSTRIAL, cfDetail: true };
+    return { name: "nbfc", label: "NBFC (Schedule III Div III)", pl: PL_NBFC, bs: BS_NBFC, cfDetail: true };
   return { name: "industrial", label: "industrial (Schedule III Div II)", pl: PL_INDUSTRIAL, bs: BS_INDUSTRIAL, cfDetail: true };
 }
 

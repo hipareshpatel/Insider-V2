@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
-import { backfillBsCf, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
+import { backfillBsCf, nbfcBalanceSheets, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 function sqlite(domain: string): Sql & { raw: DatabaseSync } {
@@ -674,5 +674,30 @@ describe("half-year-only files (D169): the quarter from its own column, else hal
     const rev = await filings.all<Record<string, unknown>>("SELECT value, period_kind, origin FROM fin_value WHERE line='revenue' AND period_end='2026-09-30'");
     expect(rev).toEqual([{ value: h.lines.revenue, period_kind: "Q", origin: "reported" }]); // the filed cell, unchanged
     expect(await filings.all("SELECT period_kind FROM filing WHERE filing_id=50")).toEqual([{ period_kind: "Q" }]);
+  });
+});
+
+describe("item 5: NBFC Division III balance-sheet pass", () => {
+  it("re-reads the focus NBFC's stored files and adds the Division III lines; existing rows untouched; a second call does nothing", async () => {
+    // an INFY results file with a Division III balance sheet put in its OneI context (BAJFINANCE-shaped figures, in ₹)
+    const bs: Record<string, string> = { Loans: "900", Investments: "60", CashAndCashEquivalents: "40", FinanicalAssets: "1000", PropertyPlantAndEquipment: "30",
+      OtherNonFinancialAssets: "20", NonFinancialAssets: "50", Assets: "1050", DebtSecurities: "500", Borrowings: "300", FinancialLiabilities: "800",
+      Provisions: "50", NonFinancialLiabilities: "50", Liabilities: "850", EquityShareCapital: "10", OtherEquity: "190", EquityAttributableToOwnersOfParent: "200",
+      Equity: "200", EquityAndLiabilities: "1050" };
+    const nbfc = xml.replace("</xbrli:xbrl>", Object.entries(bs).map(([t, v]) => `<in-bse-fin:${t} contextRef="OneI" unitRef="INR" decimals="0">${v}</in-bse-fin:${t}>`).join("") + "</xbrli:xbrl>");
+    const url = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_NBFC_INDAS_1_WEB.xml";
+    const { filings, deps } = setup({ "att/xbrl/INTEGRATED_FILING_NBFC_INDAS_1_WEB.xml": nbfc });
+    filings.raw.exec(`INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (5, 7, 'integrated_financials', '2024-12-31', 'Q', 'consolidated', '2025-01-16T14:12:10.000Z', '${url}')`);
+    filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'industrial','bs','x:Assets','','2024-12-31','9M','consolidated','original','1050',NULL,'2025-01-16T14:12:10.000Z',5,'Assets','reported','detail-v1')`);
+    const r = await nbfcBalanceSheets({ ...deps, focus: ["INFY"] });
+    expect(r).toMatchObject({ done: true, companies: 1, files: 1 });
+    const got = Object.fromEntries((filings.raw.prepare("SELECT line, value FROM fin_value WHERE statement='bs' AND line LIKE 'x:%'").all() as { line: string; value: string }[]).map((x) => [x.line, x.value]));
+    expect(got["x:Loans"]).toBe("900");
+    expect(got["x:DebtSecurities"]).toBe("500");
+    expect(got["x:FinanicalAssets"]).toBe("1000");
+    const again = await nbfcBalanceSheets({ ...deps, focus: ["INFY"] });
+    expect(again.done).toBe(true);
+    expect(again.files).toBe(1);
   });
 });

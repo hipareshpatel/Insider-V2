@@ -563,6 +563,51 @@ export async function backfillBsCf(deps: Deps, limit = 200, budgetMs = 45_000): 
   return { after: cur.after, done: cur.done, rows: cur.rows };
 }
 
+/** Item 5 (D157): NBFC balance sheets were read with the Division II line list only, so loans, investments, debt
+ *  securities, borrowings and deposits were never stored. One-off pass: the focus NBFCs (an NBFC Integrated Filing on
+ *  record), their results filings from 2024-01-01, each file re-read and its balance sheet + cash flow offered again
+ *  (inserts only, ON CONFLICT DO NOTHING: existing rows untouched; the Division III lines are added when every group
+ *  adds up to its filed total). Cursor by (security_id, filing_id). */
+export const SQL_NBFC_SIDS = "SELECT DISTINCT security_id FROM filing WHERE kind='integrated_financials' AND source_url LIKE '%INTEGRATED_FILING_NBFC_%'";
+export const SQL_NBFC_FILINGS = `SELECT filing_id, security_id, kind, basis, disclosed_at, source_url FROM filing INDEXED BY ix_filing_sec
+   WHERE security_id = ? AND kind IN ('results_quarterly','results_annual','integrated_financials') AND period_end >= '2024-01-01' AND filing_id > ? ORDER BY filing_id LIMIT ?`;
+export async function nbfcBalanceSheets(deps: Deps, limit = 40, budgetMs = 20_000): Promise<{ done: boolean; companies: number; files: number; rows: number; notes: string[] }> {
+  const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='nbfc_bs'");
+  const cur = st ? JSON.parse(st.detail) as { sids: number[]; i: number; after: number; files: number; rows: number; done: boolean }
+    : { sids: [] as number[], i: 0, after: 0, files: 0, rows: 0, done: false };
+  if (cur.done) return { done: true, companies: cur.sids.length, files: cur.files, rows: cur.rows, notes: [] };
+  if (!st) {
+    const all = (await deps.filings.all<{ security_id: number }>(SQL_NBFC_SIDS)).map((r) => r.security_id);
+    // focus companies only (owner universe lock)
+    const focus = deps.focus ? new Set((await deps.market.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(deps.focus)])).map((r) => r.security_id)) : null;
+    cur.sids = all.filter((x) => !focus || focus.has(x)).sort((a, b) => a - b);
+  }
+  const t0 = Date.now(), notes: string[] = [];
+  let n = 0;
+  while (cur.i < cur.sids.length && n < limit && Date.now() - t0 < budgetMs) {
+    const sid = cur.sids[cur.i]!;
+    const fs = await deps.filings.all<{ filing_id: number; kind: string; basis: string; disclosed_at: string; source_url: string }>(SQL_NBFC_FILINGS, [sid, cur.after, limit - n]);
+    if (!fs.length) { cur.i++; cur.after = 0; continue; }
+    for (const f of fs) {
+      if (Date.now() - t0 > budgetMs) break;
+      cur.after = f.filing_id; n++;
+      let xml: string | null = null;
+      try { xml = await deps.getText(`att/${new URL(f.source_url).pathname.replace(/^\/corporate\//, "")}`); } catch { notes.push(`${sid} ${f.filing_id}: storage read failed`); continue; }
+      if (!xml) { notes.push(`${sid} ${f.filing_id}: file not stored`); continue; }
+      try {
+        const inst = parseXbrl(xml);
+        const r = canonicalResult(inst);
+        const b = await loadBsCf(inst, sid, TEMPLATE[r.template], f.basis, f.disclosed_at, f.filing_id, deps);
+        cur.rows += b.rows; cur.files++;
+        if (b.note) notes.push(`${sid} ${f.filing_id}${b.note}`);
+      } catch (e) { notes.push(`${sid} ${f.filing_id}: ${String(e).slice(0, 80)}`); }
+    }
+  }
+  cur.done = cur.i >= cur.sids.length;
+  await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','nbfc_bs',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
+  return { done: cur.done, companies: cur.sids.length, files: cur.files, rows: cur.rows, notes: notes.slice(0, 30) };
+}
+
 /** P0 (audit 4 Nov): file selection no longer reads every 'done' row of fetch_job (~300k per run, 2.6 B a month even
  *  when idle). New files: a job_id cursor per loadable kind over ix_fetch_kind_job ('once','loader_cursor'), which
  *  stops before the first file not downloaded yet, so nothing is passed over. Retries: due rows of fin_load only
