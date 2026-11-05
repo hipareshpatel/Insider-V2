@@ -2,7 +2,7 @@
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
-import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
@@ -117,6 +117,8 @@ export default {
       else if (name === "nbfc_bs") r = await nbfcBalanceSheets(ldeps, 40, 20_000); // item 5: Division III balance-sheet lines
       else if (name === "nbfc_rev") r = await nbfcRevenueLines(ldeps, 40, 20_000); // item 5 leftover 3: the rest of NBFC revenue
       else if (name === "cf_untagged") r = await cfUntaggedPass(ldeps, 30, 20_000); // D167 (b): cash-flow detail with untagged adjustments
+      // D47 segment results: ?dry=1 = census (nothing written), &companies=N for the first N companies
+      else if (name === "segments") { const u = new URL(req.url); r = await segmentPass(ldeps, { dry: u.searchParams.get("dry") === "1", companies: u.searchParams.has("companies") ? Number(u.searchParams.get("companies")) : undefined }, 30, 20_000); }
       // item 7 (owner #363): credit ratings re-read with the issuer match; missing ones added, stored ones get their symbol
       else if (name === "ratings_relink") r = await ratingsRelink(db, ldeps.getText, focus ?? [], await focusIssuers(mk, focus ?? []), 12);
       else if (name === "bank_ins_cf") r = await bankInsurerCashFlows(ldeps, 40, 20_000); // item 5: bank / insurer cash-flow detail
