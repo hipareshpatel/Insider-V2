@@ -963,6 +963,11 @@ export async function sharesConsistent(deps: Deps, sid: number, r: CanonicalResu
   return false;
 }
 
+/** 2.12 FY gaps (read-only /fy-gaps): stored revenue rows of the given companies by period kind from the floor. */
+export const SQL_REVENUE_KINDS = "SELECT security_id, period_end, period_kind, basis FROM fin_value WHERE security_id IN (SELECT value FROM json_each(?1)) AND statement = 'pl' AND line = 'revenue' AND period_kind IN ('Q', 'FY') AND version = 'original' AND +period_end >= ?2";
+/** the load outcome of the files filed for one company, period end and basis (why its full year is not stored) */
+export const SQL_PERIOD_LOADS = "SELECT f.kind, substr(l.detail, 1, 200) AS detail FROM filing f JOIN fetch_job j ON j.url = f.source_url JOIN fin_load l ON l.job_id = j.job_id WHERE f.security_id = ?1 AND f.period_end = ?2 AND f.basis = ?3 LIMIT 4";
+
 /** D157 read-only statement view: one period's original rows of one company and basis (P&L of the given kind; the
  *  balance sheet and cash flow filed with it, whatever their own period kind). ix_fin_value_period by kind. */
 export const SQL_STATEMENT_ROWS = `SELECT statement, line, value, period_kind, template FROM fin_value INDEXED BY ix_fin_value_period
