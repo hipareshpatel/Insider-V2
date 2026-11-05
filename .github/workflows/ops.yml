@@ -54,6 +54,9 @@ jobs:
               while [ "$n" -eq 0 ] || { [ "$(date +%s)" -lt "$end" ] && [ "$n" -lt "${MAX_CALLS:-1000}" ]; }; do
                 n=$((n+1))
                 out=$(curl -s -X POST -H "Authorization: Bearer $T" "$URL" || true)
+                # restart=1 applies to the first call only (5 Nov: sent on every call it reset the cursor each time,
+                # 57 calls re-did the same 25 companies, about 7.2M rows read for nothing)
+                URL=$(printf '%s' "$URL" | sed -E 's/([?&])restart=1(&|$)/\1restart=0\2/')
                 echo "$(date -u +%H:%M:%S) $out" | cut -c1-20000 | mask  # was 1,500 (cut the half-year pass notes)
                 echo "$out" | grep -q '"done":true' && break
                 echo "$out" | grep -q '^forbidden\|unknown pass\|not found\|"refused"' && exit 1
