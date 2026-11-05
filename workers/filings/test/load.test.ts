@@ -880,7 +880,7 @@ describe("work list 2.10: credit ratings coverage vs NSE's lists", async () => {
 
 describe("item 7: credit ratings matched to companies by the issuer part of the ISIN", async () => {
   const { issuerOf, ratingSymbol, ratingsRelink, loadEvents } = await import("../src/events.js");
-  const row = (isin: string, app: string) => ({ AppID: app, Symbol: null, CompanyName: "HDFC Bank Limited", ISIN: isin, NameOfCRAgency: "CRISIL Ratings Limited", CreditRating: "CRISIL AAA",
+  const row = (isin: string, app: string) => ({ AppID: app, Symbol: app === "1" ? "NOTLISTED" : null, CompanyName: "HDFC Bank Limited", ISIN: isin, NameOfCRAgency: "CRISIL Ratings Limited", CreditRating: "CRISIL AAA",
     RatingAction: "Reaffirmed", DateofCR: "01-10-2026", BroadcastDateTime: "05-OCT-2026 10:00:00" });
   const list = JSON.stringify([row("INE040A08AB1", "1"), row("INE0L6807393", "2")]); // HDFC Bank bond; an unlisted issuer
   const issuers = new Map([["INE040A", "HDFCBANK"]]);
@@ -889,7 +889,11 @@ describe("item 7: credit ratings matched to companies by the issuer part of the 
     expect(issuerOf("")).toBeNull();
     expect(ratingSymbol({ symbol: "", isin: "INE040A08AB1" }, issuers)).toBe("HDFCBANK");
     expect(ratingSymbol({ symbol: "", isin: "INE0L6807393" }, issuers)).toBe("");
-    expect(ratingSymbol({ symbol: "INFY", isin: "INE040A08AB1" }, issuers)).toBe("INFY");
+    expect(ratingSymbol({ symbol: "INFY", isin: "INE040A08AB1" }, issuers)).toBe("HDFCBANK"); // the issuer code decides
+    // NSE's placeholders (L&T's bond: "NOTLISTED") never stand in for a match; a focus symbol without an ISIN match stands
+    expect(ratingSymbol({ symbol: "NOTLISTED", isin: "INE040A08AB1" }, issuers)).toBe("HDFCBANK");
+    expect(ratingSymbol({ symbol: "NOTLISTED", isin: "INE0L6807393" }, issuers)).toBe("");
+    expect(ratingSymbol({ symbol: "HDFCBANK", isin: "ZZZ000Z00000" }, issuers)).toBe("HDFCBANK");
   });
   it("the loader keeps the focus company's rating (with its symbol) and drops the unmatched one", async () => {
     const { filings } = setup({ "api/credit_rating/all/2026-10.json": list });

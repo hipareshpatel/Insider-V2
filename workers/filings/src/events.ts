@@ -32,8 +32,16 @@ export async function focusIssuers(market: Sql, focus: string[]): Promise<Map<st
   for (const r of await market.all<{ symbol: string; isin: string }>(SQL_FOCUS_ISSUERS, [JSON.stringify(focus)])) { const k = issuerOf(r.isin); if (k && !m.has(k)) m.set(k, r.symbol); }
   return m;
 }
-/** The symbol a rating belongs to: its own (when NSE fills it), else the focus company whose issuer code it carries. */
-export const ratingSymbol = (c: { symbol: string; isin: string }, issuers?: Map<string, string>) => c.symbol || (issuers?.get(issuerOf(c.isin) ?? "") ?? "");
+/** The symbol a rating belongs to. The issuer code decides; NSE's own Symbol field counts only when it is one of the
+ *  focus companies' symbols — it often holds "NOTLISTED", "NA", "Not Listed", "000000" or "222333" even for listed
+ *  issuers (L&T INE018A08BJ8 "NOTLISTED", Reliance INE002A08690 "NA"). Without an issuer map: NSE's field as given. */
+export function ratingSymbol(c: { symbol: string; isin: string }, issuers?: Map<string, string>): string {
+  if (!issuers) return c.symbol;
+  const m = issuers.get(issuerOf(c.isin) ?? "");
+  if (m) return m;
+  for (const v of issuers.values()) if (v === c.symbol) return c.symbol;
+  return "";
+}
 type Cursor = { after: number; rows: number; stuck?: number; tries?: number; failed?: number };
 /** Read one stored file: text, null when it is not in R2, or "wait" on a storage error (≤ 3 runs, then recorded). */
 async function readOrWait(db: Sql, cur: Cursor, j: { job_id: number; r2_key: string }, kind: string, getText: (k: string) => Promise<string | null>): Promise<string | null | "wait"> {
@@ -164,7 +172,7 @@ export async function loadPitXbrl(db: Sql, getText: (k: string) => Promise<strin
  *  not stored yet are added (INSERT OR IGNORE), stored ones still without a symbol get it (owner #363: symbol filled,
  *  nothing deleted). Cursor by job_id in ('once','ratings_relink'). */
 export async function ratingsRelink(db: Sql, getText: (k: string) => Promise<string | null>, focus: string[], issuers: Map<string, string>, limit = 12) {
-  const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='ratings_relink'");
+  const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='ratings_relink_v2'");
   const cur = st ? JSON.parse(st.detail) as { after: number; lists: number; rows: number; inserted: number; linked: number; done: boolean }
     : { after: 0, lists: 0, rows: 0, inserted: 0, linked: 0, done: false };
   if (cur.done) return cur;
@@ -180,9 +188,10 @@ export async function ratingsRelink(db: Sql, getText: (k: string) => Promise<str
     cur.rows += mine.length;
     const r = mine.map((c) => [c.key, c.symbol, c.company, c.isin, c.agency, c.rating, c.outlook, c.action, dnum(c.ratedOn), c.earlierRating, c.earlierOutlook, c.disclosedAt, c.appId, j.job_id]);
     cur.inserted += await batchAll(db, insertRows("INSERT OR IGNORE INTO credit_rating (key,symbol,company,isin,agency,rating,outlook,action,rated_on,earlier_rating,earlier_outlook,disclosed_at,app_id,job_id)", 14, r));
-    cur.linked += await batchAll(db, mine.map((c) => ({ sql: "UPDATE credit_rating SET symbol = ?1 WHERE key = ?2 AND symbol = ''", params: [c.symbol, c.key] })));
+    // v2: NSE's placeholder symbols ("NOTLISTED", "NA", …) are replaced too — any stored symbol other than the match
+    cur.linked += await batchAll(db, mine.map((c) => ({ sql: "UPDATE credit_rating SET symbol = ?1 WHERE key = ?2 AND symbol <> ?1", params: [c.symbol, c.key] })));
   }
   cur.done = jobs.length < limit;
-  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','ratings_relink',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','ratings_relink_v2',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
   return cur;
 }
