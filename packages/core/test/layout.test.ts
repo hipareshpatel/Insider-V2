@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { BANK_TAGS, BS_BANK, BS_NBFC, BS_LINES_DIV3, BS_INDUSTRIAL, BS_LINES, CF_INDUSTRIAL, CF_LINES, CF_SUMMARY, GI_TAGS, LIFE_TAGS, PL_BANK, PL_GENERAL, PL_INDUSTRIAL, PL_LIFE, PL_NBFC, PL_TAGS, balanceAndCash, canonicalResult, chooseLayout, derivedPl, layoutStatement, parseXbrl, statementDetail, tagLabel, type LayoutNode } from "../src/index.js";
+import { BANK_TAGS, BS_BANK, BS_NBFC, BS_LINES_DIV3, BS_INSURANCE, BS_LINES_INS, BS_INDUSTRIAL, BS_LINES, CF_INDUSTRIAL, CF_LINES, CF_SUMMARY, GI_TAGS, LIFE_TAGS, PL_BANK, PL_GENERAL, PL_INDUSTRIAL, PL_LIFE, PL_NBFC, PL_TAGS, balanceAndCash, canonicalResult, chooseLayout, derivedPl, layoutStatement, parseXbrl, statementDetail, tagLabel, type LayoutNode } from "../src/index.js";
 
 const keys = (t: LayoutNode[]): string[] => t.flatMap((nd) => [nd.key, ...(nd.children ? keys(nd.children) : [])]);
 const inst = parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_INFY_IF_Q2FY27_cons_full.xml"), "utf8"));
@@ -87,6 +87,35 @@ describe("D157 statement layout (Schedule III Div II, industrial)", () => {
     expect(rows.find((r) => r.key === "x:Loans")).toMatchObject({ level: 2, value: "5741744400000" });
     expect(rows.find((r) => r.key === "x:FinanicalAssets")).toMatchObject({ level: 1, label: "Financial assets" });
     const k = keys(BS_NBFC); expect(BS_LINES_DIV3.filter((t) => !k.includes(`x:${t}`))).toEqual([]);
+  });
+  it("insurer balance sheet (IRDAI): HDFCLIFE Sep 2026 standalone filed values all add up, and are laid out", () => {
+    const v: Record<string, string> = { ShareCapital: "21725900000", ReservesAndSurplus: "169233800000", ShareApplicationMoneyReceivedPendingAllotmentOfShares: "14500000",
+      CreditDebitFairValueChangeAccount: "3003200000", ShareholdersFunds: "193977400000", Borrowings: "30990000000",
+      CreditDebitFairValueChangeAccountPolicyholdersFunds: "53824900000", PolicyLiabilities: "2698325900000", InsuranceReserve: "0",
+      ProvisionForLinkedLiabilities: "922069500000", ChangeInFairvalueAccount: "165946600000", DiscontinuedOnAccountOfNonPaymentOfPremium: "55942700000",
+      OthersDiscontinuance: "138500000", LinkedLiabilities: "1144097300000", PolicyholdersFunds: "3896248100000", FundsForFutureAppropriations: "3647000000",
+      SourcesOfFunds: "4124862500000", InvestmentsShareholders: "219010000000", InvestmentsPolicyholders: "2733618200000",
+      AssetsHeldToCoverLinkLiabilities: "1144097300000", Loans: "30494800000", FixedAssets: "7783600000", DeferredTaxAsset: "0",
+      CashAndBankBalances: "4938400000", AdvancesAndOtherAssets: "89398300000", CurrentAssets: "94336700000", CurrentLiabilities: "103090700000",
+      Provisions: "1387400000", CurrentLiabilitiesAndProvisions: "104478100000", NetCurrentAssets: "-10141400000",
+      MiscellaneousExpenditureToTheExtentNotWrittenOffOrAdjusted: "0", DebitBalanceInProfitAndLossAccountShareholdersAccount: "0",
+      ApplicationOfFunds: "4124862500000", Investments: "4096725500000", Assets: "4124862500000" };
+    const facts = Object.entries(v).map(([t, x]) => `<in-capmkt:${t} contextRef="OneI" unitRef="INR" decimals="-5">${x}</in-capmkt:${t}>`).join("");
+    const xml = `<?xml version="1.0"?><xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:in-capmkt="x"><xbrli:context id="OneI"><xbrli:entity><xbrli:identifier scheme="s">1</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>2026-09-30</xbrli:instant></xbrli:period></xbrli:context><in-capmkt:DateOfEndOfReportingPeriod contextRef="OneI">2026-09-30</in-capmkt:DateOfEndOfReportingPeriod>${facts}</xbrli:xbrl>`;
+    const d = statementDetail(parseXbrl(xml), "OneI", null).bs!;
+    expect(d.checks.map((c) => c.name).sort()).toEqual(["ApplicationOfFunds = its parts", "CurrentAssets = its parts", "CurrentLiabilitiesAndProvisions = its parts",
+      "LinkedLiabilities = its parts", "NetCurrentAssets = its parts", "PolicyholdersFunds = its parts", "ShareholdersFunds = its parts", "SourcesOfFunds = its parts",
+      "sources of funds = application of funds"]);
+    expect(d.checks.filter((c) => !c.ok)).toEqual([]);
+    // a wrong part fails its group
+    const bad = statementDetail(parseXbrl(xml.replace(">169233800000<", ">169233000000<")), "OneI", null).bs!;
+    expect(bad.checks.filter((c) => !c.ok).map((c) => c.name)).toEqual(["ShareholdersFunds = its parts"]);
+    const rows = layoutStatement(BS_INSURANCE, Object.fromEntries(Object.entries(d.lines).map(([k, x]) => [`x:${k}`, x])), { hideZeros: true });
+    expect(rows.find((r) => r.key === "x:PolicyLiabilities")).toMatchObject({ level: 2, value: "2698325900000" });
+    expect(rows.find((r) => r.key === "x:CurrentLiabilitiesAndProvisions")).toMatchObject({ level: 2, label: "Less: Current liabilities and provisions" });
+    expect(rows.some((r) => r.key === "x:InsuranceReserve")).toBe(false);
+    const k = keys(BS_INSURANCE); expect(BS_LINES_INS.filter((t) => !k.includes(`x:${t}`))).toEqual([]);
+    expect(chooseLayout("insurance", { gross_premium: "1" }).bs).toBe(BS_INSURANCE);
   });
   it("labels unlabelled tags readably", () => {
     expect(tagLabel("x:TradeReceivablesCurrent")).toBe("Trade receivables current");

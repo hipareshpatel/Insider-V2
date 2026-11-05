@@ -5,7 +5,7 @@
 // Values are only ever the filed figures. A head that is not filed shows its filed sub-rows and no total (never a sum
 // — D170). Summary rows that no filing carries (operating profit, OPM %) are computed when shown, labelled `derived`,
 // and never stored (owner #350, as for TTM).
-import { CF_ADJUSTMENTS, CF_FINANCING, CF_INVESTING, CF_OPERATING, BS_GROUPS, BS_GROUPS_DIV3 } from "./detail.js";
+import { CF_ADJUSTMENTS, CF_FINANCING, CF_INVESTING, CF_OPERATING, BS_GROUPS, BS_GROUPS_DIV3, BS_GROUPS_INS } from "./detail.js";
 import { type Dec, add, dec, div, mul, sub, toText } from "./decimal.js";
 
 /** `sign: -1` marks a line the filing deducts from its head (an outflow such as purchase of fixed assets, or interest
@@ -137,6 +137,16 @@ export const BS_NBFC: LayoutNode[] = [
     x("Equity", "Total equity", [div3("EquityAttributableToOwnersOfParent"), x("NonControllingInterest")]),
   ]),
 ];
+const ins = (tag: string, label?: string): LayoutNode => {
+  const t = tag.replace(/^-/, "");
+  return x(t, tag.startsWith("-") ? `Less: ${label ?? tagLabel(t)}` : label, BS_GROUPS_INS[t]?.map((c) => ins(c)));
+};
+/** Insurer balance sheet, IRDAI (sources and application of funds; groups from BS_GROUPS_INS, the same groups the
+ *  loader checks). Life and general insurers share the frame. */
+export const BS_INSURANCE: LayoutNode[] = [
+  ins("SourcesOfFunds", "Sources of funds"),
+  ins("ApplicationOfFunds", "Application of funds"),
+];
 /** Life insurer (IRDAI: policyholders' account, then shareholders'; canonical keys of LIFE_TAGS). */
 export const PL_LIFE: LayoutNode[] = [
   n("gross_premium", "Gross premium income", [n("premium_first_year", "First-year premium"), n("premium_renewal", "Renewal premium"), n("premium_single", "Single premium")]),
@@ -181,8 +191,8 @@ export type LayoutName = "industrial" | "nbfc" | "bank" | "life_insurance" | "ge
 export function chooseLayout(template: string | null, pl: Record<string, unknown>): { name: LayoutName; label: string; pl: LayoutNode[]; bs: LayoutNode[]; cfDetail: boolean } {
   if (template === "bank") return { name: "bank", label: "bank (Third Schedule, Banking Regulation Act)", pl: PL_BANK, bs: BS_BANK, cfDetail: false };
   if (template === "insurance") return "premium_earned" in pl || "claims_incurred" in pl
-    ? { name: "general_insurance", label: "general insurer (IRDAI)", pl: PL_GENERAL, bs: [], cfDetail: false }
-    : { name: "life_insurance", label: "life insurer (IRDAI)", pl: PL_LIFE, bs: [], cfDetail: false };
+    ? { name: "general_insurance", label: "general insurer (IRDAI)", pl: PL_GENERAL, bs: BS_INSURANCE, cfDetail: false }
+    : { name: "life_insurance", label: "life insurer (IRDAI)", pl: PL_LIFE, bs: BS_INSURANCE, cfDetail: false };
   if (["interest_earned", "impairment_financial_instruments", "fees_commission_income", "fees_commission_expense", "net_loss_fair_value"].some((k) => k in pl))
     return { name: "nbfc", label: "NBFC (Schedule III Div III)", pl: PL_NBFC, bs: BS_NBFC, cfDetail: true };
   return { name: "industrial", label: "industrial (Schedule III Div II)", pl: PL_INDUSTRIAL, bs: BS_INDUSTRIAL, cfDetail: true };

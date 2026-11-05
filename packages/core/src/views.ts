@@ -117,6 +117,8 @@ export function isLargeOrder(amount: string, ttmRevenue: View): { large: boolean
 export function ownersEquity(b: Record<string, string | null | undefined>, basis: string, layout: string): string | null {
   const owners = b["x:EquityAttributableToOwnersOfParent"] ?? b.equity_owners;
   if (owners != null) return owners;
+  // insurers (IRDAI): shareholders' funds are capital + reserves + fair-value change account, minority interest shown apart
+  if (layout.endsWith("_insurance")) return b["x:ShareholdersFunds"] ?? null;
   if (layout === "bank" && b.capital != null && b.reserves != null) return toText(add(dec(b.capital), dec(b.reserves)));
   if (basis === "standalone") return b["x:Equity"] ?? b.total_equity ?? null;
   return null;

@@ -373,14 +373,26 @@ export async function loadBsCf(inst: XbrlInstance, sid: number, template: string
   // item 5: banks and insurers file the same cash-flow lines as companies (HDFCBANK Sep 2026: all four section checks
   // exact), so their cash-flow detail is read too; their balance sheet keeps its own named lines (Third Schedule / IRDAI)
   const det = template === "industrial" ? statementDetail(inst, refs.has("OneI") ? "OneI" : null, refs.has("FourD") ? "FourD" : null)
-    : template === "bank" || template === "insurance" ? { bs: null, cf: statementDetail(inst, null, refs.has("FourD") ? "FourD" : null).cf } : { bs: null, cf: null };
+    : template === "bank" ? { bs: null, cf: statementDetail(inst, null, refs.has("FourD") ? "FourD" : null).cf }
+    // item 5: insurers' balance sheet is the IRDAI sources / application of funds, read as filed tags (BS_GROUPS_INS)
+    : template === "insurance" ? statementDetail(inst, refs.has("OneI") ? "OneI" : null, refs.has("FourD") ? "FourD" : null) : { bs: null, cf: null };
   const detailRows = (st: "bs" | "cf", d: typeof det.bs, end: string, k: string) => {
     if (!d || !Object.keys(d.lines).length) return;
     const bad = d.checks.filter((c) => !c.ok);
     if (bad.length) { notes.push(`${st} detail not loaded: ${bad.map((c) => c.name).join(", ")}`); return; }
     for (const [tag, value] of Object.entries(d.lines)) rows.push([sid, template, st, `x:${tag}`, "", end, k, basis, "original", value, null, disclosedAt, filingId, tag, "reported", "detail-v1"]);
   };
-  if (b.bs && bsKind) {
+  if (template === "insurance") {
+    // no named balance-sheet lines for insurers (the Schedule III checks do not apply); the filed lines load only when
+    // the file has the full IRDAI statement and every group, plus sources = application, adds up
+    const end = inst.facts.find((x) => /:DateOfEndOfReportingPeriod$/.test(x.tag))?.value ?? null;
+    const k = end && fyStart ? ytdKind(fyStart, end) : null;
+    const d = det.bs;
+    if (d && end && k && Object.keys(d.lines).length) {
+      if (d.checks.length >= 3 && d.checks.some((c) => c.name === "sources of funds = application of funds")) detailRows("bs", d, end, k);
+      else notes.push("bs detail not loaded: not the full IRDAI balance sheet");
+    }
+  } else if (b.bs && bsKind) {
     if (b.bs.checks.length >= 2 && b.bs.checks.every((c) => c.ok)) {
       for (const [line, value] of Object.entries(b.bs.lines)) rows.push([sid, template, "bs", line, "", b.bs.date, bsKind, basis, "original", value, null, disclosedAt, filingId, line, "reported", "bscf-v1"]);
       detailRows("bs", det.bs, b.bs.date, bsKind);
@@ -581,15 +593,20 @@ export async function nbfcBalanceSheets(deps: Deps, limit = 40, budgetMs = 20_00
 /** Item 5: banks' and insurers' cash-flow detail (read since this change) for their stored results files from 2024. The
  *  companies are the focus companies whose stored P&L uses the bank or insurance template (one indexed row each). */
 export const SQL_SID_TEMPLATE = "SELECT template FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND period_end >= '2024-01-01' AND statement = 'pl' LIMIT 1";
+const byTemplate = (deps: Deps, want: string[]) => async (focus: number[] | null) => {
+  const out: number[] = [];
+  for (const sid of focus ?? []) {
+    const [t] = await deps.filings.all<{ template: string }>(SQL_SID_TEMPLATE, [sid]);
+    if (t && want.includes(t.template)) out.push(sid);
+  }
+  return out;
+};
 export async function bankInsurerCashFlows(deps: Deps, limit = 40, budgetMs = 20_000) {
-  return rereadPass(deps, "bank_ins_cf", async (focus) => {
-    const out: number[] = [];
-    for (const sid of focus ?? []) {
-      const [t] = await deps.filings.all<{ template: string }>(SQL_SID_TEMPLATE, [sid]);
-      if (t && (t.template === "bank" || t.template === "insurance")) out.push(sid);
-    }
-    return out;
-  }, limit, budgetMs);
+  return rereadPass(deps, "bank_ins_cf", byTemplate(deps, ["bank", "insurance"]), limit, budgetMs);
+}
+/** Item 5: insurers' IRDAI balance sheet (read since this change) for their stored results files from 2024. */
+export async function insurerBalanceSheets(deps: Deps, limit = 40, budgetMs = 20_000) {
+  return rereadPass(deps, "ins_bs", byTemplate(deps, ["insurance"]), limit, budgetMs);
 }
 
 /** One-off re-read of stored results files (2024 on) for a set of focus companies: balance sheet + cash flow offered

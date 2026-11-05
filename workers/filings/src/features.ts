@@ -8,7 +8,7 @@ import type { Deps } from "./load.js";
  *  quarters start 2022-06); values are stored from the D168 floor on. */
 export const FEATURE_READ_FROM = "2022-06-30";
 export const FEATURE_STORE_FROM = "2024-01-01";
-const BS_LINES = ["x:EquityAttributableToOwnersOfParent", "x:Equity", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "equity_owners", "total_equity", "capital", "reserves",
+const BS_LINES = ["x:EquityAttributableToOwnersOfParent", "x:Equity", "x:ShareholdersFunds", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "equity_owners", "total_equity", "capital", "reserves",
   "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents", "x:NonControllingInterest"];
 export const SQL_FEATURE_ROWS = `SELECT statement, line, period_end, period_kind, basis, value, template FROM fin_value INDEXED BY ix_fin_value_period
    WHERE security_id = ?1 AND period_end >= ?2 AND dims = '' AND (statement = 'pl' OR (statement = 'bs' AND line IN (SELECT value FROM json_each(?3))))

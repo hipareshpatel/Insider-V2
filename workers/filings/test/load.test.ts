@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
 import { buildFeatures, featuresStep, valuationsStep } from "../src/features.js";
-import { backfillBsCf, bankInsurerCashFlows, nbfcBalanceSheets, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
+import { backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 function sqlite(domain: string): Sql & { raw: DatabaseSync } {
@@ -788,5 +788,45 @@ describe("item 5: bank / insurer cash-flow detail", () => {
     expect(cf["x:CashFlowsFromUsedInOperatingActivities"]).toBe("-289673700000");
     expect(cf["x:AdjustmentsForDepreciationAndAmortisationExpense"]).toBe("19293000000");
     expect(Object.keys(cf).length).toBeGreaterThan(30);
+  });
+});
+
+describe("item 5: insurer balance sheet (IRDAI)", () => {
+  // SBILIFE's Sep 2026 file with an IRDAI balance sheet put in a OneI context (figures as HDFCLIFE's, all groups add up)
+  const bs: Record<string, string> = { ShareCapital: "21725900000", ReservesAndSurplus: "169233800000", ShareApplicationMoneyReceivedPendingAllotmentOfShares: "14500000",
+    CreditDebitFairValueChangeAccount: "3003200000", ShareholdersFunds: "193977400000", Borrowings: "30990000000",
+    CreditDebitFairValueChangeAccountPolicyholdersFunds: "53824900000", PolicyLiabilities: "2698325900000", ProvisionForLinkedLiabilities: "922069500000",
+    ChangeInFairvalueAccount: "165946600000", DiscontinuedOnAccountOfNonPaymentOfPremium: "55942700000", OthersDiscontinuance: "138500000",
+    LinkedLiabilities: "1144097300000", PolicyholdersFunds: "3896248100000", FundsForFutureAppropriations: "3647000000", SourcesOfFunds: "4124862500000",
+    InvestmentsShareholders: "219010000000", InvestmentsPolicyholders: "2733618200000", AssetsHeldToCoverLinkLiabilities: "1144097300000",
+    Loans: "30494800000", FixedAssets: "7783600000", CashAndBankBalances: "4938400000", AdvancesAndOtherAssets: "89398300000", CurrentAssets: "94336700000",
+    CurrentLiabilities: "103090700000", Provisions: "1387400000", CurrentLiabilitiesAndProvisions: "104478100000", NetCurrentAssets: "-10141400000",
+    ApplicationOfFunds: "4124862500000" };
+  const make = (over: Record<string, string> = {}) => readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_SBILIFE_IF_Q2FY27_trim.xml"), "utf8").replace("</xbrli:xbrl>",
+    `<xbrli:context id="OneI"><xbrli:entity><xbrli:identifier scheme="http://www.nseindia.com">SBILIFE</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>2026-09-30</xbrli:instant></xbrli:period></xbrli:context>`
+    + Object.entries({ ...bs, ...over }).map(([t, v]) => `<in-capmkt:${t} contextRef="OneI" unitRef="INR" decimals="-5">${v}</in-capmkt:${t}>`).join("") + "</xbrli:xbrl>");
+  const run = async (xml: string) => {
+    const url = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_LI_1_WEB.xml";
+    const { filings, deps } = setup({ "att/xbrl/INTEGRATED_FILING_LI_1_WEB.xml": xml });
+    filings.raw.exec(`INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (41, 7, 'integrated_financials', '2026-09-30', 'Q', 'standalone', '2026-10-28T00:00:00Z', '${url}')`);
+    filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'insurance','pl','gross_premium','','2026-09-30','Q','standalone','original','1',NULL,'2026-10-28T00:00:00Z',41,'t','reported','v')`);
+    const r = await insurerBalanceSheets({ ...deps, focus: ["INFY"] });
+    const got = filings.raw.prepare("SELECT line, value, period_kind FROM fin_value WHERE statement='bs'").all() as { line: string; value: string; period_kind: string }[];
+    return { r, got };
+  };
+  it("the pass re-reads the stored file and adds the filed balance-sheet lines when every group adds up", async () => {
+    const { r, got } = await run(make());
+    expect(r).toMatchObject({ done: true, companies: 1, files: 1 });
+    const v = Object.fromEntries(got.map((x) => [x.line, x.value]));
+    expect(v["x:PolicyLiabilities"]).toBe("2698325900000");
+    expect(v["x:NetCurrentAssets"]).toBe("-10141400000");
+    expect(v["x:SourcesOfFunds"]).toBe("4124862500000");
+    expect(got.every((x) => x.line.startsWith("x:") && x.period_kind === "H")).toBe(true); // filed lines only, at the half year
+  });
+  it("loads nothing (with a note) when a group does not add up", async () => {
+    const { r, got } = await run(make({ ReservesAndSurplus: "169233000000" }));
+    expect(got).toEqual([]);
+    expect(r.notes.join(" ")).toContain("bs detail not loaded: ShareholdersFunds = its parts");
   });
 });
