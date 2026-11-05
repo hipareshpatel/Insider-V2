@@ -20,7 +20,8 @@ export async function ratingCoverage(db: Sql, getText: (k: string) => Promise<st
     if (!t) { notStored++; continue; }
     let rows; try { rows = parseCreditRatings(t); } catch { unreadable++; continue; }
     parsedRows += rows.length;
-    sample ??= rows[0] ?? null;
+    if (!sample) { try { const d = JSON.parse(t) as unknown; const a = (Array.isArray(d) ? d : ((d as { data?: unknown[] }).data ?? [])) as Record<string, unknown>[];
+      sample = { raw_keys: Object.keys(a[0] ?? {}), raw_first: a[0] ?? null, raw_with_symbol: a.filter((x) => Object.values(x).some((v) => fs.has(String(v)))).slice(0, 2) }; } catch { /* counted below */ } }
     for (const r of rows) {
       if (fs.has(r.symbol)) focusRows++;
       const when = r.disclosedAt ?? r.ratedOn;
