@@ -1,7 +1,7 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, nbfcBalanceSheets, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
@@ -105,6 +105,7 @@ export default {
       const ldeps = { filings: db, market: mk, getText: (k: string) => getText(env.RAW, k), now: () => new Date(), bscf: true, focus };
       let r: unknown;
       if (name === "bscf_backfill") r = await backfillBsCf(ldeps, 60, 20_000);
+      else if (name === "nbfc_bs") r = await nbfcBalanceSheets(ldeps, 40, 20_000); // item 5: Division III balance-sheet lines
       else if (name === "version_backfill") {
         // focus companies only (owner #343), company by company over ix_filing_sec (was: a GROUP BY over all of filing per call)
         const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
@@ -190,8 +191,10 @@ export default {
       const one = new URL(req.url).searchParams.get("ctx");
       if (one) {
         // values of one context; identity fields (PAN, DIN, CIN, address, contact) are never returned (public endpoint)
-        const masked = /Identification|PAN\b|Pan[A-Z]|Din\b|DIN|CIN|Address|Email|Phone|Contact|Mobile/i;
-        return Response.json(inst.facts.filter((f) => f.contextRef === one).map((f) => ({ tag: f.tag, value: masked.test(f.tag) ? "(masked)" : f.value?.slice(0, 200) ?? null, unit: f.unitRef, decimals: f.decimals })), { headers: { "cache-control": "no-store" } });
+        // (the case-insensitive "din" also matched "Subordinated" and "Outstanding", hiding balance-sheet lines; the
+        // codes are matched case-sensitively as tags spell them, the words case-insensitively)
+        const masked = (t: string) => /Identification|PermanentAccountNumber|Address|Email|Phone|Contact|Mobile/i.test(t) || /PAN|Pan[A-Z]|DIN|Din(?![a-z])|CIN/.test(t.split(":").pop() ?? t);
+        return Response.json(inst.facts.filter((f) => f.contextRef === one).map((f) => ({ tag: f.tag, value: masked(f.tag) ? "(masked)" : f.value?.slice(0, 200) ?? null, unit: f.unitRef, decimals: f.decimals })), { headers: { "cache-control": "no-store" } });
       }
       return Response.json({ facts: inst.facts.length, contexts: ctx.filter((c) => c.facts > 0).sort((a, b) => b.facts - a.facts), undefined_refs: undefinedRefs }, { headers: { "cache-control": "no-store" } });
     }

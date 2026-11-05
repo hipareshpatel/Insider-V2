@@ -90,6 +90,27 @@ const BS_EXTRA = ["Assets", "EquityAndLiabilities", "Equity", "Liabilities", "No
   "RegulatoryDeferralAccountDebitBalancesAndRelatedDeferredTaxAssets", "LiabilitiesDirectlyAssociatedWithAssetsInDisposalGroupClassifiedAsHeldForSale",
   "RegulatoryDeferralAccountCreditBalancesAndRelatedDeferredTaxLiability"];
 
+/** NBFC balance sheet, Schedule III Division III (financial / non-financial, no current split). Tag names as filed in
+ *  the NBFC Integrated Filing (BAJFINANCE Sep 2026 consolidated: every group adds to its filed total). NSE's taxonomy
+ *  spells the financial-assets total "FinanicalAssets"; the correct spelling is accepted too. */
+const DIV3_FIN_ASSETS = ["CashAndCashEquivalents", "BankBalanceOtherThanCashAndCashEquivalents", "DerivativeFinancialInstrumentsFinancialAssets",
+  "TradeReceivables", "OtherReceivables", "Loans", "Investments", "OtherFinancialAssets"];
+const DIV3_NONFIN_ASSETS = ["Inventories", "CurrentTaxAssetsNet", "DeferredTaxAssetsNet", "InvestmentProperty", "BiologicalAssetsOtherThanBearerPlants",
+  "PropertyPlantAndEquipment", "CapitalWorkInProgress", "IntangibleAssetsUnderDevelopment", "Goodwill", "OtherIntangibleAssets", "OtherNonFinancialAssets"];
+export const BS_GROUPS_DIV3: Record<string, string[]> = {
+  FinanicalAssets: DIV3_FIN_ASSETS, FinancialAssets: DIV3_FIN_ASSETS,
+  NonFinancialAssets: DIV3_NONFIN_ASSETS,
+  FinancialLiabilities: ["DerivativeFinancialInstrumentsFinancialLiabilities",
+    "TotalOutstandingDuesOfMicroEnterpriseAndSmallEnterprise", "TotalOutstandingDuesOfCreditorsOtherThanMicroEnterpriseAndSmallEnterprise",
+    "TotalOutstandingDuesOfMicroEnterpriseAndSmallEnterpriseOtherPayables", "TotalOutstandingDuesOfCreditorsOtherThanMicroEnterpriseAndSmallEnterpriseOtherPayables",
+    "DebtSecurities", "Borrowings", "Deposits", "SubordinatedLiabilities", "OtherFinancialLiabilities"],
+  NonFinancialLiabilities: ["CurrentTaxLiabilities", "Provisions", "DeferredTaxLiabilitiesNet", "OtherNonFinancialLiabilities"],
+  EquityAttributableToOwnersOfParent: ["EquityShareCapital", "OtherEquity"],
+};
+export const BS_LINES_DIV3 = [...new Set([...Object.keys(BS_GROUPS_DIV3), ...Object.values(BS_GROUPS_DIV3).flat(),
+  "Assets", "EquityAndLiabilities", "Equity", "Liabilities", "NonControllingInterest", "NoncurrentAssetsClassifiedAsHeldForSale",
+  "LiabilitiesDirectlyAssociatedWithAssetsInDisposalGroupClassifiedAsHeldForSale"])];
+
 export const CF_LINES = [...new Set([...Object.keys(CF_ADJUSTMENTS), ...Object.keys(CF_OPERATING), ...Object.keys(CF_INVESTING), ...Object.keys(CF_FINANCING), ...CF_TOTALS])];
 export const BS_LINES = [...new Set([...Object.keys(BS_GROUPS), ...Object.values(BS_GROUPS).flat(), ...BS_EXTRA])];
 
@@ -130,8 +151,10 @@ export function statementDetail(inst: XbrlInstance, bsCtx: string | null, cfCtx:
   }
   let bs: DetailStatement | null = null;
   if (bsCtx) {
-    const lines = read(bsCtx, BS_LINES), checks: DetailStatement["checks"] = [];
-    for (const [total, parts] of Object.entries(BS_GROUPS)) {
+    // Division III (NBFC) when the file carries its financial / non-financial totals; else Division II
+    const div3 = inst.facts.some((f) => f.contextRef === bsCtx && /:(Finanical|Financial)Assets$|:NonFinancialAssets$/.test(f.tag));
+    const lines = read(bsCtx, div3 ? BS_LINES_DIV3 : BS_LINES), checks: DetailStatement["checks"] = [];
+    for (const [total, parts] of Object.entries(div3 ? BS_GROUPS_DIV3 : BS_GROUPS)) {
       const t = v(lines, total);
       if (!t || !parts.some((p) => lines[p] !== undefined)) continue;
       const s = parts.reduce((a, p) => add(a, v(lines, p) ?? zero), zero);
