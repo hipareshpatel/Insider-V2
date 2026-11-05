@@ -2,7 +2,7 @@
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
-import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
@@ -319,6 +319,28 @@ export default {
         not_in_layout: { pl: left(pl.values, plRows), bs: left(bs.values, bsRows), cf: left(cf.values, cfRows) },
         periods: { pl: span(pl.kind, true), bs: span(bs.kind, false), cf: span(cf.kind, true) },
         pl: plRows, bs: bsRows, cf: cfRows }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/fy-gaps") {
+      // 2.12 (read-only): full years from the floor with a stored Q4 quarter but no stored full year, per company of the
+      // 250 and basis, with the load outcome of the files of that period end (why the full year is missing).
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      const ids = (await env.DB_MARKET.prepare("SELECT security_id, min(value) AS symbol FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) GROUP BY security_id").bind(JSON.stringify(focus ?? [])).all<{ security_id: number; symbol: string }>()).results;
+      const sym = new Map(ids.map((r) => [r.security_id, r.symbol]));
+      const rows = (await env.DB_FILINGS.prepare(SQL_REVENUE_KINDS).bind(JSON.stringify([...sym.keys()]), COVERAGE_FLOOR).all<{ security_id: number; period_end: string; period_kind: string; basis: string }>()).results;
+      const key = (r: { security_id: number; basis: string }) => `${r.security_id}|${r.basis}`;
+      const fyEnds = new Map<string, Set<string>>(), qEnds = new Map<string, Set<string>>();
+      for (const r of rows) { const m = r.period_kind === "FY" ? fyEnds : qEnds; (m.get(key(r)) ?? m.set(key(r), new Set()).get(key(r))!).add(r.period_end); }
+      const missing: { symbol: string; sid: number; basis: string; fy_end: string }[] = [];
+      for (const [k, qs] of qEnds) {
+        const [sid, basis] = k.split("|"); const fys = fyEnds.get(k) ?? new Set<string>();
+        // the company's year-end month: from its stored full years, else March
+        const months = [...fys].map((d) => d.slice(5)); const mm = months.sort((a, b) => months.filter((x) => x === b).length - months.filter((x) => x === a).length)[0] ?? "03-31";
+        for (const q of qs) if (q.slice(5) === mm && !fys.has(q)) missing.push({ symbol: sym.get(Number(sid)) ?? sid!, sid: Number(sid), basis: basis!, fy_end: q });
+      }
+      missing.sort((a, b) => a.symbol.localeCompare(b.symbol) || a.fy_end.localeCompare(b.fy_end));
+      const detail = [];
+      for (const m of missing.slice(0, 40)) detail.push({ ...m, loads: (await env.DB_FILINGS.prepare(SQL_PERIOD_LOADS).bind(m.sid, m.fy_end, m.basis).all()).results });
+      return Response.json({ floor: COVERAGE_FLOOR, companies: sym.size, company_bases: qEnds.size, full_years_stored: rows.filter((r) => r.period_kind === "FY").length, missing: missing.length, detail }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/segments") {
       // D47 live check (read-only): one company's stored segment results for one period end, per period kind, with the
