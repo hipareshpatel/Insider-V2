@@ -111,6 +111,23 @@ export const BS_LINES_DIV3 = [...new Set([...Object.keys(BS_GROUPS_DIV3), ...Obj
   "Assets", "EquityAndLiabilities", "Equity", "Liabilities", "NonControllingInterest", "NoncurrentAssetsClassifiedAsHeldForSale",
   "LiabilitiesDirectlyAssociatedWithAssetsInDisposalGroupClassifiedAsHeldForSale"])];
 
+/** Insurer balance sheet, IRDAI format (Form L-3 / B-BS: sources and application of funds). HDFCLIFE Sep 2026
+ *  standalone: every group adds to its filed total. A part written "-Tag" is subtracted (net current assets). */
+export const BS_GROUPS_INS: Record<string, string[]> = {
+  ShareholdersFunds: ["ShareCapital", "ShareApplicationMoneyReceivedPendingAllotmentOfShares", "ReservesAndSurplus", "CreditDebitFairValueChangeAccount"],
+  LinkedLiabilities: ["ProvisionForLinkedLiabilities", "ChangeInFairvalueAccount", "DiscontinuedOnAccountOfNonPaymentOfPremium",
+    "CreditDebitFairValueChangeAccountFundsForDiscontinuedPolicies", "OthersDiscontinuance"],
+  PolicyholdersFunds: ["CreditDebitFairValueChangeAccountPolicyholdersFunds", "RevaluationReserveInvestmentProperty", "PolicyLiabilities", "InsuranceReserve", "LinkedLiabilities"],
+  SourcesOfFunds: ["ShareholdersFunds", "Borrowings", "PolicyholdersFunds", "FundsForFutureAppropriations"],
+  CurrentAssets: ["CashAndBankBalances", "AdvancesAndOtherAssets"],
+  CurrentLiabilitiesAndProvisions: ["CurrentLiabilities", "Provisions"],
+  NetCurrentAssets: ["CurrentAssets", "-CurrentLiabilitiesAndProvisions"],
+  ApplicationOfFunds: ["InvestmentsShareholders", "InvestmentsPolicyholders", "AssetsHeldToCoverLinkLiabilities", "Loans", "FixedAssets", "DeferredTaxAsset",
+    "NetCurrentAssets", "MiscellaneousExpenditureToTheExtentNotWrittenOffOrAdjusted", "DebitBalanceInProfitAndLossAccountShareholdersAccount"],
+};
+const bare = (t: string) => t.replace(/^-/, "");
+export const BS_LINES_INS = [...new Set([...Object.keys(BS_GROUPS_INS), ...Object.values(BS_GROUPS_INS).flat().map(bare)])];
+
 export const CF_LINES = [...new Set([...Object.keys(CF_ADJUSTMENTS), ...Object.keys(CF_OPERATING), ...Object.keys(CF_INVESTING), ...Object.keys(CF_FINANCING), ...CF_TOTALS])];
 export const BS_LINES = [...new Set([...Object.keys(BS_GROUPS), ...Object.values(BS_GROUPS).flat(), ...BS_EXTRA])];
 
@@ -153,12 +170,18 @@ export function statementDetail(inst: XbrlInstance, bsCtx: string | null, cfCtx:
   if (bsCtx) {
     // Division III (NBFC) when the file carries its financial / non-financial totals; else Division II
     const div3 = inst.facts.some((f) => f.contextRef === bsCtx && /:(Finanical|Financial)Assets$|:NonFinancialAssets$/.test(f.tag));
-    const lines = read(bsCtx, div3 ? BS_LINES_DIV3 : BS_LINES), checks: DetailStatement["checks"] = [];
-    for (const [total, parts] of Object.entries(div3 ? BS_GROUPS_DIV3 : BS_GROUPS)) {
+    // insurers (IRDAI): sources and application of funds
+    const ins = inst.facts.some((f) => f.contextRef === bsCtx && /:SourcesOfFunds$/.test(f.tag)) && inst.facts.some((f) => f.contextRef === bsCtx && /:ApplicationOfFunds$/.test(f.tag));
+    const lines = read(bsCtx, ins ? BS_LINES_INS : div3 ? BS_LINES_DIV3 : BS_LINES), checks: DetailStatement["checks"] = [];
+    for (const [total, parts] of Object.entries(ins ? BS_GROUPS_INS : div3 ? BS_GROUPS_DIV3 : BS_GROUPS)) {
       const t = v(lines, total);
-      if (!t || !parts.some((p) => lines[p] !== undefined)) continue;
-      const s = parts.reduce((a, p) => add(a, v(lines, p) ?? zero), zero);
+      if (!t || !parts.some((p) => lines[bare(p)] !== undefined)) continue;
+      const s = parts.reduce((a, p) => (p.startsWith("-") ? sub(a, v(lines, bare(p)) ?? zero) : add(a, v(lines, p) ?? zero)), zero);
       checks.push({ name: `${total} = its parts`, ok: within(s, t), detail: `${toText(s)} vs ${toText(t)}` });
+    }
+    if (ins) {
+      const a = v(lines, "SourcesOfFunds"), b = v(lines, "ApplicationOfFunds");
+      if (a && b) checks.push({ name: "sources of funds = application of funds", ok: within(a, b), detail: `${toText(a)} vs ${toText(b)}` });
     }
     if (Object.keys(lines).length) bs = { lines, checks };
   }

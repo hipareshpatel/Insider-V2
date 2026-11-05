@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, valuationFeatures, ebitda, isLargeOrder, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
+import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
 
 const q = (periodEnd: string, lines: Record<string, string>, basis = "consolidated"): FiledPeriod => ({ periodEnd, periodKind: "Q", basis, lines });
 const four = [q("2025-12-31", { revenue: "100" }), q("2026-03-31", { revenue: "110" }), q("2026-06-30", { revenue: "120" }), q("2026-09-30", { revenue: "130" })];
@@ -141,5 +141,15 @@ describe("standalone statements have no owners' line (live INFY check, 5 Nov)", 
     // consolidated still needs the owners' line (never assumed equal to net profit)
     const cons = companyFeatures(qs.map((q) => ({ ...q, basis: "consolidated" })), new Map(), "consolidated", "industrial");
     expect(cons.find((r) => r.field === "pat_owners_ttm" && r.periodEnd === "2026-09-30")!.value).toBeNull();
+  });
+});
+
+describe("owners' equity by layout", () => {
+  it("insurers use IRDAI shareholders' funds (either basis); industrial consolidated needs the owners' line", () => {
+    expect(ownersEquity({ "x:ShareholdersFunds": "193977400000" }, "consolidated", "life_insurance")).toBe("193977400000");
+    expect(ownersEquity({ "x:ShareholdersFunds": "1" }, "standalone", "general_insurance")).toBe("1");
+    expect(ownersEquity({}, "standalone", "life_insurance")).toBeNull();
+    expect(ownersEquity({ "x:Equity": "5" }, "consolidated", "industrial")).toBeNull();
+    expect(ownersEquity({ capital: "1", reserves: "2" }, "consolidated", "bank")).toBe("3");
   });
 });
