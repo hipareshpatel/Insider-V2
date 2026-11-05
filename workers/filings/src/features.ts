@@ -1,7 +1,7 @@
 // D171 (owner #358): the feature table — computed values (TTM, EBITDA, adjusted figures, growth, ROE/ROCE) stored in
 // feature_value, never in fin_value. Built company by company from the filed figures; a rebuild writes only values that
 // changed (the upsert's WHERE), so a nightly run over the 250 writes little once the table is filled.
-import { batchAll, chooseLayout, companyFeatures, insertRows, type FiledPeriod } from "@disclo/core";
+import { batchAll, chooseLayout, companyFeatures, dec, div, insertRows, toText, valuationFeatures, type FiledPeriod, type View } from "@disclo/core";
 import type { Deps } from "./load.js";
 
 /** Rows read reach back far enough for a TTM year-on-year of the first stored quarter (2024-03: TTM to 2023-03, whose
@@ -91,4 +91,66 @@ export async function featuresStep(deps: Deps, focusSids: Set<number>, limit = 1
   await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','features_cursor',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail",
     [deps.now().toISOString(), JSON.stringify({ after })]);
   return { companies: sids.length, after: after! };
+}
+
+/** D171: valuation fields on the latest close, refreshed once per trading day for the focus companies (cursor by
+ *  security_id within the day; `limit` companies per run). Inputs: NSE's market cap (market DB, D5), the latest
+ *  available TTM values of the feature table and the latest filed balance sheet. */
+export const SQL_LATEST_SESSION = "SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session = 1";
+export const SQL_LATEST_MCAP = "SELECT d, mcap_paise FROM shares_daily WHERE security_id = ?1 ORDER BY d DESC LIMIT 1";
+export const SQL_LATEST_TTM = `SELECT field, period_end, value, reason, inputs FROM feature_value WHERE security_id = ?1 AND basis = ?2
+   AND field IN ('pat_owners_ttm','revenue_ttm','ebitda_ttm') AND period_end <> 'latest' ORDER BY field, period_end`;
+const VAL_BS = ["x:EquityAttributableToOwnersOfParent", "equity_owners", "capital", "reserves", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent",
+  "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents", "x:NonControllingInterest"];
+export const SQL_LATEST_BS = `SELECT line, value, period_end FROM fin_value INDEXED BY ix_fin_value_period
+   WHERE security_id = ?1 AND period_end >= ?2 AND basis = ?3 AND dims = '' AND statement = 'bs' AND line IN (SELECT value FROM json_each(?4))
+   ORDER BY period_end, disclosed_at`;
+
+export async function companyValuations(deps: Deps, sid: number): Promise<number> {
+  const [m] = await deps.market.all<{ d: number; mcap_paise: number | null }>(SQL_LATEST_MCAP, [sid]);
+  if (!m || m.mcap_paise == null) return 0;
+  const mcapRs = toText(div(dec(String(m.mcap_paise)), dec("100"), 2));
+  const mcapDate = `${String(m.d).slice(0, 4)}-${String(m.d).slice(4, 6)}-${String(m.d).slice(6, 8)}`;
+  const since = `${Number(mcapDate.slice(0, 4)) - 1}${mcapDate.slice(4)}`;
+  const out: unknown[][] = [], now = deps.now().toISOString();
+  for (const basis of ["consolidated", "standalone"]) {
+    const t = await deps.filings.all<{ field: string; period_end: string; value: string | null; reason: string | null; inputs: string }>(SQL_LATEST_TTM, [sid, basis]);
+    if (!t.length) continue;
+    // latest period with a value; if the latest has none, its reason is kept (a missing quarter is said, not skipped)
+    const latest = (f: string): View => {
+      const rs = t.filter((r) => r.field === f);
+      const withValue = rs.filter((r) => r.value !== null).pop();
+      const last = rs[rs.length - 1];
+      if (!last) return { value: null, reason: `no ${f}` };
+      if (last.value === null && (!withValue || withValue.period_end < last.period_end)) return { value: null, reason: `${f} to ${last.period_end}: ${last.reason}` };
+      return { value: withValue!.value!, from: JSON.parse(withValue!.inputs) as string[] };
+    };
+    const bsRows = await deps.filings.all<{ line: string; value: string | null; period_end: string }>(SQL_LATEST_BS, [sid, since, basis, JSON.stringify(VAL_BS)]);
+    const bsDate = bsRows.length ? bsRows[bsRows.length - 1]!.period_end : null;
+    const bs: Record<string, string | null> = {};
+    for (const r of bsRows) if (r.period_end === bsDate) bs[r.line] = r.value;
+    const [tpl] = await deps.filings.all<{ template: string }>("SELECT template FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND period_end >= ?2 AND statement = 'pl' LIMIT 1", [sid, since]);
+    const pl = await deps.filings.all<{ line: string }>("SELECT DISTINCT line FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND period_end >= ?2 AND basis = ?3 AND statement = 'pl' AND line IN ('interest_earned','impairment_financial_instruments','fees_commission_income','fees_commission_expense','net_loss_fair_value','premium_earned','claims_incurred')", [sid, since, basis]);
+    const layout = chooseLayout(tpl?.template ?? null, Object.fromEntries(pl.map((r) => [r.line, "1"]))).name;
+    for (const f of valuationFeatures(basis, { mcapRs, mcapDate, layout, patOwnersTtm: latest("pat_owners_ttm"), revenueTtm: latest("revenue_ttm"), ebitdaTtm: latest("ebitda_ttm"), bsDate, bs }))
+      out.push([sid, f.basis, f.field, f.periodEnd, f.value, f.reason, JSON.stringify(f.inputs), now]);
+  }
+  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 8, out, SQL_FEATURE_UPSERT_TAIL));
+  return out.length;
+}
+
+export async function valuationsStep(deps: Deps, focusSids: Set<number>, limit = 50): Promise<{ day: string | null; companies: number; done: boolean }> {
+  const [s] = await deps.market.all<{ d: string | null }>(SQL_LATEST_SESSION);
+  const day = s?.d ?? null;
+  if (!day) return { day, companies: 0, done: true };
+  const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='valuations'");
+  const cur = st ? JSON.parse(st.detail) as { day: string; after: number; done: boolean } : null;
+  if (cur?.day === day && cur.done) return { day, companies: 0, done: true };
+  const after = cur?.day === day ? cur.after : 0;
+  const sids = [...focusSids].filter((x) => x > after).sort((a, b) => a - b).slice(0, limit);
+  for (const sid of sids) await companyValuations(deps, sid);
+  const done = sids.length < limit;
+  await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','valuations',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail",
+    [deps.now().toISOString(), JSON.stringify({ day, after: sids.length ? sids[sids.length - 1] : after, done })]);
+  return { day, companies: sids.length, done };
 }

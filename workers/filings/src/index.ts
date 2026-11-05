@@ -1,7 +1,7 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { SQL_FEATURES_OF, buildFeatures, featuresStep } from "./features.js";
+import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, nbfcBalanceSheets, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
@@ -79,6 +79,7 @@ export default {
           // D171: rebuild the feature table for focus companies with new results filings (own step: a failure in one
           // does not skip the other)
           await step("features", () => featuresStep(ldeps, sids, 10));
+          await step("valuations", () => valuationsStep(ldeps, sids, 50)); // D171: P/E, P/B, EV/EBITDA on the latest close, once per trading day
         }
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
