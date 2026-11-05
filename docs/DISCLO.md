@@ -295,7 +295,7 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | D124, D128, D144 | Fast archive pace; downloads ahead of need | ✅ (index history 🔶) | — |
 | D133, D134, D140, D142, D158 | V1 lessons as rules; census first; one item at a time; V1 when stuck; this list | ✅ in use | — |
 | §16 | Remove the probe's 3×/day schedule | ✅ removed 4 Nov (prefetch slots prove reachability daily) | — |
-| C18 | D1 rows-read re-measure; Workers CPU check | ⬜ ≈ 5 Nov | Measure |
+| C18 | D1 rows-read re-measure; Workers CPU check | ✅ 6 Nov 02:02 IST (infra-check, now per day): rows read 2 Nov 0.50 B, 3 Nov 6.55 B, 4 Nov 17.49 B (the old `/index-check` form, fixed 4 Nov), **5 Nov 23 M** (filings 20.4 M + market 2.8 M in 24 h); period total 24.56 B of 25 B included — at today's rate the period ends ≈ 25.2 B (≈ $0.20 over). Workers CPU: the GraphQL query fails (request format), read from the dashboard | Watch the daily line in infra-check |
 
 #### A2. M1 — market data (§14 gate; §9.1; §9.2)
 | Ref | Item | Status | Next action |
@@ -2234,12 +2234,12 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 
 | Group | Status |
 |---|---|
-| §2 Identity & classification | ✅ symbol, name, ISIN, sector, index, template, primary basis · ⬜ `group` (D40) · ⬜ `listing_age_years` |
+| §2 Identity & classification | ✅ symbol, name, ISIN, sector, index, template, primary basis · 🔶 `group` (D40): read-only `/promoter-groups` (6 Nov) — 16 probable groups, 53 of the 250 (Tata 13, Adani 6, Aditya Birla 4, Bajaj, L&T, Godrej, Jindal, Mahindra, Reliance–Jio Financial, Vedanta, Siemens, Bharti …), linked by a ≥ 5 % stake of the same company or trust; 2 are investor stakes, not groups (Info Edge → Eternal / PB Fintech, RJ Corp → Medanta) and parents are not yet joined to their own group (L&T, M&M). Not stored: the stored holder category has no promoter / public flag (the parser keeps one axis) — storing it needs every shareholding file re-read (owner decision) · ⬜ `listing_age_years` |
 | §3 Price, liquidity, technicals | ✅ prices, market cap, delivery %, surveillance, bulk/block deals (stored, M1) · ⬜ the derived fields (returns, DMAs, RSI, EMAs, volatility) — to compute in the feature table |
 | §4 Valuation | ✅ `pe_ttm_rep`, `pb`, `ev_ebitda_ttm`, `mcap_to_sales_ttm`, `earnings_yield`, daily P/E history from 5 Nov · ⬜ `dividend_yield_ttm`, `pe_vs_industry_median` · 🔶 `pe_vs_own_median_2y` (needs history to build up) · `pe_ttm` unavailable by design |
 | §5 Growth | ✅ quarterly and TTM revenue / PAT growth · ⬜ `eps_yoy_q`, `revenue_vs_trend_q`, `pat_vs_trend_q` · 🔶 segment results stored (D47, 3,608 periods, 5 Nov); segment growth not computed yet |
 | §6 Profitability | ✅ EBITDA, margin, ROE, ROCE · ⬜ `roa`, other-income share, exceptional TTM, tax rate, OCF ÷ PAT, FCF, margin flags · ⏭ BRSR fields (M9) |
-| §7 Balance sheet & working capital | ✅ net debt · ⬜ debt/equity, interest cover, working-capital days, capex, CWIP (lines stored; fields not computed) · ⏭ annual-report fields |
+| §7 Balance sheet & working capital | ✅ net debt · ✅ `debt_to_equity` (borrowings ÷ equity to owners, balance-sheet dates) and `interest_coverage_ttm` (TTM EBIT ÷ TTM finance costs), industrial companies, feature table rebuilt for the 250 (6 Nov 02:06 IST: 1.4 M rows read, ≈ 7.7 k new values; TATAPOWER consolidated 1.53 Mar 2024 → 1.80 Mar 2026) · ⬜ working-capital days, capex, CWIP (lines stored; fields not computed) · ⏭ annual-report fields |
 | §8 Sector packs | ⏭ M6 (AI extraction); bank NPA / CET1 lines stored where filed |
 | §9 Guidance, §10 orders & capacity | ⏭ M5–M9 (AI) |
 | §11 Ownership & insiders | 🔶 shareholding ✅ (2,820 of 2,824 filings) · insider fields blocked by the 2022–2026 gap above · SAST ✅ |
@@ -3104,6 +3104,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 367 | "I asked 5 hourly sessions, means every one hour for 5 times" | Scheduled task set to hourly, 5 sessions (00:53–04:53 IST, 6 Nov), then it disables itself and sends a summary | ✅ |
 | 368 | "Yes, go ahead with the label fix" (2,786 rows wrongly 'restated', no original) | Run 5 Nov 23:56 IST: 2,702 rows in 44 periods relabelled 'original' (values unchanged, nothing deleted); full years missing in the 250 from 2024: 21 → 1 (SIEMENS, year-end change) | ✅ |
 | 369 | *(Hourly session 1 of 5, 6 Nov 00:53 IST; owner #365 check)* | **2026 insider trades for the 250 (read-only `/insider-2026`, 01:13 IST): 67 of 258 symbols have at least one trade from 1 Jan 2026** (55 in NSE's new system since 3 May, 12 only in the old list Jan–May); 191 have none. Every download is finished (9,916 PIT lists done, new-system 3,303 filings = files, 0 failures), so our rows equal what NSE's lists give. **Doubt raised, not settled:** the old list thins out year by year for the same companies (companies with any trade: 2021 160, 2022 111, 2023 99, 2024 95, 2025 76, Jan–May 2026 38; TCS: nothing after May 2022 in two separate fetches), and the new system holds 605 companies on the whole exchange in six months; zero 2026 trades for HDFCBANK, ICICIBANK, KOTAKBANK is not believable. So "none" means "NSE's API lists none", not "no trades". Per #365 the 191 are listed for later; a second source (e.g. the company's own stock-exchange filings on BSE, without disguised browsers, C54) is the open item. Credit ratings from 2026: 35 of 258 | 🔶 listed for later |
+| 370 | *(Hourly session 2 of 5, 6 Nov 01:53 IST; work list item 3)* | **C18 re-measured:** D1 rows read fell from 17.5 B (4 Nov) to 23 M a day (5 Nov); the period stays ≈ at the 25 B included. **Feature table:** debt to equity and interest cover added and built for the 250 (PR #70). **D40 promoter groups:** read-only `/promoter-groups` (PRs #71, #72) — 16 probable groups, 53 companies; not stored, because the stored shareholder category does not say promoter or public (re-reading every shareholding file to keep that flag is a bulk rewrite: owner decision, not asked yet). Next: returns / technicals (§3) from stored prices | 🔶 |
 
 ### Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -3112,7 +3113,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-06 after entry #369: all checks pass (171 decisions, 369 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
+*Last run 2026-11-06 after entry #370: all checks pass (171 decisions, 370 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
 
 ### Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
