@@ -117,8 +117,15 @@ export function isLargeOrder(amount: string, ttmRevenue: View): { large: boolean
 export function ownersEquity(b: Record<string, string | null | undefined>, basis: string, layout: string): string | null {
   const owners = b["x:EquityAttributableToOwnersOfParent"] ?? b.equity_owners;
   if (owners != null) return owners;
-  // insurers (IRDAI): shareholders' funds are capital + reserves + fair-value change account, minority interest shown apart
-  if (layout.endsWith("_insurance")) return b["x:ShareholdersFunds"] ?? null;
+  // life insurers (IRDAI L-3): filed shareholders' funds = capital + share application money + reserves + fair value change
+  // account (minority interest shown apart)
+  if (layout === "life_insurance") return b["x:ShareholdersFunds"] ?? null;
+  // general insurers (IRDAI B-BS): the same parts summed, as there "ShareholdersFunds" is the fair value change account alone
+  if (layout === "general_insurance") {
+    if (b["x:ShareCapital"] == null || b["x:ReservesAndSurplus"] == null) return null;
+    return toText(["x:ShareCapital", "x:ShareApplicationMoneyReceivedPendingAllotmentOfShares", "x:ReservesAndSurplus", "x:ShareholdersFunds"]
+      .reduce((a, k) => add(a, dec(b[k] ?? "0")), dec("0")));
+  }
   if (layout === "bank" && b.capital != null && b.reserves != null) return toText(add(dec(b.capital), dec(b.reserves)));
   if (basis === "standalone") return b["x:Equity"] ?? b.total_equity ?? null;
   return null;

@@ -118,15 +118,31 @@ export const BS_GROUPS_INS: Record<string, string[]> = {
   LinkedLiabilities: ["ProvisionForLinkedLiabilities", "ChangeInFairvalueAccount", "DiscontinuedOnAccountOfNonPaymentOfPremium",
     "CreditDebitFairValueChangeAccountFundsForDiscontinuedPolicies", "OthersDiscontinuance"],
   PolicyholdersFunds: ["CreditDebitFairValueChangeAccountPolicyholdersFunds", "RevaluationReserveInvestmentProperty", "PolicyLiabilities", "InsuranceReserve", "LinkedLiabilities"],
-  SourcesOfFunds: ["ShareholdersFunds", "Borrowings", "PolicyholdersFunds", "FundsForFutureAppropriations"],
+  SourcesOfFunds: ["ShareholdersFunds", "Borrowings", "PolicyholdersFunds", "FundsForFutureAppropriations", "MinorityInterest"],
   CurrentAssets: ["CashAndBankBalances", "AdvancesAndOtherAssets"],
   CurrentLiabilitiesAndProvisions: ["CurrentLiabilities", "Provisions"],
   NetCurrentAssets: ["CurrentAssets", "-CurrentLiabilitiesAndProvisions"],
   ApplicationOfFunds: ["InvestmentsShareholders", "InvestmentsPolicyholders", "AssetsHeldToCoverLinkLiabilities", "Loans", "FixedAssets", "DeferredTaxAsset",
     "NetCurrentAssets", "MiscellaneousExpenditureToTheExtentNotWrittenOffOrAdjusted", "DebitBalanceInProfitAndLossAccountShareholdersAccount"],
 };
+/** General insurer balance sheet, IRDAI Form B-BS. The same tag names mean other things here: "ShareholdersFunds" and
+ *  "PolicyholdersFunds" carry the fair value change accounts only (ICICIGI Sep 2026: capital 4,996.1 + reserves
+ *  1,75,056.9 + share application money 34.3 + FV change 8,146.1 + 20,681.8 = sources 2,08,915.2, ₹ million). */
+export const BS_GROUPS_GI: Record<string, string[]> = {
+  SourcesOfFunds: ["ShareCapital", "ShareApplicationMoneyReceivedPendingAllotmentOfShares", "ReservesAndSurplus", "ShareholdersFunds", "PolicyholdersFunds",
+    "Borrowings", "MinorityInterest"],
+  CurrentAssets: ["CashAndBankBalances", "AdvancesAndOtherAssets"],
+  CurrentLiabilitiesAndProvisions: ["CurrentLiabilities", "Provisions"],
+  NetCurrentAssets: ["CurrentAssets", "-CurrentLiabilitiesAndProvisions"],
+  ApplicationOfFunds: ["InvestmentsShareholders", "InvestmentsPolicyholders", "Loans", "FixedAssets", "DeferredTaxAsset", "NetCurrentAssets",
+    "MiscellaneousExpenditureToTheExtentNotWrittenOffOrAdjusted", "DebitBalanceInProfitAndLossAccountShareholdersAccount"],
+};
+/** A life insurer's balance sheet carries its policy liabilities; a general insurer's does not. */
+export const LIFE_BS_MARKERS = ["PolicyLiabilities", "LinkedLiabilities", "FundsForFutureAppropriations"];
 const bare = (t: string) => t.replace(/^-/, "");
-export const BS_LINES_INS = [...new Set([...Object.keys(BS_GROUPS_INS), ...Object.values(BS_GROUPS_INS).flat().map(bare)])];
+const linesOf = (g: Record<string, string[]>) => [...new Set([...Object.keys(g), ...Object.values(g).flat().map(bare)])];
+export const BS_LINES_INS = linesOf(BS_GROUPS_INS);
+export const BS_LINES_GI = linesOf(BS_GROUPS_GI);
 
 export const CF_LINES = [...new Set([...Object.keys(CF_ADJUSTMENTS), ...Object.keys(CF_OPERATING), ...Object.keys(CF_INVESTING), ...Object.keys(CF_FINANCING), ...CF_TOTALS])];
 export const BS_LINES = [...new Set([...Object.keys(BS_GROUPS), ...Object.values(BS_GROUPS).flat(), ...BS_EXTRA])];
@@ -172,8 +188,9 @@ export function statementDetail(inst: XbrlInstance, bsCtx: string | null, cfCtx:
     const div3 = inst.facts.some((f) => f.contextRef === bsCtx && /:(Finanical|Financial)Assets$|:NonFinancialAssets$/.test(f.tag));
     // insurers (IRDAI): sources and application of funds
     const ins = inst.facts.some((f) => f.contextRef === bsCtx && /:SourcesOfFunds$/.test(f.tag)) && inst.facts.some((f) => f.contextRef === bsCtx && /:ApplicationOfFunds$/.test(f.tag));
-    const lines = read(bsCtx, ins ? BS_LINES_INS : div3 ? BS_LINES_DIV3 : BS_LINES), checks: DetailStatement["checks"] = [];
-    for (const [total, parts] of Object.entries(ins ? BS_GROUPS_INS : div3 ? BS_GROUPS_DIV3 : BS_GROUPS)) {
+    const life = ins && inst.facts.some((f) => f.contextRef === bsCtx && LIFE_BS_MARKERS.some((m) => f.tag.endsWith(`:${m}`)));
+    const lines = read(bsCtx, ins ? (life ? BS_LINES_INS : BS_LINES_GI) : div3 ? BS_LINES_DIV3 : BS_LINES), checks: DetailStatement["checks"] = [];
+    for (const [total, parts] of Object.entries(ins ? (life ? BS_GROUPS_INS : BS_GROUPS_GI) : div3 ? BS_GROUPS_DIV3 : BS_GROUPS)) {
       const t = v(lines, total);
       if (!t || !parts.some((p) => lines[bare(p)] !== undefined)) continue;
       const s = parts.reduce((a, p) => (p.startsWith("-") ? sub(a, v(lines, bare(p)) ?? zero) : add(a, v(lines, p) ?? zero)), zero);
