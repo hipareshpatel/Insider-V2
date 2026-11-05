@@ -108,10 +108,13 @@ export const BS_BANK: LayoutNode[] = [
     n("investments", "Investments"), n("advances", "Advances"), n("fixed_assets", "Fixed assets"), n("other_assets", "Other assets"),
   ]),
 ];
-/** NBFC P&L (Schedule III Division III; the NBFC lines of PL_TAGS, then the shared lower half). Revenue components
- *  other than interest and fees are not extracted yet (noted in docs, item 5). */
+/** NBFC P&L (Schedule III Division III; the NBFC lines of PL_TAGS, then the shared lower half). Every revenue part is
+ *  read (item 5 leftover 3), kept only when the parts add up to the filed revenue. */
 export const PL_NBFC: LayoutNode[] = [
-  n("revenue", "Revenue from operations", [n("interest_earned", "Interest income"), n("fees_commission_income", "Fees and commission income")]),
+  n("revenue", "Revenue from operations", [n("interest_earned", "Interest income"), n("dividend_income", "Dividend income"), n("rental_income", "Rental income"),
+    n("fees_commission_income", "Fees and commission income"), n("net_gain_fair_value", "Net gain on fair value changes"),
+    n("net_gain_derecognition", "Net gain on derecognition of financial instruments at amortised cost"),
+    n("sale_of_products", "Sale of products"), n("sale_of_services", "Sale of services"), n("other_operating_revenue", "Other revenue from operations")]),
   n("other_income", "Other income"),
   n("total_income", "Total income"),
   n("total_expenses", "Total expenses", [

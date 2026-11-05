@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
 import { buildFeatures, featuresStep, valuationsStep } from "../src/features.js";
-import { backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
+import { backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 function sqlite(domain: string): Sql & { raw: DatabaseSync } {
@@ -828,5 +828,31 @@ describe("item 5: insurer balance sheet (IRDAI)", () => {
     const { r, got } = await run(make({ ReservesAndSurplus: "169233000000" }));
     expect(got).toEqual([]);
     expect(r.notes.join(" ")).toContain("bs detail not loaded: ShareholdersFunds = its parts");
+  });
+});
+
+describe("item 5 leftover 3: NBFC revenue lines pass", () => {
+  const parts = { InterestEarned: "340000000000", FeesAndCommissionIncome: "6000000000", NetGainOnFairValueChanges: "2000000000", OtherRevenueFromOperations: "1150000000" };
+  const nbfc = xml.replace("</xbrli:xbrl>", Object.entries(parts).map(([t, v]) => `<in-bse-fin:${t} contextRef="OneD" unitRef="INR" decimals="-7">${v}</in-bse-fin:${t}>`).join("") + "</xbrli:xbrl>");
+  const url = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_NBFC_INDAS_2_WEB.xml";
+  const run = async (revenueFromThisFiling: boolean) => {
+    const { filings, deps } = setup({ "att/xbrl/INTEGRATED_FILING_NBFC_INDAS_2_WEB.xml": nbfc });
+    filings.raw.exec(`INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (6, 7, 'integrated_financials', '2024-12-31', 'Q', 'standalone', '2025-01-16T14:12:10.000Z', '${url}'),
+      (99, 7, 'results_quarterly', '2024-12-31', 'Q', 'standalone', '2025-01-16T14:12:10.000Z', 'other')`);
+    filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'industrial','pl','revenue','','2024-12-31','Q','standalone','original','349150000000',NULL,'2025-01-16T14:12:10.000Z',${revenueFromThisFiling ? 6 : 99},'t','reported','results-v1')`);
+    const r = await nbfcRevenueLines({ ...deps, focus: ["INFY"] });
+    const got = filings.raw.prepare("SELECT line, value, period_kind FROM fin_value WHERE line IN ('net_gain_fair_value','other_operating_revenue','interest_earned')").all();
+    return { r, got };
+  };
+  it("adds only the new revenue lines, for the period this filing loaded", async () => {
+    const { r, got } = await run(true);
+    expect(r).toMatchObject({ done: true, companies: 1, files: 1, rows: 2 });
+    expect(got).toEqual([{ line: "net_gain_fair_value", value: "2000000000", period_kind: "Q" }, { line: "other_operating_revenue", value: "1150000000", period_kind: "Q" }]);
+  });
+  it("adds nothing when the period was loaded from another filing", async () => {
+    const { r, got } = await run(false);
+    expect(got).toEqual([]);
+    expect(r.notes.join(" ")).toContain("period not loaded from this filing");
   });
 });
