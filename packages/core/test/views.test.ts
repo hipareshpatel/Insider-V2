@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, ebitda, isLargeOrder, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
+import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, valuationFeatures, ebitda, isLargeOrder, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
 
 const q = (periodEnd: string, lines: Record<string, string>, basis = "consolidated"): FiledPeriod => ({ periodEnd, periodKind: "Q", basis, lines });
 const four = [q("2025-12-31", { revenue: "100" }), q("2026-03-31", { revenue: "110" }), q("2026-06-30", { revenue: "120" }), q("2026-09-30", { revenue: "130" })];
@@ -83,5 +83,33 @@ describe("item 6: feature-table values for one company (D171)", () => {
     const b = companyFeatures(bank, new Map(), "consolidated", "bank");
     expect(b.find((r) => r.field === "ebitda_q")!.reason).toMatch(/not used for bank/);
     expect(b.find((r) => r.field === "revenue_ttm" && r.periodEnd === "2026-09-30")!.value).toBe("540");
+  });
+});
+
+describe("item 6: valuation on the latest close (D171)", () => {
+  const base = { mcapRs: "1000", mcapDate: "2026-11-04", layout: "industrial",
+    patOwnersTtm: { value: "50", from: ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"] }, revenueTtm: { value: "400", from: ["q"] }, ebitdaTtm: { value: "100", from: ["q"] },
+    bsDate: "2026-09-30", bs: { "x:EquityAttributableToOwnersOfParent": "250", "x:BorrowingsNoncurrent": "60", "x:BorrowingsCurrent": "40", "x:CashAndCashEquivalents": "30", "x:BankBalanceOtherThanCashAndCashEquivalents": "20", "x:NonControllingInterest": "10" } };
+  const get = (rows: ReturnType<typeof valuationFeatures>, f: string) => rows.find((r) => r.field === f)!;
+  it("P/E, earnings yield, P/B, market cap to sales and EV/EBITDA, each naming the close and the periods used", () => {
+    const r = valuationFeatures("consolidated", base);
+    expect(get(r, "pe_ttm_rep")).toMatchObject({ value: "20", periodEnd: "latest" });
+    expect(get(r, "pe_ttm_rep").inputs[0]).toBe("close 2026-11-04");
+    expect(get(r, "earnings_yield").value).toBe("5");
+    expect(get(r, "pb").value).toBe("4");
+    expect(get(r, "mcap_to_sales_ttm").value).toBe("2.5");
+    // EV = 1000 + 60 + 40 − 30 − 20 + 10 = 1060 → ÷ 100
+    expect(get(r, "ev_ebitda_ttm").value).toBe("10.6");
+    expect(get(r, "pe_ttm").reason).toMatch(/adjusted profit to owners is not filed/);
+  });
+  it("a loss, a missing quarter and a bank are stated, never turned into a number", () => {
+    const loss = valuationFeatures("consolidated", { ...base, patOwnersTtm: { value: "-5", from: ["q"] } });
+    expect(get(loss, "pe_ttm_rep").reason).toMatch(/negative \(a loss\)/);
+    expect(get(loss, "earnings_yield").value).toBe("-0.5");
+    const gap = valuationFeatures("consolidated", { ...base, revenueTtm: { value: null, reason: "quarter 2026-03-31 (consolidated) has no filed revenue" } });
+    expect(get(gap, "mcap_to_sales_ttm").reason).toMatch(/2026-03-31/);
+    const bank = valuationFeatures("consolidated", { ...base, layout: "bank", bs: { capital: "50", reserves: "200" } });
+    expect(get(bank, "ev_ebitda_ttm").reason).toMatch(/not used for bank/);
+    expect(get(bank, "pb").value).toBe("4");
   });
 });

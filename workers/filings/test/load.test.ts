@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
-import { buildFeatures, featuresStep } from "../src/features.js";
+import { buildFeatures, featuresStep, valuationsStep } from "../src/features.js";
 import { backfillBsCf, nbfcBalanceSheets, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
@@ -751,5 +751,26 @@ describe("D171: feature table kept current by the cron step", () => {
     // a company outside the focus list is not rebuilt
     filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (22, 99, 'results_quarterly', '2026-09-30', 'Q', 'consolidated', '2026-10-15T00:00:00Z', 'c')");
     expect(await featuresStep(deps, new Set([7]))).toEqual({ companies: 0, after: 22 });
+  });
+});
+
+describe("D171: valuations once per trading day", () => {
+  it("uses NSE's market cap on the latest close with the stored TTM and balance sheet; second run the same day does nothing", async () => {
+    const { filings, market, deps } = setup({});
+    market.raw.exec("INSERT INTO trading_calendar (trade_date, is_session) VALUES ('2026-11-04', 1)");
+    market.raw.exec("INSERT INTO shares_daily (security_id, d, issue_size, mcap_paise, mcap_source) VALUES (7, 20261104, 4150000000, 650000000000000, 'nse')"); // ₹6.5 lakh cr
+    const fv = filings.raw.prepare("INSERT INTO feature_value (security_id, basis, field, period_end, value, reason, inputs, computed_at) VALUES (7, 'consolidated', ?, '2026-09-30', ?, NULL, '[\"2025-12-31\",\"2026-03-31\",\"2026-06-30\",\"2026-09-30\"]', 't')");
+    fv.run("pat_owners_ttm", "260000000000"); fv.run("revenue_ttm", "1890000000000"); fv.run("ebitda_ttm", "460000000000");
+    filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (30, 7, 'results_quarterly', '2026-09-30', 'Q', 'consolidated', '2026-10-15T00:00:00Z', 'v')");
+    const ins = filings.raw.prepare(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'industrial',?,?,'','2026-09-30',?,'consolidated','original',?,NULL,'2026-10-15T00:00:00Z',30,'t','reported','v')`);
+    ins.run("pl", "revenue", "Q", "490000000000");
+    for (const [k, v] of Object.entries({ "x:EquityAttributableToOwnersOfParent": "990000000000", "x:BorrowingsNoncurrent": "0", "x:BorrowingsCurrent": "0", "x:CashAndCashEquivalents": "240000000000", "x:BankBalanceOtherThanCashAndCashEquivalents": "0", "x:NonControllingInterest": "5000000000" })) ins.run("bs", k, "H", v);
+    expect(await valuationsStep(deps, new Set([7]))).toEqual({ day: "2026-11-04", companies: 1, done: true });
+    const get = (f: string) => filings.raw.prepare("SELECT value, reason FROM feature_value WHERE field=? AND period_end='latest'").get(f) as { value: string | null; reason: string | null };
+    expect(get("pe_ttm_rep").value).toBe("25"); // 6,50,000 cr ÷ 26,000 cr
+    expect(get("pb").value).toBe("6.57"); // 6,50,000 ÷ 99,000 = 6.566
+    expect(get("ev_ebitda_ttm").value).toBe("13.62"); // (6,50,000 − 24,000 + 500) ÷ 46,000 = 13.619
+    expect(await valuationsStep(deps, new Set([7]))).toEqual({ day: "2026-11-04", companies: 0, done: true });
   });
 });

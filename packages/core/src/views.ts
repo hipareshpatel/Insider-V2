@@ -179,3 +179,45 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
   }
   return out;
 }
+
+/** Valuation inputs for one company on one basis: the latest available TTM figures (with the quarters they came from)
+ *  and the latest filed balance sheet (with its date). */
+export interface ValuationInputs {
+  mcapRs: string; mcapDate: string; layout: string;
+  patOwnersTtm: View; revenueTtm: View; ebitdaTtm: View;
+  bsDate: string | null; bs: Record<string, string | null | undefined>;
+}
+/** D171 / field catalogue §4: valuation on the latest close. Market cap is NSE's own figure (D5), never adjusted.
+ *  Stored under period_end 'latest'; the inputs name the close date and the periods used. */
+export function valuationFeatures(basis: string, x: ValuationInputs): FeatureRow[] {
+  const mcap = dec(x.mcapRs), rows: FeatureRow[] = [];
+  const put = (field: string, r: View) => rows.push({ basis, field, periodEnd: "latest", value: r.value, reason: r.value === null ? r.reason : null, inputs: r.value === null ? [] : r.from });
+  const close = `close ${x.mcapDate}`;
+  const ratio = (num: Dec, den: View, what: string, positive = true): View => {
+    if (den.value === null) return den;
+    const d = dec(den.value);
+    if (d.units === 0n || (positive && d.units < 0n)) return no(`${what}: the denominator is ${d.units === 0n ? "zero" : "negative (a loss)"}`);
+    return ok(div(num, d, 2), [close, ...den.from]);
+  };
+  put("pe_ttm_rep", ratio(mcap, x.patOwnersTtm, "P/E"));
+  put("pe_ttm", no("adjusted profit to owners is not filed (the tax and minority share of exceptional items are not given); use pe_ttm_rep"));
+  put("earnings_yield", x.patOwnersTtm.value === null ? x.patOwnersTtm : mcap.units === 0n ? no("market cap is zero") : ok(div(mul(dec(x.patOwnersTtm.value), dec("100")), mcap, 2), [close, ...x.patOwnersTtm.from]));
+  put("mcap_to_sales_ttm", ratio(mcap, x.revenueTtm, "market cap to sales"));
+  const eqOwners = x.bs["x:EquityAttributableToOwnersOfParent"] ?? x.bs.equity_owners ?? (x.layout === "bank" && x.bs.capital != null && x.bs.reserves != null ? toText(add(dec(x.bs.capital), dec(x.bs.reserves))) : null);
+  put("pb", eqOwners == null || !x.bsDate ? no("equity to owners is not filed on the latest balance sheet") : ratio(mcap, ok(dec(eqOwners), [`balance sheet ${x.bsDate}`]), "P/B"));
+  // EV/EBITDA: industrial companies only (no EBITDA for lenders and insurers, D49). Net debt = borrowings (current +
+  // non-current) − cash and cash equivalents − other bank balances; investments are not netted (documented).
+  if (x.layout !== "industrial") put("ev_ebitda_ttm", no(`EV/EBITDA is not used for ${x.layout}`));
+  else {
+    const need = ["x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents"];
+    const miss = need.filter((k) => x.bs[k] == null);
+    if (!x.bsDate || miss.length) put("ev_ebitda_ttm", no(`latest balance sheet lacks ${miss.join(", ") || "a date"}`));
+    else {
+      const b = (k: string) => dec(x.bs[k] ?? "0");
+      const ev = add(sub(sub(add(add(mcap, b("x:BorrowingsNoncurrent")), b("x:BorrowingsCurrent")), b("x:CashAndCashEquivalents")), b("x:BankBalanceOtherThanCashAndCashEquivalents")), b("x:NonControllingInterest"));
+      const r = ratio(ev, x.ebitdaTtm, "EV/EBITDA");
+      put("ev_ebitda_ttm", r.value === null ? r : { ...r, from: [...r.from, `balance sheet ${x.bsDate}`] });
+    }
+  }
+  return rows;
+}
