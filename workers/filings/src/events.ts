@@ -8,6 +8,15 @@ import { type Sql, batchAll, byKindAfter, markFresh, insertRows, parseBoardMeeti
 const newestOf = (xs: (string | null | undefined)[]) => xs.reduce<string | null>((a, x) => (x && (!a || x > a) ? x : a), null);
 const dnum = (iso: string | null) => (iso ? Number(iso.replace(/-/g, "")) : null);
 const KINDS = ["pit", "sast29", "board_meetings", "credit_rating"];
+/** Owner #365 (read-only /insider-2026): the 250's insider trades from a date, by trade date (from_d) — ix_insider_symbol
+ *  range per symbol; NSE's new system (since 3 May 2026) is the 'pitx:' key range. */
+export const SQL_INSIDER_SINCE = "SELECT symbol, count(*) AS trades, sum(key >= 'pitx:' AND key < 'pitx;') AS new_system, min(from_d) AS first_d, max(from_d) AS last_d FROM insider_trade WHERE symbol IN (SELECT value FROM json_each(?1)) AND from_d >= ?2 GROUP BY symbol";
+/** #314 rule: a trade with no trade date counts by its disclosure date. */
+export const SQL_INSIDER_UNDATED = "SELECT symbol, count(*) AS trades FROM insider_trade WHERE symbol IN (SELECT value FROM json_each(?1)) AND from_d IS NULL AND disclosed_at >= ?2 GROUP BY symbol";
+/** The per-company PIT list downloads (quarterly windows and full lists) — kind range of the ledger. */
+export const SQL_PIT_JOBS = "SELECT symbol, r2_key, status, http_status FROM fetch_job WHERE kind = 'pit' AND job_id > 0";
+/** Credit ratings from a date (owner #365 names them with insider trades), ix_credit_rating_symbol per symbol. */
+export const SQL_RATINGS_SINCE = "SELECT symbol, count(*) AS ratings FROM credit_rating WHERE symbol IN (SELECT value FROM json_each(?1)) AND rated_on >= ?2 GROUP BY symbol";
 export const SQL_EVENTS_NEXT = "SELECT job_id, kind, r2_key, status, attempts FROM fetch_job WHERE kind = ? AND job_id > ? ORDER BY job_id LIMIT ?";
 
 /** Audit P1: a file that cannot be read is recorded in event_load (it was: 0 rows, cursor moved on, nothing kept); a
