@@ -89,7 +89,7 @@ describe("item 6: feature-table values for one company (D171)", () => {
 describe("item 6: valuation on the latest close (D171)", () => {
   const base = { mcapRs: "1000", mcapDate: "2026-11-04", layout: "industrial",
     patOwnersTtm: { value: "50", from: ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"] }, revenueTtm: { value: "400", from: ["q"] }, ebitdaTtm: { value: "100", from: ["q"] },
-    bsDate: "2026-09-30", bs: { "x:EquityAttributableToOwnersOfParent": "250", "x:BorrowingsNoncurrent": "60", "x:BorrowingsCurrent": "40", "x:CashAndCashEquivalents": "30", "x:BankBalanceOtherThanCashAndCashEquivalents": "20", "x:NonControllingInterest": "10" } };
+    equityOwners: { value: "250", from: ["balance sheet 2026-09-30"] }, netDebt: { value: "50", from: ["balance sheet 2026-09-30"] }, nci: { value: "10", from: ["balance sheet 2026-09-30"] } };
   const get = (rows: ReturnType<typeof valuationFeatures>, f: string) => rows.find((r) => r.field === f)!;
   it("P/E, earnings yield, P/B, market cap to sales and EV/EBITDA, each naming the close and the periods used", () => {
     const r = valuationFeatures("consolidated", base);
@@ -101,6 +101,8 @@ describe("item 6: valuation on the latest close (D171)", () => {
     // EV = 1000 + 60 + 40 − 30 − 20 + 10 = 1060 → ÷ 100
     expect(get(r, "ev_ebitda_ttm").value).toBe("10.6");
     expect(get(r, "pe_ttm").reason).toMatch(/adjusted profit to owners is not filed/);
+    // daily history row (owner #360)
+    expect(r.find((x) => x.field === "pe_ttm_rep" && x.periodEnd === "2026-11-04")!.value).toBe("20");
   });
   it("a loss, a missing quarter and a bank are stated, never turned into a number", () => {
     const loss = valuationFeatures("consolidated", { ...base, patOwnersTtm: { value: "-5", from: ["q"] } });
@@ -108,9 +110,24 @@ describe("item 6: valuation on the latest close (D171)", () => {
     expect(get(loss, "earnings_yield").value).toBe("-0.5");
     const gap = valuationFeatures("consolidated", { ...base, revenueTtm: { value: null, reason: "quarter 2026-03-31 (consolidated) has no filed revenue" } });
     expect(get(gap, "mcap_to_sales_ttm").reason).toMatch(/2026-03-31/);
-    const bank = valuationFeatures("consolidated", { ...base, layout: "bank", bs: { capital: "50", reserves: "200" } });
+    const bank = valuationFeatures("consolidated", { ...base, layout: "bank", netDebt: { value: null, reason: "net debt is not used for bank" } });
     expect(get(bank, "ev_ebitda_ttm").reason).toMatch(/not used for bank/);
     expect(get(bank, "pb").value).toBe("4");
+  });
+});
+
+describe("feature build stores the valuation inputs (owner #360 cost trim) and the insurer revenue base", () => {
+  it("equity to owners, net debt and NCI at balance-sheet dates; layout; insurers use gross premium / premium earned", () => {
+    const qs = ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"].map((e) => ({ periodEnd: e, periodKind: "Q", basis: "consolidated", lines: { revenue: "100", pat: "20", pat_owners: "19", gross_premium: "300", premium_earned: "250" } }));
+    const bs = new Map([["2026-09-30", { "x:EquityAttributableToOwnersOfParent": "500", "x:BorrowingsNoncurrent": "60", "x:BorrowingsCurrent": "40", "x:CashAndCashEquivalents": "30", "x:BankBalanceOtherThanCashAndCashEquivalents": "20", "x:NonControllingInterest": "10" }]]);
+    const rows = companyFeatures(qs, bs, "consolidated", "industrial");
+    const at = (f: string, e: string) => rows.find((r) => r.field === f && r.periodEnd === e);
+    expect(at("equity_owners", "2026-09-30")!.value).toBe("500");
+    expect(at("net_debt", "2026-09-30")!.value).toBe("50");
+    expect(at("nci", "2026-09-30")!.value).toBe("10");
+    expect(at("layout", "latest")!.value).toBe("industrial");
+    expect(companyFeatures(qs, new Map(), "consolidated", "life_insurance").find((r) => r.field === "revenue_ttm" && r.periodEnd === "2026-09-30")!.value).toBe("1200");
+    expect(companyFeatures(qs, new Map(), "consolidated", "general_insurance").find((r) => r.field === "revenue_ttm" && r.periodEnd === "2026-09-30")!.value).toBe("1000");
   });
 });
 

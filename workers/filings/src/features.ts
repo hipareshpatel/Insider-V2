@@ -8,7 +8,8 @@ import type { Deps } from "./load.js";
  *  quarters start 2022-06); values are stored from the D168 floor on. */
 export const FEATURE_READ_FROM = "2022-06-30";
 export const FEATURE_STORE_FROM = "2024-01-01";
-const BS_LINES = ["x:EquityAttributableToOwnersOfParent", "x:Equity", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "equity_owners", "total_equity", "capital", "reserves"];
+const BS_LINES = ["x:EquityAttributableToOwnersOfParent", "x:Equity", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "equity_owners", "total_equity", "capital", "reserves",
+  "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents", "x:NonControllingInterest"];
 export const SQL_FEATURE_ROWS = `SELECT statement, line, period_end, period_kind, basis, value, template FROM fin_value INDEXED BY ix_fin_value_period
    WHERE security_id = ?1 AND period_end >= ?2 AND dims = '' AND (statement = 'pl' OR (statement = 'bs' AND line IN (SELECT value FROM json_each(?3))))
    ORDER BY disclosed_at`;
@@ -98,41 +99,33 @@ export async function featuresStep(deps: Deps, focusSids: Set<number>, limit = 1
  *  available TTM values of the feature table and the latest filed balance sheet. */
 export const SQL_LATEST_SESSION = "SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session = 1";
 export const SQL_LATEST_MCAP = "SELECT d, mcap_paise FROM shares_daily WHERE security_id = ?1 ORDER BY d DESC LIMIT 1";
+// owner #360 cost trim: everything a valuation needs is in the feature table (was: a scan of the company's stored rows
+// for the year, ≈ 3,700 rows per company per day)
 export const SQL_LATEST_TTM = `SELECT field, period_end, value, reason, inputs FROM feature_value WHERE security_id = ?1 AND basis = ?2
-   AND field IN ('pat_owners_ttm','revenue_ttm','ebitda_ttm') AND period_end <> 'latest' ORDER BY field, period_end`;
-const VAL_BS = ["x:EquityAttributableToOwnersOfParent", "equity_owners", "x:Equity", "total_equity", "capital", "reserves", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent",
-  "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents", "x:NonControllingInterest"];
-export const SQL_LATEST_BS = `SELECT line, value, period_end FROM fin_value INDEXED BY ix_fin_value_period
-   WHERE security_id = ?1 AND period_end >= ?2 AND basis = ?3 AND dims = '' AND statement = 'bs' AND line IN (SELECT value FROM json_each(?4))
-   ORDER BY period_end, disclosed_at`;
+   AND field IN ('pat_owners_ttm','revenue_ttm','ebitda_ttm','equity_owners','net_debt','nci','layout') ORDER BY field, period_end`;
 
 export async function companyValuations(deps: Deps, sid: number): Promise<number> {
   const [m] = await deps.market.all<{ d: number; mcap_paise: number | null }>(SQL_LATEST_MCAP, [sid]);
   if (!m || m.mcap_paise == null) return 0;
   const mcapRs = toText(div(dec(String(m.mcap_paise)), dec("100"), 2));
   const mcapDate = `${String(m.d).slice(0, 4)}-${String(m.d).slice(4, 6)}-${String(m.d).slice(6, 8)}`;
-  const since = `${Number(mcapDate.slice(0, 4)) - 1}${mcapDate.slice(4)}`;
   const out: unknown[][] = [], now = deps.now().toISOString();
   for (const basis of ["consolidated", "standalone"]) {
-    const t = await deps.filings.all<{ field: string; period_end: string; value: string | null; reason: string | null; inputs: string }>(SQL_LATEST_TTM, [sid, basis]);
+    const t = (await deps.filings.all<{ field: string; period_end: string; value: string | null; reason: string | null; inputs: string }>(SQL_LATEST_TTM, [sid, basis]))
+      .filter((r) => r.field === "layout" || r.period_end !== "latest");
     if (!t.length) continue;
     // latest period with a value; if the latest has none, its reason is kept (a missing quarter is said, not skipped)
     const latest = (f: string): View => {
-      const rs = t.filter((r) => r.field === f);
+      const rs = t.filter((r) => r.field === f && r.period_end <= mcapDate);
       const withValue = rs.filter((r) => r.value !== null).pop();
       const last = rs[rs.length - 1];
       if (!last) return { value: null, reason: `no ${f}` };
       if (last.value === null && (!withValue || withValue.period_end < last.period_end)) return { value: null, reason: `${f} to ${last.period_end}: ${last.reason}` };
       return { value: withValue!.value!, from: JSON.parse(withValue!.inputs) as string[] };
     };
-    const bsRows = await deps.filings.all<{ line: string; value: string | null; period_end: string }>(SQL_LATEST_BS, [sid, since, basis, JSON.stringify(VAL_BS)]);
-    const bsDate = bsRows.length ? bsRows[bsRows.length - 1]!.period_end : null;
-    const bs: Record<string, string | null> = {};
-    for (const r of bsRows) if (r.period_end === bsDate) bs[r.line] = r.value;
-    const [tpl] = await deps.filings.all<{ template: string }>("SELECT template FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND period_end >= ?2 AND statement = 'pl' LIMIT 1", [sid, since]);
-    const pl = await deps.filings.all<{ line: string }>("SELECT DISTINCT line FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND period_end >= ?2 AND basis = ?3 AND statement = 'pl' AND line IN ('interest_earned','impairment_financial_instruments','fees_commission_income','fees_commission_expense','net_loss_fair_value','premium_earned','claims_incurred')", [sid, since, basis]);
-    const layout = chooseLayout(tpl?.template ?? null, Object.fromEntries(pl.map((r) => [r.line, "1"]))).name;
-    for (const f of valuationFeatures(basis, { mcapRs, mcapDate, layout, patOwnersTtm: latest("pat_owners_ttm"), revenueTtm: latest("revenue_ttm"), ebitdaTtm: latest("ebitda_ttm"), bsDate, bs }))
+    const layout = t.find((r) => r.field === "layout")?.value ?? "industrial";
+    for (const f of valuationFeatures(basis, { mcapRs, mcapDate, layout, patOwnersTtm: latest("pat_owners_ttm"), revenueTtm: latest("revenue_ttm"), ebitdaTtm: latest("ebitda_ttm"),
+      equityOwners: latest("equity_owners"), netDebt: latest("net_debt"), nci: latest("nci") }))
       out.push([sid, f.basis, f.field, f.periodEnd, f.value, f.reason, JSON.stringify(f.inputs), now]);
   }
   if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 8, out, SQL_FEATURE_UPSERT_TAIL));
