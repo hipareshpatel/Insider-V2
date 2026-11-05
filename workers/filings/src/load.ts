@@ -1,7 +1,7 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, statementDetail, type Sql, type XbrlInstance, add, balanceAndCash, batchAll, cmp, sub, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, NBFC_REVENUE_NEW, statementDetail, type Sql, type XbrlInstance, add, balanceAndCash, batchAll, cmp, sub, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
 
 export interface Deps {
   filings: Sql;
@@ -590,6 +590,37 @@ export async function nbfcBalanceSheets(deps: Deps, limit = 40, budgetMs = 20_00
   return rereadPass(deps, "nbfc_bs", async () => (await deps.filings.all<{ security_id: number }>(SQL_NBFC_SIDS)).map((r) => r.security_id), limit, budgetMs);
 }
 
+/** Item 5 leftover 3: the NBFC revenue lines added to the reader (dividend, rent, fair value and derecognition gains,
+ *  products, services, other), for stored results files from 2024. Only the new lines are offered (inserts only), only
+ *  for a period this filing already loaded (its revenue row is there), only when every check of the file passes,
+ *  including revenue parts = revenue — the quarter (or half year) and, in a year-end file, the full year. */
+export const SQL_FILING_PERIOD_LOADED = "SELECT 1 AS ok FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND period_end = ?2 AND statement = 'pl' AND line = 'revenue' AND period_kind = ?3 AND basis = ?4 AND filing_id = ?5 LIMIT 1";
+export async function nbfcRevenueLines(deps: Deps, limit = 40, budgetMs = 20_000) {
+  return rereadPass(deps, "nbfc_rev", async () => (await deps.filings.all<{ security_id: number }>(SQL_NBFC_SIDS)).map((r) => r.security_id), limit, budgetMs,
+    async (inst, f, sid) => {
+      const out: unknown[][] = [], notes: string[] = [], periods: [string, string][] = [];
+      const offer = async (r: CanonicalResult, kind: string, ver: string) => {
+        if (!NBFC_REVENUE_NEW.some((k) => r.lines[k] !== undefined)) return;
+        if (r.checks.length < 3 || r.checks.some((c) => !c.ok)) { notes.push(`${kind}: checks failed`); return; }
+        const [ok] = await deps.filings.all<{ ok: number }>(SQL_FILING_PERIOD_LOADED, [sid, r.periodEnd, kind, r.basis, f.filing_id]);
+        if (!ok) { notes.push(`${kind} ${r.periodEnd}: period not loaded from this filing`); return; }
+        for (const k of NBFC_REVENUE_NEW) if (r.lines[k] !== undefined)
+          out.push([sid, TEMPLATE[r.template], "pl", k, "", r.periodEnd, kind, r.basis, "original", r.lines[k], null, f.disclosed_at, f.filing_id, k, "reported", ver]);
+        periods.push([r.periodEnd, kind]);
+      };
+      const q = canonicalResult(inst);
+      await offer(q, q.periodKind, "results-v1");
+      const fyStart = inst.facts.find((x) => /:DateOfStartOfFinancialYear$/.test(x.tag))?.value ?? null;
+      if ((q.periodKind === "Q" || q.periodKind === "H") && fyStart && months(fyStart, q.periodEnd) === 12) {
+        try { const fy = canonicalResult(inst, { span: "ytd", undefinedYtd: true }); if (fy.periodKind === "FY") await offer(fy, "FY", "results-fy-v1"); } catch { notes.push("FY: not read"); }
+      }
+      if (out.length) await batchAll(deps.filings, insertRows(
+        "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, out, "ON CONFLICT DO NOTHING"));
+      for (const [end, kind] of periods) await versionPeriod(deps.filings, sid, end, kind, q.basis);
+      return { rows: out.length, note: notes.length ? `; ${notes.join("; ")}` : "" };
+    });
+}
+
 /** Item 5: banks' and insurers' cash-flow detail (read since this change) for their stored results files from 2024. The
  *  companies are the focus companies whose stored P&L uses the bank or insurance template (one indexed row each). */
 export const SQL_SID_TEMPLATE = "SELECT template FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND period_end >= '2024-01-01' AND statement = 'pl' LIMIT 1";
@@ -611,7 +642,10 @@ export async function insurerBalanceSheets(deps: Deps, limit = 40, budgetMs = 20
 
 /** One-off re-read of stored results files (2024 on) for a set of focus companies: balance sheet + cash flow offered
  *  again (inserts only, ON CONFLICT DO NOTHING: existing rows untouched). Cursor by (company, filing_id) in `slot`. */
-async function rereadPass(deps: Deps, slot: string, pick: (focus: number[] | null) => Promise<number[]>, limit: number, budgetMs: number): Promise<{ done: boolean; companies: number; files: number; rows: number; notes: string[] }> {
+type RereadFile = { filing_id: number; kind: string; basis: string; disclosed_at: string; source_url: string };
+type RereadAct = (inst: XbrlInstance, f: RereadFile, sid: number) => Promise<{ rows: number; note: string }>;
+async function rereadPass(deps: Deps, slot: string, pick: (focus: number[] | null) => Promise<number[]>, limit: number, budgetMs: number,
+  act?: RereadAct): Promise<{ done: boolean; companies: number; files: number; rows: number; notes: string[] }> {
   const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot=?", [slot]);
   const cur = st ? JSON.parse(st.detail) as { sids: number[]; i: number; after: number; files: number; rows: number; done: boolean }
     : { sids: [] as number[], i: 0, after: 0, files: 0, rows: 0, done: false };
@@ -637,8 +671,8 @@ async function rereadPass(deps: Deps, slot: string, pick: (focus: number[] | nul
       if (!xml) { notes.push(`${sid} ${f.filing_id}: file not stored`); continue; }
       try {
         const inst = parseXbrl(xml);
-        const r = canonicalResult(inst);
-        const b = await loadBsCf(inst, sid, TEMPLATE[r.template], f.basis, f.disclosed_at, f.filing_id, deps);
+        const b = act ? await act(inst, f, sid)
+          : await loadBsCf(inst, sid, TEMPLATE[canonicalResult(inst).template], f.basis, f.disclosed_at, f.filing_id, deps);
         cur.rows += b.rows; cur.files++;
         if (b.note) notes.push(`${sid} ${f.filing_id}${b.note}`);
       } catch (e) { notes.push(`${sid} ${f.filing_id}: ${String(e).slice(0, 80)}`); }

@@ -2,7 +2,7 @@
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
-import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
@@ -111,6 +111,7 @@ export default {
       let r: unknown;
       if (name === "bscf_backfill") r = await backfillBsCf(ldeps, 60, 20_000);
       else if (name === "nbfc_bs") r = await nbfcBalanceSheets(ldeps, 40, 20_000); // item 5: Division III balance-sheet lines
+      else if (name === "nbfc_rev") r = await nbfcRevenueLines(ldeps, 40, 20_000); // item 5 leftover 3: the rest of NBFC revenue
       else if (name === "bank_ins_cf") r = await bankInsurerCashFlows(ldeps, 40, 20_000); // item 5: bank / insurer cash-flow detail
       else if (name === "ins_bs") r = await insurerBalanceSheets(ldeps, 40, 20_000); // item 5: insurers' IRDAI balance sheet
       // second run after general insurers got their own groups (B-BS); life rows already stored are left as they are

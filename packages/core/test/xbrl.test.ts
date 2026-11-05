@@ -221,3 +221,28 @@ describe("alternative tag names accepted only when the file's sums prove them (V
     expect(r.missing).toContain("pat");
   });
 });
+
+describe("item 5 leftover 3: NBFC revenue parts (INFY Q3 FY25 file with Division III revenue lines put in its quarter)", async () => {
+  const { canonicalResult } = await import("../src/index.js");
+  const withParts = (parts: Record<string, string>) => parseXbrl(x.replace("</xbrli:xbrl>",
+    Object.entries(parts).map(([t, v]) => `<in-bse-fin:${t} contextRef="OneD" unitRef="INR" decimals="-7">${v}</in-bse-fin:${t}>`).join("") + "</xbrli:xbrl>"));
+  it("keeps every part when they add up to the filed revenue (3,49,150 = interest 3,40,000 + fees 6,000 + fair value 2,000 + other 1,150, ₹ million)", () => {
+    const r = canonicalResult(withParts({ InterestEarned: "340000000000", FeesAndCommissionIncome: "6000000000", NetGainOnFairValueChanges: "2000000000",
+      OtherRevenueFromOperations: "1150000000", DividendIncome: "0" }));
+    expect(r.lines).toMatchObject({ net_gain_fair_value: "2000000000", other_operating_revenue: "1150000000", dividend_income: "0" });
+    expect(r.checks.find((c) => c.name === "revenue lines = revenue from operations")).toMatchObject({ ok: true });
+    expect(r.checks.filter((c) => !c.ok)).toEqual([]);
+  });
+  it("leaves the added parts out (listed missing, no failed check) when they do not add up; interest and fees stay as before", () => {
+    const r = canonicalResult(withParts({ InterestEarned: "340000000000", FeesAndCommissionIncome: "6000000000", OtherRevenueFromOperations: "1000000000" }));
+    expect(r.lines.other_operating_revenue).toBeUndefined();
+    expect(r.missing).toContain("other_operating_revenue");
+    expect(r.lines.interest_earned).toBe("340000000000");
+    expect(r.checks.filter((c) => !c.ok)).toEqual([]);
+  });
+  it("a company without interest or fees lines (not Division III) never gets them", () => {
+    const r = canonicalResult(withParts({ OtherRevenueFromOperations: "349150000000" }));
+    expect(r.lines.other_operating_revenue).toBeUndefined();
+    expect(r.checks.some((c) => c.name === "revenue lines = revenue from operations")).toBe(false);
+  });
+});

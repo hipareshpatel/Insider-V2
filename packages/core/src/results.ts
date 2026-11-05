@@ -28,6 +28,16 @@ export const PL_TAGS: Record<string, string> = {
   impairment_financial_instruments: "ImpairmentOnFinancialInstruments",
   net_loss_fair_value: "NetLossOnFairValueChanges",
   net_loss_derecognition: "NetLossOnDerecognitionOfFinancialInstrumentsUnderAmortisedCostCategory",
+  // item 5 leftover 3: the rest of an NBFC's revenue from operations (Division III; BAJFINANCE Sep 2026 consolidated:
+  // interest 21,936.39 + fees 2,366.03 + fair value gains 65.37 + services 6.00 + other 172.58 = 24,546.37 ₹ cr, exact).
+  // Kept only when every part adds up to the filed revenue (NBFC_REVENUE_NEW, gated in canonicalResult).
+  dividend_income: "DividendIncome",
+  rental_income: "RentalIncome",
+  net_gain_fair_value: "NetGainOnFairValueChanges",
+  net_gain_derecognition: "NetGainOnDerecognitionOfFinancialInstrumentsUnderAmortisedCostCategory",
+  sale_of_products: "RevenueFromSaleOfProduct",
+  sale_of_services: "RevenueFromSaleOfServices",
+  other_operating_revenue: "OtherRevenueFromOperations",
   total_expenses: "Expenses",
   pbt_before_exceptional: "ProfitBeforeExceptionalItemsAndTax",
   exceptional_items: "ExceptionalItemsBeforeTax",
@@ -65,6 +75,10 @@ export const PL_TAGS: Record<string, string> = {
   debt_service_coverage_ratio: "DebtServiceCoverageRatio",
   interest_service_coverage_ratio: "InterestServiceCoverageRatio",
 };
+/** NBFC revenue parts (Division III): interest and fees (read since the start) plus the lines added in item 5. */
+export const NBFC_REVENUE_PARTS = ["interest_earned", "dividend_income", "rental_income", "fees_commission_income", "net_gain_fair_value",
+  "net_gain_derecognition", "sale_of_products", "sale_of_services", "other_operating_revenue"];
+export const NBFC_REVENUE_NEW = NBFC_REVENUE_PARTS.slice(1).filter((k) => k !== "fees_commission_income");
 /** Spelling variants of the same tag in older taxonomies (not different concepts): always tried after the main tag. */
 export const PL_SPELLINGS: Record<string, string[]> = {
   IncomeTaxRelatingToItemsThatWillNotBeReclassifiedToProfitOrLoss: ["IncomeTaxRelatingToItmesThatWillNotBeReclassifiedToProfitOrLoss"],
@@ -285,13 +299,25 @@ export function canonicalResult(inst: XbrlInstance, opts: CanonicalOptions = {})
     const filled = ["revenue", "total_income", "pat"].every((k) => alt.lines[k] !== undefined);
     if (filled && alt.checks.length >= 3 && alt.checks.every((c) => c.ok)) return { ...alt, aliasProven: true };
   }
+  // Item 5 leftover 3: the added NBFC revenue lines are kept only for a Division III file (interest or fees filed) whose
+  // revenue parts add up to its filed revenue from operations (±₹1 lakh); otherwise they are left out (listed as missing)
+  // and the check is not reported, so a file never fails to load because of them.
+  const extraChecks: { name: string; ok: boolean; detail: string }[] = [];
+  if (template === "industrial" && NBFC_REVENUE_NEW.some((k) => lines[k] !== undefined)) {
+    const nbfc = lines.interest_earned !== undefined || lines.fees_commission_income !== undefined;
+    const parts = NBFC_REVENUE_PARTS.filter((k) => lines[k] !== undefined).reduce((a, k) => add(a, dec(lines[k]!)), dec("0"));
+    const d = lines.revenue !== undefined ? sub(parts, dec(lines.revenue)) : null;
+    const ok = nbfc && d !== null && cmp(d.units < 0n ? { units: -d.units, scale: d.scale } : d, dec("100000")) <= 0;
+    if (ok) extraChecks.push({ name: "revenue lines = revenue from operations", ok: true, detail: `${toText(parts)} vs ${lines.revenue}` });
+    else for (const k of NBFC_REVENUE_NEW) if (lines[k] !== undefined) { delete lines[k]; missing.push(k); }
+  }
   return {
     symbol: meta("Symbol"), periodStart: start, periodEnd: end, periodKind: kind,
     label: fiscalPeriod(end, kind, fyEndMonth).label,
     basis: nature.startsWith("consol") ? "consolidated" : "standalone",
     template,
     audited: meta("WhetherResultsAreAuditedOrUnaudited"),
-    lines, missing, checks: template === "bank" ? bankChecks(lines) : template === "life_insurance" ? lifeChecks(lines) : template === "general_insurance" ? giChecks(lines) : identityChecks(lines),
+    lines, missing, checks: template === "bank" ? bankChecks(lines) : template === "life_insurance" ? lifeChecks(lines) : template === "general_insurance" ? giChecks(lines) : [...identityChecks(lines), ...extraChecks],
   };
 }
 
