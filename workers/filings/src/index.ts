@@ -246,7 +246,7 @@ export default {
       const basis = u.searchParams.get("basis") === "standalone" ? "standalone" : "consolidated", kind = u.searchParams.get("kind") === "FY" ? "FY" : "Q";
       const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
       if (!sid || !/^\d{4}-\d{2}-\d{2}$/.test(period)) return Response.json({ error: "symbol or period" }, { status: 400 });
-      const rows = (await env.DB_FILINGS.prepare(SQL_STATEMENT_ROWS).bind(sid, period, basis, kind).all<{ statement: string; line: string; value: string | null; period_kind: string }>()).results;
+      const rows = (await env.DB_FILINGS.prepare(SQL_STATEMENT_ROWS).bind(sid, period, basis, kind).all<{ statement: string; line: string; value: string | null; period_kind: string; template: string }>()).results;
       // One period length per statement, and say which: a quarter's cash flow is filed only year to date (six months at
       // Sep, nine at Dec), so it must never be shown as the quarter's. Prefer the asked kind, then the longest filed.
       const order = [kind, "FY", "9M", "H", "Q"];
@@ -258,10 +258,15 @@ export default {
       const months: Record<string, string> = { Q: "3 months", H: "6 months", "9M": "9 months", FY: "12 months" };
       const pl = pick("pl"), bs = pick("bs"), cf = pick("cf");
       const span = (k: string | null, flow: boolean) => (k === null ? null : flow ? `${months[k] ?? k} to ${period}` : `as at ${period}`);
-      return Response.json({ symbol: sym, period, basis, kind, template: "industrial (Schedule III Div II)",
+      // Stored lines the layout has no place for are listed, never silently dropped (completeness check per template).
+      const placed = (rs: { key: string }[]) => new Set(rs.map((r) => r.key));
+      const plRows = [...layoutStatement(PL_INDUSTRIAL, pl.values), ...derivedPl(pl.values)];
+      const bsRows = layoutStatement(BS_INDUSTRIAL, bs.values, { hideZeros: true }), cfRows = layoutStatement(CF_INDUSTRIAL, cf.values, { hideZeros: true });
+      const left = (vals: Record<string, string | null>, rs: { key: string }[]) => { const p = placed(rs); return Object.fromEntries(Object.entries(vals).filter(([k, v]) => !p.has(k) && v !== null && !/^-?0*(\.0*)?$/.test(v))); };
+      return Response.json({ symbol: sym, period, basis, kind, stored_template: [...new Set(rows.map((r) => r.template))], layout: "industrial (Schedule III Div II)",
+        not_in_layout: { pl: left(pl.values, plRows), bs: left(bs.values, bsRows), cf: left(cf.values, cfRows) },
         periods: { pl: span(pl.kind, true), bs: span(bs.kind, false), cf: span(cf.kind, true) },
-        pl: [...layoutStatement(PL_INDUSTRIAL, pl.values), ...derivedPl(pl.values)],
-        bs: layoutStatement(BS_INDUSTRIAL, bs.values, { hideZeros: true }), cf: layoutStatement(CF_INDUSTRIAL, cf.values, { hideZeros: true }) }, { headers: { "cache-control": "no-store" } });
+        pl: plRows, bs: bsRows, cf: cfRows }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/coverage-gaps") {
       // Work list item 2: coverage gaps of the focus companies by class (coverage_gap.status, set by /maint/coverage_classify)
