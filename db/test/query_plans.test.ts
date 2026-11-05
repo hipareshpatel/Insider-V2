@@ -90,6 +90,15 @@ describe("market: the focus companies' ISINs for the credit-rating issuer match 
   });
 });
 
+describe("readiness probes (D123 map, read-only page) use an index prefix, never a scan", async () => {
+  const { FIN_PROBES, SYM_PROBES } = await import("../../workers/filings/src/readiness.js");
+  it.each([...Object.entries(FIN_PROBES), ...Object.entries(SYM_PROBES)])("%s", (_k, sql) => {
+    const n = Math.max(...[...sql.matchAll(/\?(\d)/g)].map((m) => Number(m[1])));
+    const p = plan(F, sql, [1, 20240101, "2024-01-01"].slice(0, n));
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+  });
+});
+
 describe("recurring queries read only what they need (C56)", () => {
   it.each(cases)("%s", (_name, sql, params, want) => {
     const p = plan(F, sql, params);

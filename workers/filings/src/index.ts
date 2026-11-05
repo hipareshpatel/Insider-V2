@@ -7,6 +7,7 @@ import { census, tagCensus } from "./census.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
 import { ratingCoverage } from "./ratingcov.js";
+import { readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
 import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
@@ -250,6 +251,18 @@ export default {
         out[sym] = { security_id: sid, symbols: allSyms, gaps: detail, stored_pl: stored };
       }
       return Response.json(out, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/readiness") {
+      // D123 / D152 data-readiness map (read-only): companies of the 250 with each data area from the D168 floor, and
+      // per feature-table field how many have a value. One indexed probe per company and area.
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      const ids = (await env.DB_MARKET.prepare("SELECT security_id, value FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) ORDER BY security_id").bind(JSON.stringify(focus ?? [])).all<{ security_id: number; value: string }>()).results;
+      const bySid = new Map<number, string[]>();
+      for (const r of ids) (bySid.get(r.security_id) ?? bySid.set(r.security_id, []).get(r.security_id)!).push(r.value);
+      // ≤ 60 companies per call (≈ 12 probes each, under the per-request query limit); feature table on the first page
+      const u = new URL(req.url), offset = Math.max(0, Number(u.searchParams.get("offset") ?? 0)), limit = Math.min(60, Math.max(1, Number(u.searchParams.get("limit") ?? 60)));
+      const all = [...bySid].map(([sid, symbols]) => ({ sid, symbols }));
+      return Response.json({ companies_total: all.length, offset, ...(await readiness(d1Sql(env.DB_FILINGS), all.slice(offset, offset + limit), COVERAGE_FLOOR, offset === 0)) }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/ratings-coverage") {
       // Work list 2.10 (item 7, read-only): credit ratings of the focus companies from the D168 floor vs NSE's stored
