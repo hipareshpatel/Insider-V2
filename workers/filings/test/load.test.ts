@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
-import { buildFeatures } from "../src/features.js";
+import { buildFeatures, featuresStep } from "../src/features.js";
 import { backfillBsCf, nbfcBalanceSheets, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
@@ -733,5 +733,23 @@ describe("D171: feature table build", () => {
     expect(changed).toBeLessThan(10);
     // fin_value holds filed rows only: the feature build added nothing there (D170)
     expect((filings.raw.prepare("SELECT count(*) AS n FROM fin_value").get() as { n: number }).n).toBe(before + 1);
+  });
+});
+
+describe("D171: feature table kept current by the cron step", () => {
+  it("first run starts at the newest filing; a later results filing rebuilds only its company", async () => {
+    const { filings, deps } = setup({});
+    filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (20, 7, 'results_quarterly', '2026-06-30', 'Q', 'consolidated', '2026-07-15T00:00:00Z', 'a')");
+    const first = await featuresStep(deps, new Set([7]));
+    expect(first).toEqual({ companies: 0, after: 20 });
+    filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (21, 7, 'results_quarterly', '2026-09-30', 'Q', 'consolidated', '2026-10-15T00:00:00Z', 'b')");
+    filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'industrial','pl','revenue','','2026-09-30','Q','consolidated','original','150',NULL,'2026-10-15T00:00:00Z',21,'t','reported','results-v1')`);
+    expect(await featuresStep(deps, new Set([7]))).toEqual({ companies: 1, after: 21 });
+    expect(filings.raw.prepare("SELECT value FROM feature_value WHERE field='revenue_q' AND period_end='2026-09-30'").get()).toEqual({ value: "150" });
+    expect(await featuresStep(deps, new Set([7]))).toEqual({ companies: 0, after: 21 });
+    // a company outside the focus list is not rebuilt
+    filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (22, 99, 'results_quarterly', '2026-09-30', 'Q', 'consolidated', '2026-10-15T00:00:00Z', 'c')");
+    expect(await featuresStep(deps, new Set([7]))).toEqual({ companies: 0, after: 22 });
   });
 });

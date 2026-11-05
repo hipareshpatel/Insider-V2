@@ -65,3 +65,30 @@ export async function buildFeatures(deps: Deps, limit = 25, restart = false): Pr
   await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','features',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [deps.now().toISOString(), JSON.stringify(cur)]);
   return cur;
 }
+
+/** D171: keep the feature table current. Each cron run rebuilds the focus companies with results filings loaded since
+ *  the last run (cursor over filing_id, as the primary-basis step), at most `limit` companies; nothing new = one small
+ *  read. A restatement arrives as a new filing, so it is picked up the same way. */
+export const SQL_FEATURE_NEW = "SELECT filing_id, security_id FROM filing WHERE filing_id > ? AND +kind IN ('results_quarterly','results_annual','integrated_financials') ORDER BY filing_id LIMIT ?"; // +kind: walk the primary key from the cursor (the kind index would read every results filing each run)
+export async function featuresStep(deps: Deps, focusSids: Set<number>, limit = 10): Promise<{ companies: number; after: number }> {
+  const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='features_cursor'");
+  let after = st ? (JSON.parse(st.detail) as { after: number }).after : null;
+  if (after === null) {
+    // first run after the full build: start from the newest filing (the build covered everything before it)
+    const [m] = await deps.filings.all<{ m: number | null }>("SELECT max(filing_id) AS m FROM filing");
+    after = m?.m ?? 0;
+  }
+  const rows = await deps.filings.all<{ filing_id: number; security_id: number }>(SQL_FEATURE_NEW, [after, 2000]);
+  const sids: number[] = [];
+  for (const r of rows) {
+    if (focusSids.has(r.security_id) && !sids.includes(r.security_id)) {
+      if (sids.length >= limit) break; // the cursor stops before the first company not done this run
+      sids.push(r.security_id);
+    }
+    after = r.filing_id;
+  }
+  for (const sid of sids) await buildCompanyFeatures(deps, sid);
+  await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','features_cursor',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail",
+    [deps.now().toISOString(), JSON.stringify({ after })]);
+  return { companies: sids.length, after: after! };
+}
