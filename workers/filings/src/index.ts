@@ -1,7 +1,7 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
-import { SQL_FEATURES_OF, buildFeatures } from "./features.js";
+import { SQL_FEATURES_OF, buildFeatures, featuresStep } from "./features.js";
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, nbfcBalanceSheets, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
@@ -73,10 +73,13 @@ export default {
         // D50/D51: primary basis + basis-switch breaks, only for focus companies with newly loaded filings (live delta).
         // D163 (P1): the one-off passes (BS/CF backfill, version pass, remark pass) are not in the cron; they run when
         // started explicitly (POST /maint/<name> through the ops workflow), one bounded batch per call.
-        if (level === "ok" && writes === "ok" && focus) await step("primary_basis", async () => {
+        if (level === "ok" && writes === "ok" && focus) {
           const sids = new Set((await market.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(focus)])).map((r) => r.security_id));
-          return primaryBasisStep(ldeps.filings, market, ldeps.getText, sids, now);
-        });
+          await step("primary_basis", () => primaryBasisStep(ldeps.filings, market, ldeps.getText, sids, now));
+          // D171: rebuild the feature table for focus companies with new results filings (own step: a failure in one
+          // does not skip the other)
+          await step("features", () => featuresStep(ldeps, sids, 10));
+        }
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
         await chargeReads(d1Sql(env.DB_MARKET), new Date(), meter.reads ?? 0).catch(() => {});
