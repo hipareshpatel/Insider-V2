@@ -139,7 +139,9 @@ export function growth(now: View, base: View, what: string): View {
 
 /** The line that stands for "revenue" per format (D38: total income for banks and NBFCs; insurers: not settled). */
 function revenueLine(layout: string): string | null {
-  return layout === "industrial" ? "revenue" : layout === "bank" || layout === "nbfc" ? "total_income" : null;
+  // owner #360: insurers — gross premium (life), net premium earned (general)
+  return layout === "industrial" ? "revenue" : layout === "bank" || layout === "nbfc" ? "total_income"
+    : layout === "life_insurance" ? "gross_premium" : layout === "general_insurance" ? "premium_earned" : null;
 }
 const ownersLine = (layout: string) => (layout === "bank" ? "pat_after_minority" : "pat_owners");
 
@@ -181,6 +183,11 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
     const bsEnd = balanceSheets.get(e), bsStart = balanceSheets.get(ya);
     if (bsEnd) {
       const eq = (b: Record<string, string | null | undefined> | undefined) => (b ? ownersEquity(b, basis, layout) : null);
+      // inputs the daily valuation needs (so it reads the feature table, not every stored row: cost trim, owner #360)
+      const eo = eq(bsEnd);
+      put("equity_owners", e, eo != null ? ok(dec(eo), [`balance sheet ${e}`]) : no(`balance sheet ${e}: equity to owners not filed`));
+      put("net_debt", e, netDebt(bsEnd, layout, e));
+      put("nci", e, bsEnd["x:NonControllingInterest"] != null ? ok(dec(bsEnd["x:NonControllingInterest"]!), [`balance sheet ${e}`]) : basis === "standalone" ? ok(dec("0"), [`balance sheet ${e}`], "standalone: no minority") : no(`balance sheet ${e}: non-controlling interest not filed`));
       put("roe", e, roe(poT, eq(bsStart), eq(bsEnd)));
       if (layout === "industrial") {
         const ebitT = (() => { let s = dec("0"); const f: string[] = []; let k = e; for (let i = 0; i < 4; i++) { const x = by.get(k); const a = x ? v(x, "pbt_before_exceptional") : null, b = x ? v(x, "finance_cost") : null; if (!a || !b) return no(`quarter ${k} (${basis}): profit before exceptional items and finance costs must be filed`); s = add(s, add(a, b)); f.push(k); k = previousQuarterEnd(k); } return ok(s, f.reverse()); })();
@@ -188,21 +195,33 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       } else put("roce", e, no(`ROCE is not used for ${layout}`));
     }
   }
+  if (qs.length) put("layout", "latest", { value: layout, from: [] });
   return out;
 }
 
-/** Valuation inputs for one company on one basis: the latest available TTM figures (with the quarters they came from)
- *  and the latest filed balance sheet (with its date). */
+/** Net debt for EV (industrial only): borrowings (current + non-current) − cash and cash equivalents − other bank
+ *  balances; investments are not netted (documented). */
+export function netDebt(b: Record<string, string | null | undefined>, layout: string, date: string): View {
+  if (layout !== "industrial") return no(`net debt is not used for ${layout}`);
+  const need = ["x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents"];
+  const miss = need.filter((k) => b[k] == null);
+  if (miss.length) return no(`balance sheet ${date} lacks ${miss.join(", ")}`);
+  const d = (k: string) => dec(b[k]!);
+  return ok(sub(sub(add(d("x:BorrowingsNoncurrent"), d("x:BorrowingsCurrent")), d("x:CashAndCashEquivalents")), d("x:BankBalanceOtherThanCashAndCashEquivalents")), [`balance sheet ${date}`]);
+}
+
+/** Valuation inputs for one company on one basis: the latest available TTM figures and balance-sheet values, each as
+ *  stored in the feature table (with the periods they came from). */
 export interface ValuationInputs {
   mcapRs: string; mcapDate: string; layout: string;
   patOwnersTtm: View; revenueTtm: View; ebitdaTtm: View;
-  bsDate: string | null; bs: Record<string, string | null | undefined>;
+  equityOwners: View; netDebt: View; nci: View;
 }
 /** D171 / field catalogue §4: valuation on the latest close. Market cap is NSE's own figure (D5), never adjusted.
- *  Stored under period_end 'latest'; the inputs name the close date and the periods used. */
+ *  Stored under period_end 'latest'; P/E is also kept per trading day (owner #360) for its own-history comparison. */
 export function valuationFeatures(basis: string, x: ValuationInputs): FeatureRow[] {
   const mcap = dec(x.mcapRs), rows: FeatureRow[] = [];
-  const put = (field: string, r: View) => rows.push({ basis, field, periodEnd: "latest", value: r.value, reason: r.value === null ? r.reason : null, inputs: r.value === null ? [] : r.from });
+  const put = (field: string, r: View, periodEnd = "latest") => rows.push({ basis, field, periodEnd, value: r.value, reason: r.value === null ? r.reason : null, inputs: r.value === null ? [] : r.from });
   const close = `close ${x.mcapDate}: market cap ₹${x.mcapRs}`;
   const ratio = (num: Dec, den: View, what: string, positive = true): View => {
     if (den.value === null) return den;
@@ -210,25 +229,20 @@ export function valuationFeatures(basis: string, x: ValuationInputs): FeatureRow
     if (d.units === 0n || (positive && d.units < 0n)) return no(`${what}: the denominator is ${d.units === 0n ? "zero" : "negative (a loss)"}`);
     return ok(div(num, d, 2), [close, ...den.from]);
   };
-  put("pe_ttm_rep", ratio(mcap, x.patOwnersTtm, "P/E"));
+  const pe = ratio(mcap, x.patOwnersTtm, "P/E");
+  put("pe_ttm_rep", pe);
+  put("pe_ttm_rep", pe, x.mcapDate); // daily history
   put("pe_ttm", no("adjusted profit to owners is not filed (the tax and minority share of exceptional items are not given); use pe_ttm_rep"));
   put("earnings_yield", x.patOwnersTtm.value === null ? x.patOwnersTtm : mcap.units === 0n ? no("market cap is zero") : ok(div(mul(dec(x.patOwnersTtm.value), dec("100")), mcap, 2), [close, ...x.patOwnersTtm.from]));
   put("mcap_to_sales_ttm", ratio(mcap, x.revenueTtm, "market cap to sales"));
-  const eqOwners = ownersEquity(x.bs, basis, x.layout);
-  put("pb", eqOwners == null || !x.bsDate ? no("equity to owners is not filed on the latest balance sheet") : ratio(mcap, ok(dec(eqOwners), [`balance sheet ${x.bsDate}`]), "P/B"));
-  // EV/EBITDA: industrial companies only (no EBITDA for lenders and insurers, D49). Net debt = borrowings (current +
-  // non-current) − cash and cash equivalents − other bank balances; investments are not netted (documented).
+  put("pb", ratio(mcap, x.equityOwners, "P/B"));
+  // EV/EBITDA: industrial companies only (no EBITDA for lenders and insurers, D49). EV = market cap + net debt + NCI.
   if (x.layout !== "industrial") put("ev_ebitda_ttm", no(`EV/EBITDA is not used for ${x.layout}`));
+  else if (x.netDebt.value === null) put("ev_ebitda_ttm", x.netDebt);
+  else if (x.nci.value === null) put("ev_ebitda_ttm", x.nci);
   else {
-    const need = ["x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents"];
-    const miss = need.filter((k) => x.bs[k] == null);
-    if (!x.bsDate || miss.length) put("ev_ebitda_ttm", no(`latest balance sheet lacks ${miss.join(", ") || "a date"}`));
-    else {
-      const b = (k: string) => dec(x.bs[k] ?? "0");
-      const ev = add(sub(sub(add(add(mcap, b("x:BorrowingsNoncurrent")), b("x:BorrowingsCurrent")), b("x:CashAndCashEquivalents")), b("x:BankBalanceOtherThanCashAndCashEquivalents")), b("x:NonControllingInterest"));
-      const r = ratio(ev, x.ebitdaTtm, "EV/EBITDA");
-      put("ev_ebitda_ttm", r.value === null ? r : { ...r, from: [...r.from, `balance sheet ${x.bsDate}`] });
-    }
+    const r = ratio(add(add(mcap, dec(x.netDebt.value)), dec(x.nci.value)), x.ebitdaTtm, "EV/EBITDA");
+    put("ev_ebitda_ttm", r.value === null ? r : { ...r, from: [...new Set([...r.from, ...x.netDebt.from])] });
   }
   return rows;
 }
