@@ -38,6 +38,18 @@ describe("field catalogue §3: price features on adjusted closes", () => {
     expect(v("rsi_14").value).toBe("100.00"); // only gains
     expect(v("avg_turnover_20d_cr").value).toBe("1.00");
     expect(v("volume_vs_20d").value).toBe("1.00");
+    expect(v("delivery_pct_20d").reason).toMatch(/not stored/);
+    expect(v("ret_vs_nifty_3m").reason).toMatch(/no Nifty 50 closes/);
+  });
+  it("relative return vs the Nifty 50 (percentage points) and 20-day delivery %", () => {
+    const withDel = s.map((x) => ({ ...x, deliverableQty: 400 }));
+    const flat = s.map((x) => ({ date: x.date, close: 1000 })); // a flat index: relative return = own return
+    const { rows } = priceFeatures(withDel, f, flat);
+    const v = (k: string) => rows.find((r) => r.field === k)!;
+    expect(v("ret_vs_nifty_3m").value).toBe(v("ret_3m").value);
+    expect(v("delivery_pct_20d").value).toBe("40.00");
+    const stale = priceFeatures(s, f, flat.slice(0, -1)).rows.find((r) => r.field === "ret_vs_nifty_3m")!;
+    expect(stale.reason).toMatch(/Nifty 50 closes end/);
   });
   it("EMA seeded by the simple average; RSI needs n + 1 closes", () => {
     expect(ema([1, 2, 3], 3)).toBeCloseTo(2, 9);

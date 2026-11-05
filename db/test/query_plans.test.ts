@@ -108,6 +108,8 @@ describe("market: price features of the focus companies (field catalogue §3, on
   it.each([
     ["sessions of one security in a date range", t.SQL_SESSIONS, [1, 20250101, 20260101], /SEARCH price_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
     ["applied factors of one security", t.SQL_APPLIED_FACTORS, [1], /USING (PRIMARY KEY|INDEX sqlite_autoindex_adj_factor_1) \(security_id=\?\)/],
+    ["delivery of one security in a date range", t.SQL_DELIVERY, [1, 20250101, 20260101], /SEARCH delivery_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
+    ["Nifty 50 closes in a date range", t.SQL_NIFTY, [20250101, 20260101], /SEARCH index_daily USING PRIMARY KEY \(index_name=\? AND d>\? AND d<\?\)/],
     ["focus symbols to securities", t.SQL_FOCUS_SIDS, ['["INFY"]'], /ix_sid_lookup \(id_type=\? AND value=\?\)/],
   ] as [string, string, unknown[], RegExp][])("%s", (_n, sql, params, want) => {
     const p = plan(M, sql, params);
