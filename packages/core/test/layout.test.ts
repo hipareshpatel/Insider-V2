@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { BS_INDUSTRIAL, BS_LINES, CF_INDUSTRIAL, CF_LINES, PL_INDUSTRIAL, PL_TAGS, canonicalResult, derivedPl, layoutStatement, parseXbrl, statementDetail, tagLabel, type LayoutNode } from "../src/index.js";
+import { BANK_TAGS, BS_BANK, BS_INDUSTRIAL, BS_LINES, CF_INDUSTRIAL, CF_LINES, CF_SUMMARY, GI_TAGS, LIFE_TAGS, PL_BANK, PL_GENERAL, PL_INDUSTRIAL, PL_LIFE, PL_NBFC, PL_TAGS, balanceAndCash, canonicalResult, chooseLayout, derivedPl, layoutStatement, parseXbrl, statementDetail, tagLabel, type LayoutNode } from "../src/index.js";
 
 const keys = (t: LayoutNode[]): string[] => t.flatMap((nd) => [nd.key, ...(nd.children ? keys(nd.children) : [])]);
 const inst = parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_INFY_IF_Q2FY27_cons_full.xml"), "utf8"));
@@ -43,6 +43,36 @@ describe("D157 statement layout (Schedule III Div II, industrial)", () => {
     expect(rows.find((r) => r.key === "x:InterestReceivedClassifiedAsInvestingActivities")?.sign).toBeUndefined();
     expect(rows.some((r) => r.key === "x:PurchaseOfGoodwillClassifiedAsInvestingActivities")).toBe(false);
     expect(layoutStatement(CF_INDUSTRIAL, { "x:PurchaseOfGoodwillClassifiedAsInvestingActivities": "0" }).length).toBe(2);
+  });
+  it("every canonical line of each template has a row in its layout (nothing stored is left out)", () => {
+    expect(Object.keys(BANK_TAGS).filter((k) => k !== "paid_up_capital" && !keys(PL_BANK).includes(k))).toEqual([]);
+    expect(Object.keys(LIFE_TAGS).filter((k) => !keys(PL_LIFE).includes(k))).toEqual([]);
+    expect(Object.keys(GI_TAGS).filter((k) => !keys(PL_GENERAL).includes(k))).toEqual([]);
+    for (const t of [PL_BANK, PL_LIFE, PL_GENERAL, PL_NBFC, BS_BANK, CF_SUMMARY]) { const k = keys(t); expect(new Set(k).size).toBe(k.length); }
+  });
+  it("bank: a real filing (HDFCBANK Sep 2026) lays out in Third Schedule order; heads equal the filed sub-rows", () => {
+    const bank = parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", "xbrl_HDFCBANK_IF_Q2FY27_full.xml"), "utf8"));
+    const r = canonicalResult(bank);
+    const lay = chooseLayout("bank", r.lines);
+    expect(lay.name).toBe("bank");
+    const pl = layoutStatement(lay.pl, r.lines);
+    expect(pl[0]).toMatchObject({ key: "interest_earned", level: 0, kind: "filed" });
+    const kids = pl.filter((x) => ["interest_on_advances", "income_on_investments", "interest_on_rbi_interbank", "other_interest"].includes(x.key));
+    expect(kids.reduce((a, x) => a + BigInt(x.value!), 0n)).toBe(BigInt(pl[0]!.value!));
+    const b = balanceAndCash(bank).bs!;
+    const bs = layoutStatement(lay.bs, b.lines);
+    const sumUnder = (head: string) => { const i = bs.findIndex((x) => x.key === head); let t = 0n; for (const x of bs.slice(i + 1)) { if (x.level === 0) break; t += BigInt(x.value!); } return t; };
+    expect(sumUnder("capital_and_liabilities")).toBe(BigInt(b.lines.capital_and_liabilities!));
+    expect(sumUnder("total_assets")).toBe(BigInt(b.lines.total_assets!));
+    expect(Object.keys(b.lines).filter((k) => !keys(BS_BANK).includes(k))).toEqual([]);
+  });
+  it("chooses NBFC by its Division III lines and never shows the industrial operating-profit row for it", () => {
+    const pl = { revenue: "100", total_expenses: "60", finance_cost: "40", depreciation: "1", impairment_financial_instruments: "5" };
+    expect(chooseLayout("industrial", pl).name).toBe("nbfc");
+    expect(derivedPl(pl, "nbfc")).toEqual([]);
+    expect(chooseLayout("industrial", { revenue: "1" }).name).toBe("industrial");
+    expect(chooseLayout("insurance", { premium_earned: "1" }).name).toBe("general_insurance");
+    expect(chooseLayout("insurance", { gross_premium: "1" }).name).toBe("life_insurance");
   });
   it("labels unlabelled tags readably", () => {
     expect(tagLabel("x:TradeReceivablesCurrent")).toBe("Trade receivables current");
