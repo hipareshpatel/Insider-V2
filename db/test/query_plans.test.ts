@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
-import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS } from "../../workers/filings/src/load.js";
+import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, SQL_ORPHAN_RESTATED } from "../../workers/filings/src/load.js";
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT } from "../../workers/filings/src/events.js";
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
@@ -73,6 +73,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: nearest periods' profit and EPS (scale-guard release, per held file)", SQL_NEAREST_PAT_EPS, [1, "standalone", "Q", "2026-06-30"], /USING (PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\? AND line=\?\)/],
   ["filings: the 250's revenue rows by kind (2.12 FY gaps, read-only)", SQL_REVENUE_KINDS, ["[1,2]", "2024-01-01"], /USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\? AND line=\?/],
   ["filings: load outcome of one period's files (2.12 FY gaps, read-only)", SQL_PERIOD_LOADS, [1, "2025-03-31", "consolidated"], /ix_filing_sec \(security_id=\?/],
+  ["filings: one company's restated lines without an original (2.12 version fix, one-off)", SQL_ORPHAN_RESTATED, [1, "2024-01-01"], /SEARCH b USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\? AND line=\? AND dims=\? AND period_end=\? AND period_kind=\? AND basis=\? AND version=\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 
