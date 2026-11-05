@@ -856,3 +856,24 @@ describe("item 5 leftover 3: NBFC revenue lines pass", () => {
     expect(r.notes.join(" ")).toContain("period not loaded from this filing");
   });
 });
+
+describe("work list 2.10: credit ratings coverage vs NSE's lists", async () => {
+  const { ratingCoverage } = await import("../src/ratingcov.js");
+  const { parseCreditRatings } = await import("@disclo/core");
+  it("counts listed / loaded / extra per month for the focus companies from the floor; lists the missing", async () => {
+    const row = (sym: string, app: string, when: string) => ({ Symbol: sym, CompanyName: sym, ISIN: "INE0", NameOfCRAgency: "CRISIL", CreditRating: "AAA", Outlook: "Stable",
+      RatingAction: "Reaffirmed", DateofCR: "01-10-2026", BroadcastDateTime: when, AppID: app });
+    const oct = JSON.stringify([row("INFY", "1", "05-Oct-2026 10:00:00"), row("INFY", "2", "06-Oct-2026 10:00:00"), row("OTHER", "3", "06-Oct-2026 10:00:00"), row("INFY", "4", "06-Oct-2023 10:00:00")]);
+    const { filings } = setup({});
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,url,r2_key,status) VALUES (50,'credit_rating','c1','api/credit_rating/all/2026-10.json','done'), (51,'credit_rating','c0','api/credit_rating/all/2023-10.json','done')`);
+    const [first] = parseCreditRatings(oct);
+    filings.raw.prepare("INSERT INTO credit_rating (key,symbol,agency,rating,disclosed_at) VALUES (?,?,?,?,?)").run(first!.key, "INFY", "CRISIL", "AAA", first!.disclosedAt);
+    filings.raw.prepare("INSERT INTO credit_rating (key,symbol,agency,rating,disclosed_at) VALUES ('x','INFY','ICRA','AA','2026-10-07T00:00:00.000Z')").run();
+    const r = await ratingCoverage(filings, async (k) => (k === "api/credit_rating/all/2026-10.json" ? oct : null), ["INFY"], "2024-01-01");
+    expect(r.lists).toBe(1); // the 2023 list is before the floor
+    expect(r.totals).toEqual({ listed: 2, loaded: 1, extra: 1 });
+    expect(r.months).toEqual([{ month: "2026-10", listed: 2, loaded: 1, extra: 1 }]);
+    expect(r.missing).toHaveLength(1);
+    expect(r.missing[0]).toMatchObject({ symbol: "INFY", agency: "CRISIL" });
+  });
+});

@@ -6,6 +6,7 @@ import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankIns
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
+import { ratingCoverage } from "./ratingcov.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
 import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
@@ -244,6 +245,12 @@ export default {
         out[sym] = { security_id: sid, symbols: allSyms, gaps: detail, stored_pl: stored };
       }
       return Response.json(out, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/ratings-coverage") {
+      // Work list 2.10 (item 7, read-only): credit ratings of the focus companies from the D168 floor vs NSE's stored
+      // lists, by month (lists listed / loaded / stored-but-not-listed), with the first 40 missing.
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      return Response.json(await ratingCoverage(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), focus ?? [], COVERAGE_FLOOR), { headers: { "cache-control": "no-store" } });
     }
     if (path === "/shp-coverage") {
       // Work list 2.8 (read-only): shareholding filings NSE lists for the focus companies (from the D168 floor) vs those
