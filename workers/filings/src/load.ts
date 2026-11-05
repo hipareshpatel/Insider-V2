@@ -1,7 +1,7 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, CF_UNTAGGED_OK, NBFC_REVENUE_NEW, statementDetail, type Sql, type XbrlInstance, add, balanceAndCash, batchAll, cmp, sub, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, CF_UNTAGGED_OK, segmentResults, NBFC_REVENUE_NEW, statementDetail, type Sql, type XbrlInstance, add, balanceAndCash, batchAll, cmp, sub, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
 
 export interface Deps {
   filings: Sql;
@@ -661,6 +661,37 @@ export async function cfUntaggedPass(deps: Deps, limit = 30, budgetMs = 20_000) 
   cur.done = cur.i >= cur.sids.length;
   await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','cf_untagged',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
   return { done: cur.done, companies: cur.sids.length, at: cur.i, files: cur.files, loaded: cur.loaded, rows: cur.rows, notes: notes.slice(0, 30) };
+}
+
+/** D47 segment results: stored results files (2024 on) of the focus companies, re-read; each period's reportable
+ *  segments (revenue, result, assets, liabilities; filed values) load only when its checks pass (segment revenues and
+ *  results add up to the filed totals) and the company files multi-segment. statement 'segment', dims = segment key,
+ *  for the file's quarter (or half year) and its year to date. `dry` = census: counts only, nothing written. */
+export async function segmentPass(deps: Deps, opts: { dry: boolean; companies?: number }, limit = 30, budgetMs = 20_000) {
+  const stats = { multi: 0, single: 0, none: 0, periods: 0, passed: 0, failed: 0, segments: 0 };
+  const res = await rereadPass(deps, opts.dry ? "segments_census" : "segments", async (focus) => (focus ?? []).slice(0, opts.companies ?? 1e9), limit, budgetMs,
+    async (inst, f, sid) => {
+      const r = segmentResults(inst);
+      if (r.multi === false) { stats.single++; return { rows: 0, note: "" }; }
+      if (!r.periods.length) { stats.none++; return { rows: 0, note: "" }; }
+      stats.multi++;
+      const end = inst.facts.find((x) => /:DateOfEndOfReportingPeriod$/.test(x.tag))?.value ?? "";
+      let tpl = "industrial"; try { tpl = TEMPLATE[canonicalResult(inst).template]; } catch { /* results not readable: industrial */ }
+      const out: unknown[][] = [], notes: string[] = [];
+      for (const p of r.periods) {
+        stats.periods++;
+        const bad = p.checks.filter((c) => !c.ok);
+        if (!p.checks.length || bad.length) { stats.failed++; notes.push(`${p.start}..${p.end}: ${bad.map((c) => `${c.name} (${c.detail})`).join("; ") || "no check could run"}`); continue; }
+        stats.passed++; stats.segments += p.segments.length;
+        const kind = ytdKind(p.start, p.end); if (!kind) continue;
+        for (const sg of p.segments) for (const k of ["revenue", "result", "assets", "liabilities"] as const)
+          if (sg[k] !== undefined) out.push([sid, tpl, "segment", `segment_${k}`, sg.key, end, kind, f.basis, "original", sg[k], null, f.disclosed_at, f.filing_id, sg.name.slice(0, 120), "reported", "segment-v1"]);
+      }
+      if (!opts.dry && out.length) await batchAll(deps.filings, insertRows(
+        "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, out, "ON CONFLICT DO NOTHING"));
+      return { rows: opts.dry ? 0 : out.length, note: notes.length ? `; ${notes.join("; ")}`.slice(0, 200) : "" };
+    });
+  return { ...res, census: stats };
 }
 
 /** Item 5: banks' and insurers' cash-flow detail (read since this change) for their stored results files from 2024. The

@@ -349,7 +349,7 @@ Legend: ✅ done + verified · 🔶 in progress / partly · ⬜ not started · �
 | D66 | Catalogue conventions (rising trend, large order ≥ 2% TTM revenue) | 🔶 functions built 5 Nov (`trend`, `isLargeOrder`); not yet stored (needs series fields and order events) | With the query builder (D64) |
 | §5.8, §6 | **Feature table** + nightly derived job (adjusted series, dashboard snapshots, trackers) | 🔶 5 Nov: financial fields for the 250 (≈ 92k values, kept current by the filings cron) | Price, valuation, technical and event fields |
 | D170, #350 | **TTM kept (owner #350)** as a computed view: TTM = sum of the four latest **filed** quarters (each from its own 3-month column), same basis, computed from filed quarters, **never stored in `fin_value`** (stored only in the feature table, D171, owner #358); if any of the four is missing (e.g. a half-year filer with no 3-month column) TTM is unavailable — no substitute (no FY + YTD − prior YTD, no estimate). Used by D38, D52, D66 and the feature columns `pe_ttm`, `ev_ebitda_ttm`, `revenue_ttm_yoy`, `pat_ttm_yoy`, `order_inflow_ttm_cr` | ⬜ | Build with the computed views (item 6) |
-| D123, field catalogue | 114 fields (§2–§14 public, §15 owner-only ⏭) | 🔶 **Data-readiness map started 5 Nov** (Part 5, after the field catalogue): coverage of every stored area across the 250 from `/readiness`; field-by-field status per catalogue group | Fix the gaps it found: MCX/ABBOTINDIA (nothing stored), insider trades 2022→May 2026, Bajaj Finance ratings |
+| D123, field catalogue | 114 fields (§2–§14 public, §15 owner-only ⏭) | 🔶 **Data-readiness map started 5 Nov** (Part 5, after the field catalogue): coverage of every stored area across the 250 from `/readiness`; field-by-field status per catalogue group | Fix the gaps it found: MCX/ABBOTINDIA (nothing stored); insider trades and ratings required from 2026 only (owner #365) |
 | D59, D62, D67 | Dashboard (indices + valuation vs history, breadth, sectors, FII/DII, results season, calendar, search) | 🔶 v0 part (offline) | Data map; nightly precompute |
 | D91, D92 | Stock page sections 0–13 | 🔶 v0 part | Data map (sections 1–2 need AI ⏭ M6) |
 | D93, D94, D108, D110 | One API; milestones; aggregated cached endpoints; scale on Cloudflare | 🔶 v0 API (offline) | Redesign with the data map |
@@ -3099,6 +3099,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 362 | "Carry on" | Leftover 3 (NBFC revenue lines) built, run over 30 NBFCs / 608 files and checked live on BAJFINANCE (item 5 row in Part 1). Item 5 leftovers closed; open: two companies' cash-flow detail (ids 568, 2191, names to look up) | ✅ |
 | 363 | "Ok" (to: match ratings by ISIN issuer code, fill the symbol on stored ratings; CANBK/PNB gap shown as option (b)) | Built and run: credit ratings linked to the 250 (2.10 ✅, 5,955/5,955 by month; ≈ 15k stored rows got their symbol, nothing deleted); D167 (b) built, 102 files now carry their cash-flow detail with the untagged part shown as a derived line | ✅ |
 | 364 | "Schedule hourly task and work on it till everything is up and ready or next 7 days" | Hourly scheduled task in this session until 12 Nov 18:00 IST or the list is done: data-readiness map (D123/D152), segment results (D47), held classes (2.12), C18 re-measure, D40; same guardrails; owner asked only for owner decisions | 🔶 |
+| 365 | "We need insider data or credit rating only from 2026, whatever is available before that period is good. Anything not available even for 2026, we will do it later" | Insider trades and credit ratings are required from 2026-01-01; earlier rows are kept as a bonus, not chased. The quarterly PIT lists already queued (4,644 calls, 2022 → May 2026, 19:06 IST) are left to run (older quarters count as good-to-have); after them only 2026 coverage is checked, and any company still without 2026 data is listed for later. Bajaj Finance's missing ratings: later | ✅ |
 
 ### Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -3107,7 +3108,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-05 after entry #364: all checks pass (171 decisions, 364 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
+*Last run 2026-11-05 after entry #365: all checks pass (171 decisions, 365 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in `docs/website.md` §11).*
 
 ### Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*

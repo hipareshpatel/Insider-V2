@@ -977,3 +977,35 @@ describe("D123 readiness page", async () => {
     expect(r.missing_sample.bs).toEqual(["INFY"]);
   });
 });
+
+describe("D47 segment results", async () => {
+  const core = await import("@disclo/core");
+  const full = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_IF_Q2FY27_cons_full.xml"), "utf8");
+  it("INFY Sep 2026: 8 segments, revenues and results add up to the filed totals (quarter and half year)", () => {
+    const r = core.segmentResults(core.parseXbrl(full));
+    expect(r.multi).toBe(true);
+    expect(r.periods.map((p) => [p.start, p.segments.length, p.totals.revenue, p.checks.every((c) => c.ok)])).toEqual([
+      ["2026-07-01", 8, "492440000000", true], ["2026-04-01", 8, "974540000000", true]]);
+    expect(r.periods[0]!.segments[0]).toMatchObject({ key: "fiancial services", revenue: "137740000000", result: "36440000000" });
+  });
+  it("the pass: census writes nothing; load stores the filed segment lines; a wrong total holds the period back", async () => {
+    const url = "https://nsearchives.nseindia.com/corporate/xbrl/INTEGRATED_FILING_INDAS_9_WEB.xml";
+    const run = async (xml: string, dry: boolean) => {
+      const { filings, deps } = setup({ "att/xbrl/INTEGRATED_FILING_INDAS_9_WEB.xml": xml });
+      filings.raw.exec(`INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (80, 7, 'integrated_financials', '2026-09-30', 'Q', 'consolidated', '2026-10-16T00:00:00Z', '${url}')`);
+      const r = await (await import("../src/load.js")).segmentPass({ ...deps, focus: ["INFY"] }, { dry });
+      const rows = filings.raw.prepare("SELECT line, dims, period_kind, value FROM fin_value WHERE statement='segment' ORDER BY period_kind, dims, line").all() as { line: string; dims: string; period_kind: string; value: string }[];
+      return { r, rows };
+    };
+    const census = await run(full, true);
+    expect(census.r.census).toMatchObject({ multi: 1, periods: 2, passed: 2, segments: 16 });
+    expect(census.rows).toEqual([]);
+    const load = await run(full, false);
+    expect(load.rows.find((x) => x.dims === "manufacturing" && x.line === "segment_revenue" && x.period_kind === "Q")?.value).toBe("79130000000");
+    expect(load.rows.filter((x) => x.period_kind === "H").length).toBeGreaterThan(0);
+    const broken = full.replace(">137740000000<", ">137000000000<");
+    const held = await run(broken, false);
+    expect(held.r.census).toMatchObject({ passed: 1, failed: 1 });
+    expect(held.rows.every((x) => x.period_kind === "H")).toBe(true);
+  });
+});
