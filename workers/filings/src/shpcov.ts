@@ -57,7 +57,7 @@ export async function shpCoverage(db: Sql, getText: (k: string) => Promise<strin
 }
 
 /** D40 (read-only /promoter-groups): the named promoter holders of each of the 250 in its latest shareholding filing. */
-export const SQL_PROMOTER_HOLDERS = `SELECT s.security_id, s.category, s.holder_name, s.pct FROM shareholding s
+export const SQL_PROMOTER_HOLDERS = `SELECT s.security_id, s.category, s.holder_name, s.pct_all_shares AS pct FROM shareholding s
    WHERE s.security_id IN (SELECT value FROM json_each(?1)) AND s.category LIKE 'holder:%'
      AND s.as_of = (SELECT max(m.as_of) FROM shareholding m WHERE m.security_id = s.security_id)`;
 
@@ -69,12 +69,17 @@ export function holderKey(name: string): string {
 /** D40: a body corporate or trust (not an individual): the shared entities that tie group companies together. */
 export const isEntity = (key: string) => /\b(LIMITED|LLP|PRIVATE|TRUST|CORPORATION|COMPANY|HOLDINGS?|INVESTMENTS?|ENTERPRISES|INDUSTRIES|VENTURES|CAPITAL|FOUNDATION|PLC|INC|AG|GMBH|BV|SA|PTE)\b/.test(key);
 
+const INSTITUTIONAL = /MutualFund|Insurance|ForeignPortfolio|InstitutionsForeign|ForeignInstitutions|Banks|FinancialInstitutions|ProvidentFund|AlternativeInvestment|InvestorEducation|Custodian|OverseasDepositor|Government|InstitutionsDomestic|EmployeeBenefit/;
+/** Smallest stake (share of all shares, our own count ÷ total) that links two companies as one group. */
+export const MIN_STAKE = 0.05;
 /** D40: promoter groups = companies whose latest shareholding names the same promoter entity (union of shared
  *  entities). Pure: input rows of SQL_PROMOTER_HOLDERS, symbol per security. */
 export function promoterGroups(rows: { security_id: number; category: string; holder_name: string; pct: string | null }[], symbol: Map<number, string>) {
   const byEntity = new Map<string, Set<number>>();
   for (const r of rows) {
-    if (!/promoter/i.test(r.category)) continue;
+    // the stored holder category does not say promoter or public (the parser keeps one axis); a large stake held by a
+    // company or trust, outside funds, banks, insurers and government, stands in for "promoter entity" (D40, probable)
+    if (INSTITUTIONAL.test(r.category) || !(Number(r.pct ?? 0) >= MIN_STAKE)) continue;
     const k = holderKey(r.holder_name);
     if (!k || !isEntity(k)) continue;
     (byEntity.get(k) ?? byEntity.set(k, new Set()).get(k)!).add(r.security_id);

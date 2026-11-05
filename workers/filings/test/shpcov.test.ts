@@ -16,19 +16,20 @@ describe("shareholding coverage (work list 2.8)", () => {
 });
 
 describe("D40: promoter groups from shared promoter entities", () => {
-  it("companies naming the same promoter company form one group; individuals and other categories do not link", async () => {
+  it("companies with a ≥ 5 % stake held by the same company form one group; individuals, institutions and small stakes do not link", async () => {
     const { promoterGroups, holderKey } = await import("../src/shpcov.js");
     expect(holderKey("Tata Sons Pvt. Ltd.")).toBe("TATA SONS PRIVATE LIMITED");
     const rows = [
       { security_id: 1, category: "holder:IndividualsOrHinduUndividedFamilyPromoter", holder_name: "A Person", pct: "0.1" },
-      { security_id: 1, category: "holder:BodiesCorporatePromoter", holder_name: "Tata Sons Private Limited", pct: "0.7" },
-      { security_id: 2, category: "holder:BodiesCorporatePromoter", holder_name: "TATA SONS PVT LTD", pct: "0.3" },
-      { security_id: 2, category: "holder:BodiesCorporatePromoter", holder_name: "Tata Steel Limited", pct: "0.1" },
-      { security_id: 3, category: "holder:BodiesCorporatePromoter", holder_name: "Tata Steel Ltd", pct: "0.2" },
+      { security_id: 1, category: "holder:BodiesCorporatePromoter", holder_name: "Tata Sons Private Limited", pct: "0.724" },
+      { security_id: 2, category: "holder:BodiesCorporatePromoter", holder_name: "TATA SONS PVT LTD", pct: "0.437" },
+      { security_id: 2, category: "holder:BodiesCorporatePromoter", holder_name: "Tata Steel Limited", pct: "0.052" },
+      { security_id: 3, category: "holder:BodiesCorporatePromoter", holder_name: "Tata Steel Ltd", pct: "0.081" },
       { security_id: 4, category: "holder:IndividualsOrHinduUndividedFamilyPromoter", holder_name: "A Person", pct: "0.5" },
-      { security_id: 5, category: "holder:MutualFunds", holder_name: "Tata Sons Private Limited", pct: "0.02" },
+      { security_id: 5, category: "holder:MutualFundsOrUTI", holder_name: "Tata Sons Private Limited", pct: "0.091" },
+      { security_id: 6, category: "holder:OthersIndianShareholders", holder_name: "Tata Sons Private Limited", pct: "0.012" },
     ];
-    const g = promoterGroups(rows, new Map([[1, "TCS"], [2, "TATAMOTORS"], [3, "TATAINVEST"], [4, "X"], [5, "Y"]]));
+    const g = promoterGroups(rows, new Map([[1, "TCS"], [2, "TATAMOTORS"], [3, "TATAINVEST"], [4, "X"], [5, "Y"], [6, "Z"]]));
     expect(g).toEqual([{ companies: ["TATAINVEST", "TATAMOTORS", "TCS"], shared_entities: ["TATA SONS PRIVATE LIMITED", "TATA STEEL LIMITED"] }]);
   });
 });
