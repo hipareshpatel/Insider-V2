@@ -229,7 +229,7 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   const prev = mags.length ? { value: String(mags.length % 2 ? mags[(mags.length - 1) / 2] : (mags[mags.length / 2 - 1]! + mags[mags.length / 2]!) / 2) } : undefined;
   if (prev && dec(prev.value).units !== 0n && dec(r.lines[core]!).units !== 0n) {
     const ratio = Math.abs(Number(toText(div(dec(r.lines[core]!), dec(prev.value), 6))));
-    if ((ratio >= 10 || ratio <= 0.1) && !epsConsistent(inst, r)) {
+    if ((ratio >= 10 || ratio <= 0.1) && !epsConsistent(inst, r) && !(await sharesConsistent(deps, sec.security_id, r))) {
       await deps.filings.run("INSERT OR REPLACE INTO fin_held (security_id,line,basis,period_kind,period_end,value,job_id) VALUES (?,?,?,?,?,?,?)",
         [sec.security_id, core, r.basis, r.periodKind, r.periodEnd, r.lines[core]!, job.job_id]);
       return { jobId: job.job_id, status: "review", detail: `scale guard: ${core} ${r.lines[core]} vs median of ${mags.length} nearest periods ${prev.value} (×${ratio.toFixed(2)})` };
@@ -937,6 +937,30 @@ export function epsConsistent(inst: XbrlInstance, r: CanonicalResult): boolean {
   if (!eps || !paidUp || !face || Math.abs(eps) < 0.01) return false;
   const shares = paidUp / face;
   return [fact("ProfitOrLossAttributableToOwnersOfParent"), fact("ProfitLossForPeriod")].some((p) => p !== null && p !== 0 && Math.abs(p / shares / eps - 1) <= 0.02);
+}
+
+/** Second scale-guard release (2.12): the share count the file implies (profit ÷ basic EPS) equals the one implied by
+ *  this company's nearest loaded period of the same basis and kind within 3%. Needed where the file's own share
+ *  fields are mis-filed (BAJAJFINSV Jun 2026 standalone: paid-up capital and face value swapped, so epsConsistent
+ *  fails although profit ÷ EPS is right). An amount in the wrong unit moves the implied share count ×100 or more, so
+ *  the hold stands. A check only: nothing is computed into fin_value. */
+export const SQL_NEAREST_PAT_EPS = "SELECT period_end, line, value FROM fin_value WHERE security_id = ?1 AND statement = 'pl' AND line IN ('pat', 'eps_basic') AND basis = ?2 AND period_kind = ?3 AND version = 'original' AND +period_end <> ?4 ORDER BY abs(julianday(period_end) - julianday(?4)) LIMIT 12";
+export async function sharesConsistent(deps: Deps, sid: number, r: CanonicalResult): Promise<boolean> {
+  const implied = (pat: string | null | undefined, eps: string | null | undefined) => {
+    const p = Number(pat), e = Number(eps);
+    return Number.isFinite(p) && Number.isFinite(e) && p !== 0 && Math.abs(e) >= 0.01 ? p / e : null;
+  };
+  const mine = implied(r.lines.pat, r.lines.eps_basic);
+  if (mine === null || mine <= 0) return false;
+  const rows = await deps.filings.all<{ period_end: string; line: string; value: string | null }>(SQL_NEAREST_PAT_EPS, [sid, r.basis, r.periodKind, r.periodEnd]);
+  const by = new Map<string, Record<string, string | null>>();
+  for (const x of rows) (by.get(x.period_end) ?? by.set(x.period_end, {}).get(x.period_end)!)[x.line] = x.value;
+  // nearest period with both lines (rows come nearest first)
+  for (const v of by.values()) {
+    const other = implied(v.pat, v.eps_basic);
+    if (other !== null && other > 0) return Math.abs(mine / other - 1) <= 0.03;
+  }
+  return false;
 }
 
 /** D157 read-only statement view: one period's original rows of one company and basis (P&L of the given kind; the
