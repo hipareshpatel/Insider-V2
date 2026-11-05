@@ -99,7 +99,7 @@ export default {
       else if (name === "index_history") { const x = await loadIndexHistory(m, env.RAW, 60_000); r = { ...x, done: x.days === 0 }; }
       else if (name === "index_weekends") r = (await loadIndexWeekends(m, env.RAW, 60_000)) ?? { done: true };
       else if (name === "derive_jan2024") { const n = await deriveJanuary2024(m); r = { rows: n, done: n === 0 }; }
-      else if (name === "price_features") r = await priceFeaturesStep(m, new Date(), 50);
+      else if (name === "price_features") r = await priceFeaturesStep(m, new Date(), 50, undefined, url.searchParams.get("restart") === "1"); // restart: a new pass for the same session (new fields)
       else if (name === "repair_factors") {
         const deps = { market: m, app: d1Sql(env.DB_APP), raw: r2Raw(env.RAW), fetch: r2FirstFetcher(env.RAW, archiveFetcher(), env.CACHE_AUTHORITATIVE_UNTIL), now: () => new Date(), cachedFromR2: true };
         r = (await maybeCaughtUp(deps)) ? ((await repairFactors(m, d1Sql(env.DB_APP, meter), new Date())) ?? { done: true }) : { done: false, waiting: "prices not caught up" };

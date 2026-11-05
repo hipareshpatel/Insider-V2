@@ -3,7 +3,7 @@
 // filed data: written to market.price_feature as computed values with their inputs (as-of date, sessions used).
 
 /** One session of one security: ISO date, close and turnover in rupees (raw), volume. */
-export interface Session { date: string; close: number; volume: number; turnoverRs: number | null }
+export interface Session { date: string; close: number; volume: number; turnoverRs: number | null; deliverableQty?: number | null }
 export interface PriceFeature { field: string; value: string | null; reason: string | null }
 
 const r2 = (x: number) => (Math.round(x * 100) / 100).toFixed(2);
@@ -46,7 +46,7 @@ export function rsi(xs: readonly number[], n = 14): number | null {
 }
 
 /** Every §3 field computable from stored sessions (date order, one row per day), as of the last session. */
-export function priceFeatures(sessions: readonly Session[], factors: readonly { exDate: string; factor: number }[]): { asOf: string | null; rows: PriceFeature[] } {
+export function priceFeatures(sessions: readonly Session[], factors: readonly { exDate: string; factor: number }[], benchmark?: readonly { date: string; close: number }[]): { asOf: string | null; rows: PriceFeature[] } {
   const out: PriceFeature[] = [];
   const put = (field: string, value: string | null, reason: string | null = null) => out.push({ field, value, reason: value === null ? reason : null });
   if (!sessions.length) return { asOf: null, rows: out };
@@ -58,8 +58,21 @@ export function priceFeatures(sessions: readonly Session[], factors: readonly { 
     if (i < 0) return put(field, null, `no stored close on or before ${base} (${what})`);
     put(field, pct(c, adj[i]!));
   };
+  const retOf = (closes: readonly number[], days: readonly { date: string }[], base: string): number | null => {
+    const i = onOrBefore(days as Session[], base), j = onOrBefore(days as Session[], asOf);
+    return i < 0 || j < 0 ? null : (closes[j]! - closes[i]!) / closes[i]! * 100;
+  };
   ret("ret_1w", shift(asOf, -7), "1 week"); ret("ret_1m", shift(asOf, 0, -1), "1 month"); ret("ret_3m", shift(asOf, 0, -3), "3 months");
   ret("ret_6m", shift(asOf, 0, -6), "6 months"); ret("ret_1y", shift(asOf, 0, -12), "1 year"); ret("ret_ytd", `${Number(asOf.slice(0, 4)) - 1}-12-31`, "year to date");
+  // relative return (percentage points) against the Nifty 50 over 3 months, on the same session dates
+  {
+    const base = shift(asOf, 0, -3), me = retOf(adj, sessions, base);
+    const nb = benchmark?.length ? retOf(benchmark.map((b) => b.close), benchmark, base) : null;
+    const lastB = benchmark?.length ? benchmark[benchmark.length - 1]!.date : null;
+    if (me === null) put("ret_vs_nifty_3m", null, `no stored close on or before ${base} (3 months)`);
+    else if (nb === null || lastB !== asOf) put("ret_vs_nifty_3m", null, lastB ? `Nifty 50 closes end ${lastB}, the stock's ${asOf}` : "no Nifty 50 closes stored");
+    else put("ret_vs_nifty_3m", r2(me - nb));
+  }
   // 52 weeks: sessions after the same date a year earlier; needs the window covered by stored history
   const from = shift(asOf, 0, -12), first = onOrBefore(sessions, from);
   if (first < 0) { put("pct_from_52w_high", null, `stored closes start after ${from}`); put("pct_from_52w_low", null, `stored closes start after ${from}`); }
@@ -94,6 +107,10 @@ export function priceFeatures(sessions: readonly Session[], factors: readonly { 
     put("avg_turnover_20d_cr", t.some((x) => x === null) ? null : r2((t as number[]).reduce((a, b) => a + b, 0) / 20 / 1e7), "turnover not filed for a session");
     const v = s20.reduce((a, s) => a + s.volume, 0) / 20;
     put("volume_vs_20d", v > 0 ? r2(sessions[last]!.volume / v) : null, "no volume in the last 20 sessions");
+    // delivery % (D65): deliverable quantity ÷ traded quantity over the 20 sessions, every session must carry it
+    const dq = s20.map((x) => x.deliverableQty), vol = s20.reduce((a, x) => a + x.volume, 0);
+    put("delivery_pct_20d", dq.some((x) => x == null) ? null : vol > 0 ? r2((dq as number[]).reduce((a, b) => a + b, 0) / vol * 100) : null,
+      dq.some((x) => x == null) ? "delivery quantity not stored for a session of the last 20" : "no volume in the last 20 sessions");
   }
   return { asOf, rows: out };
 }
