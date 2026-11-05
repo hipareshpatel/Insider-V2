@@ -1,6 +1,7 @@
 // disclo-filings Worker (M2): loads canonical results from XBRL in R2 into the filings DB, every few minutes.
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
+import { SQL_FEATURES_OF, buildFeatures } from "./features.js";
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, nbfcBalanceSheets, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { loadEvents, loadPitXbrl } from "./events.js";
@@ -106,6 +107,7 @@ export default {
       let r: unknown;
       if (name === "bscf_backfill") r = await backfillBsCf(ldeps, 60, 20_000);
       else if (name === "nbfc_bs") r = await nbfcBalanceSheets(ldeps, 40, 20_000); // item 5: Division III balance-sheet lines
+      else if (name === "features") r = await buildFeatures(ldeps, 25, new URL(req.url).searchParams.get("restart") === "1"); // D171 feature table
       else if (name === "version_backfill") {
         // focus companies only (owner #343), company by company over ix_filing_sec (was: a GROUP BY over all of filing per call)
         const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
@@ -274,6 +276,14 @@ export default {
         not_in_layout: { pl: left(pl.values, plRows), bs: left(bs.values, bsRows), cf: left(cf.values, cfRows) },
         periods: { pl: span(pl.kind, true), bs: span(bs.kind, false), cf: span(cf.kind, true) },
         pl: plRows, bs: bsRows, cf: cfRows }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/features") {
+      // D171 (read-only): one company's stored feature-table values (computed from filed figures, with their inputs)
+      const u = new URL(req.url), sym = u.searchParams.get("symbol") ?? "", field = u.searchParams.get("field");
+      const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
+      if (!sid) return Response.json({ error: "symbol" }, { status: 400 });
+      const rows = (await env.DB_FILINGS.prepare(SQL_FEATURES_OF).bind(sid, field ?? "").all()).results;
+      return Response.json({ symbol: sym, rows }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/coverage-gaps") {
       // Work list item 2: coverage gaps of the focus companies by class (coverage_gap.status, set by /maint/coverage_classify)
