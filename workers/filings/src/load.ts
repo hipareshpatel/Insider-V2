@@ -1,7 +1,7 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, NBFC_REVENUE_NEW, statementDetail, type Sql, type XbrlInstance, add, balanceAndCash, batchAll, cmp, sub, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, CF_UNTAGGED_OK, NBFC_REVENUE_NEW, statementDetail, type Sql, type XbrlInstance, add, balanceAndCash, batchAll, cmp, sub, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
 
 export interface Deps {
   filings: Sql;
@@ -379,7 +379,11 @@ export async function loadBsCf(inst: XbrlInstance, sid: number, template: string
   const detailRows = (st: "bs" | "cf", d: typeof det.bs, end: string, k: string) => {
     if (!d || !Object.keys(d.lines).length) return;
     const bad = d.checks.filter((c) => !c.ok);
-    if (bad.length) { notes.push(`${st} detail not loaded: ${bad.map((c) => c.name).join(", ")}`); return; }
+    // D167 (b), owner #363: when only the adjustment lines fall short of the filed total adjustments and every section
+    // total reconciles (≥ 3 checks pass), the filed lines load; the shortfall is shown as a labelled line, never stored
+    const untagged = st === "cf" && bad.length === 1 && bad[0]!.name === CF_UNTAGGED_OK && d.checks.filter((c) => c.ok).length >= 3;
+    if (bad.length && !untagged) { notes.push(`${st} detail not loaded: ${bad.map((c) => c.name).join(", ")}`); return; }
+    if (untagged) notes.push(`cf detail loaded with untagged adjustments (${bad[0]!.detail})`);
     for (const [tag, value] of Object.entries(d.lines)) rows.push([sid, template, st, `x:${tag}`, "", end, k, basis, "original", value, null, disclosedAt, filingId, tag, "reported", "detail-v1"]);
   };
   if (template === "insurance") {
@@ -619,6 +623,44 @@ export async function nbfcRevenueLines(deps: Deps, limit = 40, budgetMs = 20_000
       for (const [end, kind] of periods) await versionPeriod(deps.filings, sid, end, kind, q.basis);
       return { rows: out.length, note: notes.length ? `; ${notes.join("; ")}` : "" };
     });
+}
+
+/** D167 (b), owner #363: stored results files (2024 on) of the focus companies whose cash-flow totals are loaded but
+ *  whose line-by-line detail is not (the adjustments check held it back) are read again; their filed lines load when
+ *  only the adjustments fall short (inserts only). Picked by primary-key prefix: filings with a 'cfo' row and no
+ *  operating-cash-flow detail row. Cursor by company in ('once','cf_untagged'). */
+export const SQL_CF_TOTALS_FILINGS = "SELECT DISTINCT filing_id FROM fin_value WHERE security_id = ?1 AND statement = 'cf' AND line = ?2 AND +period_end >= '2024-01-01'";
+export async function cfUntaggedPass(deps: Deps, limit = 30, budgetMs = 20_000) {
+  const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='cf_untagged'");
+  const cur = st ? JSON.parse(st.detail) as { sids: number[]; i: number; files: number; loaded: number; rows: number; done: boolean }
+    : { sids: [] as number[], i: 0, files: 0, loaded: 0, rows: 0, done: false };
+  if (cur.done) return { done: true, companies: cur.sids.length, at: cur.i, files: cur.files, loaded: cur.loaded, rows: cur.rows, notes: [] as string[] };
+  if (!st) cur.sids = deps.focus ? (await deps.market.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?))", [JSON.stringify(deps.focus)])).map((r) => r.security_id).sort((a, b) => a - b) : [];
+  const t0 = Date.now(), notes: string[] = [];
+  let n = 0;
+  while (cur.i < cur.sids.length && n < limit && Date.now() - t0 < budgetMs) {
+    const sid = cur.sids[cur.i]!;
+    const tot = new Set((await deps.filings.all<{ filing_id: number }>(SQL_CF_TOTALS_FILINGS, [sid, "cfo"])).map((r) => r.filing_id));
+    for (const r of await deps.filings.all<{ filing_id: number }>(SQL_CF_TOTALS_FILINGS, [sid, "x:CashFlowsFromUsedInOperatingActivities"])) tot.delete(r.filing_id);
+    for (const id of tot) {
+      const [f] = await deps.filings.all<{ filing_id: number; basis: string; disclosed_at: string; source_url: string }>("SELECT filing_id, basis, disclosed_at, source_url FROM filing WHERE filing_id = ?1", [id]);
+      if (!f) continue;
+      n++; cur.files++;
+      const xml = await deps.getText(`att/${new URL(f.source_url).pathname.replace(/^\/corporate\//, "")}`).catch(() => null);
+      if (!xml) { notes.push(`${sid} ${id}: file not stored`); continue; }
+      try {
+        const inst = parseXbrl(xml);
+        const b = await loadBsCf(inst, sid, TEMPLATE[canonicalResult(inst).template], f.basis, f.disclosed_at, f.filing_id, deps);
+        cur.rows += b.rows;
+        if (/cf detail loaded with untagged/.test(b.note)) cur.loaded++;
+        if (b.note) notes.push(`${sid} ${id}${b.note}`.slice(0, 160));
+      } catch (e) { notes.push(`${sid} ${id}: ${String(e).slice(0, 80)}`); }
+    }
+    cur.i++;
+  }
+  cur.done = cur.i >= cur.sids.length;
+  await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','cf_untagged',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
+  return { done: cur.done, companies: cur.sids.length, at: cur.i, files: cur.files, loaded: cur.loaded, rows: cur.rows, notes: notes.slice(0, 30) };
 }
 
 /** Item 5: banks' and insurers' cash-flow detail (read since this change) for their stored results files from 2024. The

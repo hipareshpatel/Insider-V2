@@ -153,6 +153,24 @@ export interface Detail { bs: DetailStatement | null; cf: DetailStatement | null
 const TOL = dec("100000"); // ₹1 lakh, as everywhere (filings round to lakh/crore)
 function within(l: Dec, r: Dec) { const d = sub(l, r); return cmp(d.units < 0n ? { units: -d.units, scale: d.scale } : d, TOL) <= 0; }
 
+/** D167 (owner #343, built as option (b), owner #363): the part of a cash flow's total adjustments that the filing does
+ *  not itemise = filed total adjustments − its tagged adjustment lines (signed as in CF_ADJUSTMENTS). Computed when shown,
+ *  never stored (D170); null when the lines add up (±₹1 lakh) or the total is not filed. `lines` keyed by bare tag. */
+export function cfAdjustmentGap(lines: Record<string, string | null | undefined>): string | null {
+  const t = lines.AdjustmentsForReconcileProfitLoss;
+  if (t == null || t === "") return null;
+  let sum = dec("0");
+  for (const [k, sg] of Object.entries(CF_ADJUSTMENTS)) {
+    const x = lines[k];
+    if (x == null || x === "" || (FALLBACK[k] ?? []).some((f) => lines[f] != null)) continue;
+    sum = sg > 0 ? add(sum, dec(x)) : sub(sum, dec(x));
+  }
+  const gap = sub(dec(t), sum);
+  return cmp(gap.units < 0n ? { units: -gap.units, scale: gap.scale } : gap, dec("100000")) <= 0 ? null : toText(gap);
+}
+/** The only cash-flow check D167 lets through: the adjustment lines do not add up, every section total does. */
+export const CF_UNTAGGED_OK = "operating adjustments = total adjustments";
+
 /** Every listed line with a value in the statement's context (zeros kept: reported 0 ≠ not reported), plus checks. */
 export function statementDetail(inst: XbrlInstance, bsCtx: string | null, cfCtx: string | null): Detail {
   const pf = inst.facts.find((x) => /:DateOfEndOfReportingPeriod$/.test(x.tag))?.tag.split(":")[0] ?? "in-bse-fin";
