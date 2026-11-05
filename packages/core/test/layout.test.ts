@@ -36,6 +36,14 @@ describe("D157 statement layout (Schedule III Div II, industrial)", () => {
     expect(rows.find((x) => x.key === "x:Inventories")?.level).toBe(2);
     expect(rows.some((x) => x.value === null && !rows.some((y) => y.level > x.level))).toBe(false);
   });
+  it("marks deducted lines with sign −1 and keeps the filed value; hideZeros drops zero rows only", () => {
+    const rows = layoutStatement(CF_INDUSTRIAL, { "x:CashFlowsFromUsedInInvestingActivities": "-40", "x:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities": "50",
+      "x:InterestReceivedClassifiedAsInvestingActivities": "10", "x:PurchaseOfGoodwillClassifiedAsInvestingActivities": "0" }, { hideZeros: true });
+    expect(rows.find((r) => r.key === "x:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities")).toMatchObject({ value: "50", sign: -1 });
+    expect(rows.find((r) => r.key === "x:InterestReceivedClassifiedAsInvestingActivities")?.sign).toBeUndefined();
+    expect(rows.some((r) => r.key === "x:PurchaseOfGoodwillClassifiedAsInvestingActivities")).toBe(false);
+    expect(layoutStatement(CF_INDUSTRIAL, { "x:PurchaseOfGoodwillClassifiedAsInvestingActivities": "0" }).length).toBe(2);
+  });
   it("labels unlabelled tags readably", () => {
     expect(tagLabel("x:TradeReceivablesCurrent")).toBe("Trade receivables current");
   });
