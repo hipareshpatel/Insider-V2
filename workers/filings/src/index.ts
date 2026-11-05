@@ -7,7 +7,7 @@ import { loadEvents, loadPitXbrl } from "./events.js";
 import { shpCoverage } from "./shpcov.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
-import { BS_INDUSTRIAL, CF_INDUSTRIAL, PL_INDUSTRIAL, derivedPl, layoutStatement, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
+import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; WRITE_SOFT_CAP?: string; WRITE_HARD_CAP?: string; WRITE_CAP_MONTH?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string; STATUS_TOKEN?: string; DAILY_READ_CAP?: string }
 
@@ -260,10 +260,14 @@ export default {
       const span = (k: string | null, flow: boolean) => (k === null ? null : flow ? `${months[k] ?? k} to ${period}` : `as at ${period}`);
       // Stored lines the layout has no place for are listed, never silently dropped (completeness check per template).
       const placed = (rs: { key: string }[]) => new Set(rs.map((r) => r.key));
-      const plRows = [...layoutStatement(PL_INDUSTRIAL, pl.values), ...derivedPl(pl.values)];
-      const bsRows = layoutStatement(BS_INDUSTRIAL, bs.values, { hideZeros: true }), cfRows = layoutStatement(CF_INDUSTRIAL, cf.values, { hideZeros: true });
-      const left = (vals: Record<string, string | null>, rs: { key: string }[]) => { const p = placed(rs); return Object.fromEntries(Object.entries(vals).filter(([k, v]) => !p.has(k) && v !== null && !/^-?0*(\.0*)?$/.test(v))); };
-      return Response.json({ symbol: sym, period, basis, kind, stored_template: [...new Set(rows.map((r) => r.template))], layout: "industrial (Schedule III Div II)",
+      const lay = chooseLayout(rows.find((r) => r.statement === "pl")?.template ?? rows[0]?.template ?? null, pl.values);
+      const plRows = [...layoutStatement(lay.pl, pl.values), ...derivedPl(pl.values, lay.name)];
+      const bsRows = layoutStatement(lay.bs, bs.values, { hideZeros: true });
+      // line-by-line cash flow where it was loaded (x: tags), else the named totals every template stores
+      const cfRows = layoutStatement(Object.keys(cf.values).some((k) => k.startsWith("x:")) ? CF_INDUSTRIAL : CF_SUMMARY, cf.values, { hideZeros: true });
+      // where the line-by-line detail (x: tags) is stored, the named summary lines duplicate it and are not listed
+      const left = (vals: Record<string, string | null>, rs: { key: string }[]) => { const p = placed(rs), detail = Object.keys(vals).some((k) => k.startsWith("x:")); return Object.fromEntries(Object.entries(vals).filter(([k, v]) => !p.has(k) && (!detail || k.startsWith("x:")) && v !== null && !/^-?0*(\.0*)?$/.test(v))); };
+      return Response.json({ symbol: sym, period, basis, kind, stored_template: [...new Set(rows.map((r) => r.template))], layout: lay.label,
         not_in_layout: { pl: left(pl.values, plRows), bs: left(bs.values, bsRows), cf: left(cf.values, cfRows) },
         periods: { pl: span(pl.kind, true), bs: span(bs.kind, false), cf: span(cf.kind, true) },
         pl: plRows, bs: bsRows, cf: cfRows }, { headers: { "cache-control": "no-store" } });
