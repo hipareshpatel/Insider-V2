@@ -445,8 +445,9 @@ export async function loadFy(inst: XbrlInstance, q: CanonicalResult, sid: number
   if (fy.checks.length < 2 || (failed.length && !onlyBreakdown)) return { rows: 0, note: `; FY not loaded: ${failed.map((c) => c.name).join(", ") || "too few checks"}` };
   const qv = Number(q.lines[core[0]!]), fv = Number(fy.lines[core[0]!]);
   // a full year outside 1–12× its last quarter loads only when the file's own profit ÷ shares matches its filed EPS for
-  // the year (amounts in the right unit; holding / investment companies with a dividend-light last quarter, TATAINVEST)
-  if (qv > 0 && fv > 0 && (fv / qv < 1 || fv / qv > 12) && !epsConsistent(inst, fy)) return { rows: 0, note: `; FY not loaded: FY ÷ ${q.periodKind === "H" ? "half-year" : "quarter"} ${(fv / qv).toFixed(2)}` };
+  // the year, or its profit ÷ EPS matches the nearest loaded full year's share count (amounts in the right unit;
+  // holding / investment companies with a dividend-light last quarter: TATAINVEST FY25, BAJAJFINSV FY25 standalone)
+  if (qv > 0 && fv > 0 && (fv / qv < 1 || fv / qv > 12) && !epsConsistent(inst, fy) && !(await sharesConsistent(deps, sid, fy))) return { rows: 0, note: `; FY not loaded: FY ÷ ${q.periodKind === "H" ? "half-year" : "quarter"} ${(fv / qv).toFixed(2)}` };
   const rows = [
     ...Object.entries(fy.lines).map(([line, value]) => [sid, TEMPLATE[fy.template], "pl", line, "", fy.periodEnd, "FY", fy.basis, "original", value, null, disclosedAt, filingId, line, "reported", "results-fy-v1"]),
     ...Object.entries(nulls).map(([line, reason]) => [sid, TEMPLATE[fy.template], "pl", line, "", fy.periodEnd, "FY", fy.basis, "original", null, reason, disclosedAt, filingId, line, "reported", "results-fy-v1"]),
