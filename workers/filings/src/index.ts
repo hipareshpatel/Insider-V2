@@ -5,7 +5,7 @@ import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS } from "./events.js";
-import { shpCoverage } from "./shpcov.js";
+import { shpCoverage, promoterGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
 import { ratingCoverage } from "./ratingcov.js";
 import { readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
@@ -375,6 +375,20 @@ export default {
         by_year: (await env.DB_FILINGS.prepare(SQL_INSIDER_YEARS).bind(list).all()).results,
         new_system_all: (await env.DB_FILINGS.prepare(SQL_PITX_SYMBOLS).all()).results[0],
       }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/promoter-groups") {
+      // D40 (read-only): companies of the 250 that name the same promoter entity in their latest shareholding filing.
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      const ids = (await env.DB_MARKET.prepare("SELECT security_id, min(value) AS symbol FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) GROUP BY security_id").bind(JSON.stringify(focus ?? [])).all<{ security_id: number; symbol: string }>()).results;
+      const sym = new Map(ids.map((r) => [r.security_id, r.symbol]));
+      const rows = (await env.DB_FILINGS.prepare(SQL_PROMOTER_HOLDERS).bind(JSON.stringify([...sym.keys()])).all<{ security_id: number; category: string; holder_name: string; pct: string | null }>()).results;
+      const cats: Record<string, number> = {};
+      for (const r of rows) cats[r.category] = (cats[r.category] ?? 0) + 1;
+      const groups = promoterGroups(rows, sym);
+      const inGroup = new Set(groups.flatMap((g) => g.companies));
+      const withPromoterEntity = new Set(rows.filter((r) => /promoter/i.test(r.category)).map((r) => r.security_id));
+      return Response.json({ companies: sym.size, holder_rows: rows.length, holder_categories: cats, companies_with_named_promoters: withPromoterEntity.size,
+        groups: groups.length, companies_in_groups: inGroup.size, list: groups }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/segments") {
       // D47 live check (read-only): one company's stored segment results for one period end, per period kind, with the

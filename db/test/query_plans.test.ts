@@ -13,7 +13,7 @@ import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED,
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
-import { SQL_SHP_FILES, SQL_SHP_LISTS } from "../../workers/filings/src/shpcov.js";
+import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS } from "../../workers/filings/src/shpcov.js";
 import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
 import { SQL_FOCUS } from "../../packages/core/src/focus.js";
 
@@ -80,6 +80,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: the 250's credit ratings from 2026 (owner #365, read-only)", SQL_RATINGS_SINCE, ['["INFY"]', 20260101], /ix_credit_rating_symbol \(symbol=\? AND rated_on>\?\)/],
   ["filings: the 250's insider trades per year (owner #365, read-only)", SQL_INSIDER_YEARS, ['["INFY"]'], /ix_insider_symbol \(symbol=\? AND from_d>\?\)/],
   ["filings: new-system insider rows, all companies (owner #365, read-only)", SQL_PITX_SYMBOLS, [], /SEARCH insider_trade USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_insider_trade_1) \(key>\? AND key<\?\)/],
+  ["filings: named promoter holders of the 250, latest filing (D40, read-only)", SQL_PROMOTER_HOLDERS, ['[1,2]'], /ix_shareholding_sec \(security_id=\?/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 
