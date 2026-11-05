@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
-import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS } from "../../workers/filings/src/load.js";
+import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS } from "../../workers/filings/src/load.js";
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT } from "../../workers/filings/src/events.js";
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
@@ -70,6 +70,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: is this period loaded from this filing (NBFC revenue pass, item 5)", SQL_FILING_PERIOD_LOADED, [1, "2026-09-30", "Q", "consolidated", 9], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
   ["filings: one company's stored segments for one period (D47 live check, read-only)", SQL_SEGMENT_ROWS, [1, "2026-09-30", "consolidated"], /USING (PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\?\)/],
   ["filings: one company's periods with stored segments (D47 live check, read-only)", SQL_SEGMENT_PERIODS, [1], /USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\? AND line=\?\)/],
+  ["filings: nearest periods' profit and EPS (scale-guard release, per held file)", SQL_NEAREST_PAT_EPS, [1, "standalone", "Q", "2026-06-30"], /USING (PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\? AND line=\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 

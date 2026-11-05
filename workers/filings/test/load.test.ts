@@ -195,6 +195,30 @@ describe("scale-guard release by the file's own EPS (owner #353)", () => {
   });
 });
 
+describe("scale-guard release by the share count of the nearest loaded period (2.12, BAJAJFINSV swapped share fields)", () => {
+  // the file's paid-up capital is mis-filed, so the in-file EPS check fails; profit ÷ EPS still gives the real share count
+  const swapped = xml.replace(/(PaidUpValueOfEquityShareCapital contextRef="[^"]*"[^>]*>)[^<]+/g, "$110000000");
+  const run = async (sharesFactor: number) => {
+    const { epsConsistent } = await import("../src/load.js");
+    expect(epsConsistent(parseXbrl(swapped), canonicalResult(parseXbrl(swapped)))).toBe(false);
+    const r = canonicalResult(parseXbrl(swapped));
+    const shares = Number(r.lines.pat) / Number(r.lines.eps_basic) * sharesFactor;
+    const t = setup({ "att/xbrl/a.xml": swapped, "api/results_quarterly/INFY/x.json": list });
+    t.filings.raw.exec(`INSERT INTO filing (filing_id,security_id,kind,disclosed_at,source_url) VALUES (99,7,'results_quarterly','2024-10-17T00:00:00Z','old');
+      INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,disclosed_at,filing_id,origin,extractor_version) VALUES
+      (7,'industrial','pl','revenue','','2024-09-30','Q','standalone','original','3409000000','2024-10-17T00:00:00Z',99,'reported','t'),
+      (7,'industrial','pl','pat','','2024-09-30','Q','standalone','original','${Math.round(shares * 10)}','2024-10-17T00:00:00Z',99,'reported','t'),
+      (7,'industrial','pl','eps_basic','','2024-09-30','Q','standalone','original','10','2024-10-17T00:00:00Z',99,'reported','t')`);
+    return (await loadBatch(t.deps))[0]!;
+  };
+  it("loads when profit ÷ EPS matches the nearest period's share count", async () => {
+    expect(await run(1.01)).toMatchObject({ status: "loaded" });
+  });
+  it("stays held when the implied share count is far off (amounts in the wrong unit)", async () => {
+    expect((await run(100)).detail).toMatch(/^scale guard:/);
+  });
+});
+
 describe("C65: a quarterly file whose own contexts carry mis-typed dates (SIEMENS Q2 FY25, owner #353)", () => {
   const F = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_INFY_IF_Q2FY27_cons_full.xml"), "utf8");
   // OneD and the reporting-start fact both say 2025-07-01: a 15-month "quarter"
