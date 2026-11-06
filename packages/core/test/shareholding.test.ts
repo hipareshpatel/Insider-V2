@@ -18,6 +18,9 @@ describe("shareholding pattern (real filings, Sep 2026)", () => {
     expect(infy.categories.find((c) => c.category === "mutual_funds")?.shares).toBe(853161465);
     expect(infy.categories.find((c) => c.category === "fii")?.shares).toBe(1019626105);
   });
+  it("INFY: no pledge figure filed, declaration 'false' → pledged 0 from the declaration (readiness defect 2)", () => {
+    expect(infy.promoterEncumbrance).toMatchObject({ pledged: 0, pledgeDeclared: false, pledgedFrom: "declaration" });
+  });
   it("INFY: named holders paired by their own context (FMEA B4)", () => {
     const n = infy.namedHolders.find((h) => h.name === "NANDAN M NILEKANI");
     expect(n).toMatchObject({ shares: 40789562, pct: "0.0101", filedPct: "0.011" });

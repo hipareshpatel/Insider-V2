@@ -27,7 +27,7 @@ export interface Shareholding {
   asOf: string;
   totalShares: number;
   categories: CategoryHolding[];      // promoter, public, non_promoter_non_public + sub-categories
-  promoterEncumbrance: { encumbered: number | null; nonDisposal: number | null; other: number | null; pledged: number | null; pctOfPromoterHolding: string | null } ;
+  promoterEncumbrance: { encumbered: number | null; nonDisposal: number | null; other: number | null; pledged: number | null; pctOfPromoterHolding: string | null; pledgeDeclared?: boolean | null; pledgedFrom?: "figures" | "declaration" | null } ;
   namedHolders: NamedHolder[];
   checks: { name: string; ok: boolean; detail: string }[];
 }
@@ -66,7 +66,14 @@ export function parseShareholding(inst: XbrlInstance, opts: { totalOverride?: nu
   const promoterCtx = byMember.get("ShareholdingOfPromoterAndPromoterGroup");
   const enc = num("NumberOfSharesEncumbered", promoterCtx), ndu = num("NumberOfSharesEncumberedUnderNonDisposalUndertaking", promoterCtx), oth = num("NumberOfSharesEncumberedUnderOtherEncumbrances", promoterCtx);
   const pledgedTag = num("NumberOfSharesPledged", promoterCtx) ?? num("NumberOfSharesEncumberedUnderPledge", promoterCtx);
-  const pledged = pledgedTag ?? (enc !== null ? enc - (ndu ?? 0) - (oth ?? 0) : null);
+  const fromFigures = pledgedTag ?? (enc !== null ? enc - (ndu ?? 0) - (oth ?? 0) : null);
+  // Readiness map defect 2 (census 6 Nov: 199 of 247 latest files carry no pledge figure, 0 figures missed): every file
+  // answers "Whether any shares held by promoters are encumbered under pledge" (true / false). A "false" with no figure
+  // means nothing is pledged — 0, sourced to the declaration; a "true" with no figure stays unknown.
+  const declared = (tag: string) => { const v = inst.facts.find((f) => f.tag === P + tag && !f.nil)?.value?.trim().toLowerCase(); return v === "true" ? true : v === "false" ? false : null; };
+  const pledgeDeclared = declared("WhetherAnySharesHeldByPromotersAreEncumberedUnderPledged") ?? declared("WhetherAnySharesHeldByPromotersAreEncumberedUnderPledgedForPromoterAndPromoterGroup");
+  const pledged = fromFigures ?? (pledgeDeclared === false ? 0 : null);
+  const pledgedFrom: "figures" | "declaration" | null = fromFigures !== null ? "figures" : pledged !== null ? "declaration" : null;
 
   // Named holders: name in a duration context, shares in the instant context with the same typed member (B4).
   const namedHolders: NamedHolder[] = [];
@@ -94,7 +101,7 @@ export function parseShareholding(inst: XbrlInstance, opts: { totalOverride?: nu
   ];
   return {
     symbol: meta("Symbol"), asOf, totalShares, categories,
-    promoterEncumbrance: { encumbered: enc, nonDisposal: ndu, other: oth, pledged, pctOfPromoterHolding: promoterCtx ? fact("EncumberedSharesHeldAsPercentageOfTotalNumberOfShares", promoterCtx) : null },
+    promoterEncumbrance: { encumbered: enc, nonDisposal: ndu, other: oth, pledged, pctOfPromoterHolding: promoterCtx ? fact("EncumberedSharesHeldAsPercentageOfTotalNumberOfShares", promoterCtx) : null, pledgeDeclared, pledgedFrom },
     namedHolders, checks,
   };
 }
