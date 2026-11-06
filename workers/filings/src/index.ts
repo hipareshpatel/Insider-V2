@@ -11,7 +11,7 @@ import { ownershipStep } from "./ownership.js";
 import { eventStep } from "./eventfeatures.js";
 import { parseSymbolsParam, ratingCoverage, ratingsOfSymbols } from "./ratingcov.js";
 import { fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
-import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
+import { SQL_BASIS_LISTS, basisLists, classifyGaps, ifListKeeps, ifListSince, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
 import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
@@ -236,8 +236,10 @@ export default {
       // type, revision remarks, dates, XBRL link) — to see whether a revised/restated filing exists for a period.
       const q = new URL(req.url).searchParams, sym = q.get("symbol") ?? "";
       // optional filters (the full answer passes the 20 kB ops print limit): ?kind=integrated_financials, ?since=2026
-      // keeps rows that carry a date in that year or later
-      const onlyKind = q.get("kind"), since = Number(q.get("since") ?? 0);
+      // (or ?since=2025-03-31) keeps rows whose own period end (qe_Date / toDate) is on or after it (G19: it used to
+      // keep any row carrying a year that late anywhere, and every row's list_fetched date did)
+      const onlyKind = q.get("kind"), since = ifListSince(q.get("since"));
+      if (since === "bad") return new Response("since: a year (2026) or a date (2025-03-31)", { status: 400 });
       const lists = (await env.DB_FILINGS.prepare("SELECT job_id, kind, url, r2_key, fetched_at FROM fetch_job WHERE symbol=?1 AND kind IN ('integrated_financials','results_quarterly','results_annual') AND status='done' ORDER BY job_id").bind(sym).all<{ job_id: number; kind: string; url: string; r2_key: string; fetched_at: string }>()).results
         .filter((l) => !onlyKind || l.kind === onlyKind);
       const rows: Record<string, unknown>[] = [];
@@ -249,7 +251,7 @@ export default {
         for (const r of arr) {
           const pick: Record<string, unknown> = { list: l.kind, list_fetched: l.fetched_at?.slice(0, 10) };
           for (const [k, v] of Object.entries(r)) if (v !== null && v !== "" && /period|qe_?date|todate|fromdate|audited|consol|cumulative|type|revis|remark|broadcast|filingdate|xbrl|date|nature|seq|relating/i.test(k)) pick[k] = typeof v === "string" ? v.slice(0, 140) : v;
-          if (since && !Object.values(pick).some((v) => typeof v === "string" && [...v.matchAll(/\b(20\d\d)\b/g)].some((m) => Number(m[1]) >= since))) continue;
+          if (!ifListKeeps(r, since)) continue;
           rows.push(pick);
         }
       }
@@ -319,11 +321,11 @@ export default {
       return Response.json(await linkAudit(d1Sql(env.DB_FILINGS), d1Sql(env.DB_MARKET), focus ?? []), { headers: { "cache-control": "no-store" } });
     }
     if (path === "/gap-census") {
-      // log #385/#386 (read-only): what is stored where owners' profit, NCI or promoter holding is missing
+      // log #385/#386 (read-only): what is stored where owners' profit, NCI or promoter holding is missing; late_start (G19): focus companies whose stored quarterly results begin after the coverage floor
       const u = new URL(req.url), period = u.searchParams.get("period") ?? "2026-09-30", offset = Math.max(0, Number(u.searchParams.get("offset") ?? 0)), limit = Math.min(125, Math.max(1, Number(u.searchParams.get("limit") ?? 125)));
       const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
       const ids = (await env.DB_MARKET.prepare("SELECT security_id, min(value) AS symbol FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) GROUP BY security_id ORDER BY security_id").bind(JSON.stringify(focus ?? [])).all<{ security_id: number; symbol: string }>()).results;
-      return Response.json(await gapCensus(d1Sql(env.DB_FILINGS), ids.slice(offset, offset + limit).map((r) => ({ sid: r.security_id, symbol: r.symbol })), period), { headers: { "cache-control": "no-store" } });
+      return Response.json(await gapCensus(d1Sql(env.DB_FILINGS), ids.slice(offset, offset + limit).map((r) => ({ sid: r.security_id, symbol: r.symbol })), period, d1Sql(env.DB_MARKET)), { headers: { "cache-control": "no-store" } });
     }
     if (path === "/readiness-fields") {
       // owner #384 (read-only): every computed field across the 250 — with a value, latest period with a value, top reasons

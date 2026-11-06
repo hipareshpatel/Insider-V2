@@ -2,6 +2,8 @@
 // the D168 floor. Read-only. One indexed probe per company and area (primary-key or index prefix), so a call reads a
 // few thousand rows, plus one pass over the feature table.
 import type { Sql } from "@disclo/core";
+import { COVERAGE_FLOOR } from "./load.js";
+import { SQL_SYMBOLS_OF_SID } from "./eventfeatures.js";
 
 export const FIN_PROBES: Record<string, string> = {
   pl: "SELECT 1 AS ok FROM fin_value WHERE security_id = ?1 AND statement = 'pl' AND +period_end >= ?2 LIMIT 1",
@@ -88,7 +90,55 @@ export async function fieldReadiness(filings: Sql, market: Sql, sids: number[]) 
 export const SQL_GAP_LINES = `SELECT statement, line FROM fin_value INDEXED BY ix_fin_value_period
   WHERE security_id = ?1 AND period_end = ?2 AND +basis = 'consolidated' AND +dims = '' AND +statement IN ('pl','bs') GROUP BY statement, line`;
 export const SQL_GAP_SHP = "SELECT f.period_end, s.category FROM filing f JOIN shareholding s ON s.filing_id = f.filing_id AND s.holder_name = '' WHERE f.security_id = ?1 AND f.kind = 'shareholding' AND f.period_end = (SELECT max(period_end) FROM filing WHERE security_id = ?1 AND kind = 'shareholding')";
-export async function gapCensus(db: Sql, sids: { sid: number; symbol: string }[], period: string) {
+// G19 (log #399): late starters — a company whose stored quarterly results begin after the first quarter end on/after
+// the coverage floor, though it was listed by then. No coverage_gap row names these (the gap pass only sees quarters
+// on NSE lists we stored, and the older list was never fetched), so the hole was silent. Per company: one probe at the
+// first quarter end (ix_fin_value_period, ≈ 1 row); only when it misses, the earliest stored quarter (same index walked
+// from the oldest period end, stops at the first quarterly P&L row) and — for the late ones — the listing date and the
+// company's per-company results lists in the ledger.
+export const SQL_LATE_Q_AT = "SELECT 1 AS ok FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND period_end = ?2 AND period_kind = 'Q' AND +statement = 'pl' LIMIT 1";
+export const SQL_LATE_FIRST_Q = "SELECT period_end FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND +period_kind = 'Q' AND +statement = 'pl' ORDER BY period_end LIMIT 1";
+// market: security.listed_on (NSE listing date; no loader fills it yet), else the earliest stored daily price (history
+// starts at the floor, D2), by primary key
+export const SQL_LISTED_ON = "SELECT listed_on FROM security WHERE security_id = ?1";
+export const SQL_FIRST_PRICE = "SELECT d FROM price_daily WHERE security_id = ?1 ORDER BY d LIMIT 1";
+export const LATE_LIST_KINDS = ["results_quarterly", "results_annual", "integrated_financials"] as const;
+export const SQL_LATE_LISTS = `SELECT kind, status, url, fetched_at FROM fetch_job WHERE symbol IN (SELECT value FROM json_each(?1)) AND kind IN ('${LATE_LIST_KINDS.join("','")}')`;
+/** The first calendar quarter end on or after `floor` (YYYY-MM-DD). */
+export function firstQuarterEnd(floor: string): string {
+  const y = Number(floor.slice(0, 4));
+  for (const md of ["03-31", "06-30", "09-30", "12-31"]) if (`${y}-${md}` >= floor) return `${y}-${md}`;
+  return `${y + 1}-03-31`;
+}
+const ymd = (d: number) => { const s = String(d); return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`; };
+export type LateStart = { symbol: string; earliest_quarter: string | null; listed: string | null; listed_source: "listed_on" | "first_price" | null;
+  lists: { kind: string; status: string; jobs: number; last_fetched: string | null; earliest_from: string | null }[] };
+export async function lateStart(filings: Sql, market: Sql, c: { sid: number; symbol: string }, floor = COVERAGE_FLOOR): Promise<LateStart | { symbol: string; listed: string; excluded: "listed after the first quarter end" } | null> {
+  const q0 = firstQuarterEnd(floor);
+  if ((await filings.all(SQL_LATE_Q_AT, [c.sid, q0])).length) return null;
+  const earliest = (await filings.all<{ period_end: string }>(SQL_LATE_FIRST_Q, [c.sid]))[0]?.period_end ?? null;
+  if (earliest !== null && earliest <= q0) return null; // starts on time; a hole at q0 itself is a coverage gap
+  const on = (await market.all<{ listed_on: string | null }>(SQL_LISTED_ON, [c.sid]))[0]?.listed_on ?? null;
+  const px = on ? null : (await market.all<{ d: number }>(SQL_FIRST_PRICE, [c.sid]))[0]?.d ?? null;
+  const listed = on ?? (px ? ymd(px) : null);
+  if (listed && listed > q0) return { symbol: c.symbol, listed, excluded: "listed after the first quarter end" };
+  const syms = (await market.all<{ value: string }>(SQL_SYMBOLS_OF_SID, [c.sid])).map((r) => r.value);
+  const jobs = await filings.all<{ kind: string; status: string; url: string; fetched_at: string | null }>(SQL_LATE_LISTS, [JSON.stringify(syms.length ? syms : [c.symbol])]);
+  const g = new Map<string, LateStart["lists"][number]>();
+  for (const j of jobs) {
+    const k = `${j.kind}|${j.status}`, e = g.get(k) ?? { kind: j.kind, status: j.status, jobs: 0, last_fetched: null, earliest_from: null };
+    e.jobs++;
+    if (j.fetched_at && (!e.last_fetched || j.fetched_at > e.last_fetched)) e.last_fetched = j.fetched_at;
+    // from_date=DD-MM-YYYY on dated list URLs; a URL without one asks for the whole list ("all")
+    const m = /from_date=(\d{2})-(\d{2})-(\d{4})/.exec(j.url), from = m ? `${m[3]}-${m[2]}-${m[1]}` : "all";
+    if (!e.earliest_from || from === "all" || (e.earliest_from !== "all" && from < e.earliest_from)) e.earliest_from = from;
+    g.set(k, e);
+  }
+  return { symbol: c.symbol, earliest_quarter: earliest, listed, listed_source: on ? "listed_on" : px ? "first_price" : null, lists: [...g.values()].sort((a, b) => `${a.kind}|${a.status}`.localeCompare(`${b.kind}|${b.status}`)) };
+}
+
+export async function gapCensus(db: Sql, sids: { sid: number; symbol: string }[], period: string, market: Sql, floor = COVERAGE_FLOOR) {
+  const late: LateStart[] = [], recent: { symbol: string; listed: string }[] = [];
   const owners: { symbol: string; lines: string[] }[] = [], nci: { symbol: string; bs_lines: number; minority_interest: boolean; has_owners_equity: boolean }[] = [], promoter: { symbol: string; as_of: string | null; categories: string[] }[] = [];
   for (const c of sids) {
     const rows = await db.all<{ statement: string; line: string }>(SQL_GAP_LINES, [c.sid, period]);
@@ -97,8 +147,11 @@ export async function gapCensus(db: Sql, sids: { sid: number; symbol: string }[]
     if (bs.length && !bs.includes("x:NonControllingInterest")) nci.push({ symbol: c.symbol, bs_lines: bs.length, minority_interest: bs.includes("minority_interest"), has_owners_equity: bs.includes("equity_owners") || bs.includes("x:EquityAttributableToOwnersOfParent") });
     const sh = await db.all<{ period_end: string; category: string }>(SQL_GAP_SHP, [c.sid]);
     if (!sh.some((r) => r.category === "promoter")) promoter.push({ symbol: c.symbol, as_of: sh[0]?.period_end ?? null, categories: [...new Set(sh.map((r) => r.category))] });
+    const ls = await lateStart(db, market, c, floor);
+    if (ls && "excluded" in ls) recent.push({ symbol: ls.symbol, listed: ls.listed }); else if (ls) late.push(ls);
   }
-  return { period, companies: sids.length, owners_missing: owners, nci_missing: nci, promoter_missing: promoter };
+  return { period, companies: sids.length, owners_missing: owners, nci_missing: nci, promoter_missing: promoter,
+    late_start: { floor, first_quarter_end: firstQuarterEnd(floor), rule: "earliest stored quarterly P&L (any basis) is after the first quarter end on/after the floor, or none is stored; and listed (security.listed_on, else first stored daily price) on/before that quarter end", companies: late, listed_after: recent } };
 }
 
 // Owner #388: is every stored row of company data linked to a company? Tables keyed by NSE symbol (not security_id)

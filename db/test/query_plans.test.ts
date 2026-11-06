@@ -246,3 +246,19 @@ describe("recurring queries read only what they need (C56)", () => {
     for (const sql of old) expect(plan(F, sql, Array((sql.match(/\?/g) ?? []).length).fill(null)).some(bad), sql).toBe(true);
   });
 });
+
+describe("/gap-census late_start (G19, read-only): index-backed per company", async () => {
+  const r = await import("../../workers/filings/src/readiness.js");
+  it.each([
+    ["filings: a quarterly P&L row at the first quarter end", F, r.SQL_LATE_Q_AT, [1, "2024-03-31"], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\?\)/],
+    ["filings: the earliest stored quarterly P&L (index order, no sort)", F, r.SQL_LATE_FIRST_Q, [1], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\?\)/],
+    ["filings: the company's per-company results lists in the ledger", F, r.SQL_LATE_LISTS, ['["INFY"]'], /SEARCH fetch_job USING INDEX ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/],
+    ["market: listing date by primary key", M, r.SQL_LISTED_ON, [1], /SEARCH security USING INTEGER PRIMARY KEY \(rowid=\?\)/],
+    ["market: the first stored daily price by primary key", M, r.SQL_FIRST_PRICE, [1], /SEARCH price_daily USING PRIMARY KEY \(security_id=\?\)/],
+  ] as [string, DatabaseSync, string, unknown[], RegExp][])("%s", (_n, db, sql, params, want) => {
+    const p = plan(db, sql, params);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /TEMP B-TREE/.test(l)), p.join("\n")).toBe(false);
+    expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
+  });
+});
