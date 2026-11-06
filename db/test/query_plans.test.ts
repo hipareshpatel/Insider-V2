@@ -257,6 +257,7 @@ describe("recurring queries read only what they need (C56)", () => {
 describe("/gap-census late_start (G19, read-only): index-backed per company", async () => {
   const r = await import("../../workers/filings/src/readiness.js");
   it.each([
+    ["filings: /lines, one company's named lines from a period end (G14)", F, r.SQL_LINES_OF, [1, "2025-06-30", '["gross_npa"]'], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\? AND period_end>\?\)/],
     ["filings: a quarterly P&L row at the first quarter end", F, r.SQL_LATE_Q_AT, [1, "2024-03-31"], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\?\)/],
     ["filings: the earliest stored quarterly P&L (index order, no sort)", F, r.SQL_LATE_FIRST_Q, [1], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\?\)/],
     ["filings: the company's per-company results lists in the ledger", F, r.SQL_LATE_LISTS, ['["INFY"]'], /SEARCH fetch_job USING INDEX ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/],

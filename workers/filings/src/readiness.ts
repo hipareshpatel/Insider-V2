@@ -180,3 +180,7 @@ export async function linkAudit(filings: Sql, market: Sql, focusSymbols: string[
   }
   return out;
 }
+
+/** Read-only `/lines` (G14): one company's stored figures for named lines from a period end on (all bases, versions). */
+export const SQL_LINES_OF = `SELECT period_end, period_kind, basis, version, statement, line, value, null_reason, disclosed_at FROM fin_value INDEXED BY ix_fin_value_period
+  WHERE security_id = ?1 AND period_end >= ?2 AND +line IN (SELECT value FROM json_each(?3)) ORDER BY period_end DESC LIMIT 400`;

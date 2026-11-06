@@ -10,7 +10,7 @@ import type { Sql } from "@disclo/core";
 import { ownershipStep } from "./ownership.js";
 import { eventStep } from "./eventfeatures.js";
 import { parseSymbolsParam, ratingCoverage, ratingsOfSymbols } from "./ratingcov.js";
-import { fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
+import { SQL_LINES_OF, fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, SQL_IF_LIST_ALL, SQL_IF_LIST_OWN, basisLists, classifyGaps, ifListKeeps, ifListSince, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
 import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
@@ -546,6 +546,17 @@ export default {
           pl_revenue_cr: pl.filter((r) => r.period_kind === k).map((r) => Number(r.value) / 1e7)[0] ?? null };
       });
       return Response.json({ symbol: sym, sid, period, basis, periods_stored: periods, kinds }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/lines") {
+      // Read-only (G14): one company's stored figures for up to 12 named lines, from a period end on, every basis and
+      // version, e.g. /lines?symbol=CANBK&lines=gross_npa,net_npa,gnpa_pct&since=2025-06-30
+      const u = new URL(req.url), sym = u.searchParams.get("symbol") ?? "", since = u.searchParams.get("since") ?? "2025-01-01";
+      const lines = (u.searchParams.get("lines") ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 12);
+      if (!lines.length || !/^\d{4}-\d{2}-\d{2}$/.test(since)) return Response.json({ error: "lines=a,b&since=YYYY-MM-DD" }, { status: 400 });
+      const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
+      if (!sid) return Response.json({ error: "unknown symbol" }, { status: 404 });
+      const rows = (await env.DB_FILINGS.prepare(SQL_LINES_OF).bind(sid, since, JSON.stringify(lines)).all()).results;
+      return Response.json({ symbol: sym, security_id: sid, since, lines, rows }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/features") {
       // D171 (read-only): one company's stored feature-table values (computed from filed figures, with their inputs)
