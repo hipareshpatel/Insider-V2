@@ -290,7 +290,10 @@ describe("gap census fixes (6 Nov)", () => {
     const mixed = qs.map((q, i) => (i < 2 ? { ...q, lines: { ...q.lines, pat_owners: "10" } } : q));
     const bs = new Map([["2026-09-30", { "x:Equity": "500", "x:EquityAttributableToOwnersOfParent": "500" }]]);
     expect(companyFeatures(mixed, bs, "consolidated", "industrial").find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("40");
-    const differs = qs.map((q, i) => (i < 2 ? { ...q, lines: { ...q.lines, pat_owners: "9" } } : q));
+    // rounding difference (₹50,000 on ₹10 crore) still counts as equal
+    const rounded = qs.map((q, i) => ({ ...q, lines: { ...q.lines, pat: "100000000", ...(i < 2 ? { pat_owners: "100050000" } : {}) } }));
+    expect(companyFeatures(rounded, bs, "consolidated", "industrial").find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("400100000"); // two filed (100,050,000) + two filled (100,000,000)
+    const differs = qs.map((q, i) => ({ ...q, lines: { ...q.lines, pat: "100000000", ...(i < 2 ? { pat_owners: "90000000" } : {}) } })); // a real minority: 10 % to NCI
     expect(companyFeatures(differs, bs, "consolidated", "industrial").find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBeNull();
   });
   it("NCI = total equity − equity to owners when no NCI line is filed", () => {
