@@ -31,9 +31,9 @@ def good_xhr(url):
 
 
 class Rules(unittest.TestCase):
-    def run_(self, fake, sleeps=None):
+    def run_(self, fake, sleeps=None, robots=False):
         sl = [] if sleeps is None else sleeps
-        s, code = p.run(fake, date(2026, 11, 6), sleep=sl.append)
+        s, code = p.run(fake, date(2026, 11, 6), sleep=sl.append, respect_robots=robots)
         return s, code, sl
 
     def test_identifiable_user_agent_is_the_one_the_owner_named(self):
@@ -44,8 +44,9 @@ class Rules(unittest.TestCase):
         f = Fake(xhr=good_xhr)
         s, code, sleeps = self.run_(f)
         self.assertEqual(code, 0)
-        self.assertEqual(f.kinds(), ["robots", "robots", "home"] + ["xhr"] * 6)       # 2 robots + 1 page + 6 data requests
-        self.assertEqual(sleeps, [5.0] * 8)                                           # fixed interval between every call, none before the first
+        self.assertEqual(f.kinds(), ["home"] + ["xhr"] * 6)                           # D172: no robots request; 1 page + 6 data requests
+        self.assertEqual(sleeps, [5.0] * 6)                                           # fixed interval between every call, none before the first
+        self.assertEqual(s["robots"], {"read": False})
         a = s["checks"]["A_all_companies_1_to_10_oct_2026"]
         self.assertEqual((a["rows"], a["distinct_securities"], a["reference_claimed_rows"]), (30, 30, 368))
         b = s["checks"]["B_per_name_3_may_to_today"]
@@ -54,6 +55,23 @@ class Rules(unittest.TestCase):
         self.assertEqual(b["Tata Consultancy (532540)"]["rows"], 0)
         self.assertEqual(b["Reliance Industries (500325)"]["nse_pit_gg_filings_3may_to_5nov"], 2)
 
+    def test_robots_txt_is_not_read_by_default_even_if_it_would_refuse_or_disallow(self):
+        f = Fake(robots=((403, ""), (200, "User-agent: *\nDisallow: /\n")), xhr=good_xhr)
+        s, code, _ = self.run_(f)
+        self.assertEqual(code, 0); self.assertNotIn("robots", f.kinds())
+
+    def test_opt_in_robots_gate_still_works(self):
+        f = Fake(xhr=good_xhr)
+        s, code, sleeps = self.run_(f, robots=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(f.kinds(), ["robots", "robots", "home"] + ["xhr"] * 6); self.assertEqual(sleeps, [5.0] * 8)
+
+    def test_a_refusal_on_the_data_request_still_stops_whether_or_not_robots_is_read(self):
+        # D172 removes the robots.txt gate only. A 403 on a data request is a refusal and still halts at once.
+        f = Fake(xhr=lambda url: (403, "", ""))
+        s, code, _ = self.run_(f)
+        self.assertEqual(code, 2); self.assertEqual(f.kinds(), ["home", "xhr"])
+
     def test_no_person_name_is_ever_in_the_output(self):
         s, _, _ = self.run_(Fake(xhr=good_xhr))
         self.assertNotIn("SOME PERSON", json.dumps(s))
@@ -61,24 +79,24 @@ class Rules(unittest.TestCase):
     def test_robots_disallow_stops_before_any_page_or_data_request(self):
         rules = "User-agent: DiscloBot\nDisallow: /BseIndiaAPI/\n"
         f = Fake(robots=((404, ""), (200, rules)))
-        s, code, _ = self.run_(f)
+        s, code, _ = self.run_(f, robots=True)
         self.assertEqual(code, 2)
         self.assertIn("robots.txt disallows", s["stopped"]["why"])
         self.assertEqual(f.kinds(), ["robots", "robots"])
 
     def test_a_generic_disallow_for_all_agents_also_binds_us(self):
         f = Fake(robots=((200, "User-agent: *\nDisallow: /\n"), (404, "")))
-        s, code, _ = self.run_(f)
+        s, code, _ = self.run_(f, robots=True)
         self.assertEqual(code, 2); self.assertEqual(f.kinds(), ["robots", "robots"])
 
     def test_robots_refused_or_unreachable_stops(self):
         for status in (403, 429, 503, 0):
             f = Fake(robots=((status, ""), (404, "")))
-            s, code, _ = self.run_(f)
+            s, code, _ = self.run_(f, robots=True)
             self.assertEqual(code, 2, status); self.assertEqual(f.kinds(), ["robots"])
 
     def test_a_robots_url_that_returns_a_web_page_publishes_no_rules(self):
-        s, code, _ = self.run_(Fake(robots=((200, "<html>app</html>"), (200, "<html>app</html>")), xhr=good_xhr))
+        s, code, _ = self.run_(Fake(robots=((200, "<html>app</html>"), (200, "<html>app</html>")), xhr=good_xhr), robots=True)
         self.assertEqual(code, 0); self.assertFalse(s["robots"]["www.bseindia.com"]["has_rules"])
 
     def test_refused_home_page_or_challenge_page_stops_before_data(self):

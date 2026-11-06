@@ -2,10 +2,14 @@ name: bse-insider-probe
 
 # Manual dispatch (once this file is on the default branch). Read-only cross-check: does BSE's insider CSV hold filings for
 # HDFCBANK, ICICIBANK, KOTAKBANK, TCS and RELIANCE, for which NSE's list holds 0, 0, 0, 0 and 2 since 3 May 2026?
-# Rules: identifiable user-agent (DiscloBot/1.0), fixed 5 s interval, robots.txt read first and binding, stop at once on any
-# refusal or challenge. 9 requests in all. Prints company-level counts only: no person names, and NOTHING is uploaded or stored.
-# Terms of use are not checked by the tool; that reading is the owner's.
+# Rules: identifiable user-agent (DiscloBot/1.0), fixed 5 s interval, stop at once on any refusal or challenge (nothing else is
+# tried). robots.txt is not read (owner decision D172, 6 Nov). 7 requests in all. Prints company-level counts only: no person
+# names, and NOTHING is uploaded or stored. Terms of use are not checked by the tool; that reading is the owner's.
 on:
+  # TEMPORARY (6 Nov, second run under D172): runs once when this file is pushed to the PR branch. Remove after the result is read.
+  push:
+    branches: [ccr-e03ed666-9h1ii2]
+    paths: [".github/workflows/bse-insider-probe.yml"]
   workflow_dispatch:
 
 permissions:

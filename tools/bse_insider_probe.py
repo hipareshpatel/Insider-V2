@@ -6,20 +6,21 @@ if BSE's insider CSV holds filings for these names, NSE's list is incomplete; if
 
 Rules (owner, 6 Nov, "Fill the insider-trading gap"): standard Playwright with an IDENTIFIABLE user-agent, fixed gentle
 intervals, no circumvention of any kind (no proxy rotation, no CAPTCHA handling, no automation-hiding flags, no header
-mimicry). robots.txt is read first and is a hard gate. Any 401/403/429, any challenge page, or anything that is not the
-expected CSV stops the run at once (exit 2); nothing else is tried.
+mimicry). robots.txt is NOT read and NOT a gate (owner decision D172, 6 Nov); `--respect-robots` turns the old gate back on.
+What does NOT change: any 401/403/429, any challenge page, or anything that is not the expected CSV stops the run at once
+(exit 2); nothing else is tried. A refusal is a refusal whether or not robots.txt is read.
 
 What it asks (BSE's own page calls these; the request is an XHR made from inside a www.bseindia.com page):
-  robots.txt of www.bseindia.com and api.bseindia.com; the BSE home page; then
+  the BSE home page (and, only with --respect-robots, robots.txt of both hosts); then
   api.bseindia.com/BseIndiaAPI/api/Corp_Regulation_DownloadCSV_ng/w?scripCode=&Regulation=&fromDT=&ToDate=&Isdefault=2
   A. all companies, 1-10 Oct 2026 (replicates the reference repo's published count of 368 rows)
   B. one request per name, 3 May 2026 -> today: 5 requests
-Total: 2 robots + 1 page + 6 data requests, 5 s apart.
+Total: 1 page + 6 data requests, 5 s apart (+2 robots requests with --respect-robots).
 
 Output: JSON of counts and dates per COMPANY only. Names of persons are never printed or stored; no file is written.
 Terms of use are NOT checked by this tool: that reading is the owner's.
 
-    python3 tools/bse_insider_probe.py [--to YYYY-MM-DD]      exit 0 ok · 2 blocked/refused · 3 failed
+    python3 tools/bse_insider_probe.py [--to YYYY-MM-DD] [--respect-robots]      exit 0 ok · 2 blocked/refused · 3 failed
 """
 import argparse, csv, io, json, os, re, sys, time
 from datetime import date, datetime
@@ -118,8 +119,8 @@ def aggregate(text):
                   "oldest_reported": min(days).isoformat() if days else None, "newest_reported": max(days).isoformat() if days else None}
 
 
-def run(sess, to_day, sleep=time.sleep, interval=INTERVAL_SECONDS):
-    summary = {"user_agent": UA, "interval_seconds": interval, "robots": {}, "home": None, "checks": {}}
+def run(sess, to_day, sleep=time.sleep, interval=INTERVAL_SECONDS, respect_robots=False):
+    summary = {"user_agent": UA, "interval_seconds": interval, "robots": {"read": respect_robots}, "home": None, "checks": {}}
     calls = [0]
 
     def pace():
@@ -128,28 +129,29 @@ def run(sess, to_day, sleep=time.sleep, interval=INTERVAL_SECONDS):
         calls[0] += 1
 
     try:
-        # 1. robots.txt is a hard gate
-        parsers = {}
-        for url in ROBOTS:
-            pace()
-            status, text = sess.robots(url)
-            host = urlparse(url).netloc
-            if status in STOP_STATUSES or status >= 500 or status == 0:
-                raise Blocked(f"robots.txt of {host} answered {status}: access policy cannot be confirmed")
-            looks = status == 200 and re.search(r"(?im)^\s*user-agent\s*:", text) is not None
-            summary["robots"][host] = {"status": status, "has_rules": looks}
-            if looks:
-                rp = RobotFileParser()
-                rp.parse(text.splitlines())
-                parsers[host] = rp
-        targets = {"home page": HOME, "insider CSV": API + CSV_PATH}
-        summary["robots"]["can_fetch"] = {}
-        for label, url in targets.items():
-            rp = parsers.get(urlparse(url).netloc)
-            ok = True if rp is None else rp.can_fetch(BOT, url)
-            summary["robots"]["can_fetch"][label] = ok
-            if not ok:
-                raise Blocked(f"robots.txt disallows {label} for {BOT}")
+        # 1. robots.txt: not read and not a gate (D172) unless --respect-robots
+        if respect_robots:
+            parsers = {}
+            for url in ROBOTS:
+                pace()
+                status, text = sess.robots(url)
+                host = urlparse(url).netloc
+                if status in STOP_STATUSES or status >= 500 or status == 0:
+                    raise Blocked(f"robots.txt of {host} answered {status}: access policy cannot be confirmed")
+                looks = status == 200 and re.search(r"(?im)^\s*user-agent\s*:", text) is not None
+                summary["robots"][host] = {"status": status, "has_rules": looks}
+                if looks:
+                    rp = RobotFileParser()
+                    rp.parse(text.splitlines())
+                    parsers[host] = rp
+            targets = {"home page": HOME, "insider CSV": API + CSV_PATH}
+            summary["robots"]["can_fetch"] = {}
+            for label, url in targets.items():
+                rp = parsers.get(urlparse(url).netloc)
+                ok = True if rp is None else rp.can_fetch(BOT, url)
+                summary["robots"]["can_fetch"][label] = ok
+                if not ok:
+                    raise Blocked(f"robots.txt disallows {label} for {BOT}")
         # 2. the page the XHR will come from
         pace()
         status, page = sess.home()
@@ -201,12 +203,13 @@ def run(sess, to_day, sleep=time.sleep, interval=INTERVAL_SECONDS):
 def main(argv=None, session=None, sleep=time.sleep):
     ap = argparse.ArgumentParser()
     ap.add_argument("--to", default=date.today().isoformat())
+    ap.add_argument("--respect-robots", action="store_true", help="read robots.txt first and stop if it disallows (off by default, D172)")
     a = ap.parse_args(argv)
     sess = session or PlaywrightSession()
     if session is None:
         sess.start()
     try:
-        summary, code = run(sess, date.fromisoformat(a.to), sleep=sleep)
+        summary, code = run(sess, date.fromisoformat(a.to), sleep=sleep, respect_robots=a.respect_robots)
     finally:
         sess.close()
     print(json.dumps(summary, indent=2))
