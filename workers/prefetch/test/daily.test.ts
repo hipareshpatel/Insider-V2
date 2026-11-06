@@ -118,6 +118,23 @@ describe("universe lock and insider XBRL (owner 4 Nov; audit P0)", () => {
   });
 });
 
+describe("insider gap: all-company PIT list by month, 1 Apr 2025 -> 2 May 2026", async () => {
+  const { pitMonths, seedPitAllMonths } = await import("../src/daily.js");
+  it("14 months, the last cut at 2 May 2026; no symbol; queued once", async () => {
+    const m = pitMonths();
+    expect(m[0]).toEqual(["2025-04-01", "2025-04-30"]);
+    expect(m[10]).toEqual(["2026-02-01", "2026-02-28"]);
+    expect(m[m.length - 1]).toEqual(["2026-05-01", "2026-05-02"]);
+    expect(m).toHaveLength(14);
+    const db = sqlite("filings");
+    expect(await seedPitAllMonths(db, new Date("2026-11-06T02:00:00Z"))).toBe(14);
+    expect(await seedPitAllMonths(db, new Date("2026-11-06T02:00:00Z"))).toBe(0);
+    const [j] = await db.all<{ url: string; kind: string; symbol: string | null }>("SELECT url, kind, symbol FROM fetch_job WHERE r2_key = 'api/pit/all/2025-04-01_2025-04-30.json'");
+    expect(j).toMatchObject({ kind: "pit", symbol: null });
+    expect(j!.url).toMatch(/corporates-pit\?index=equities&from_date=01-04-2025&to_date=30-04-2025$/);
+  });
+});
+
 describe("item 7: insider-trade lists by calendar quarter (NSE's dated PIT list answers about a year)", async () => {
   const { pitWindows, seedPitWindows } = await import("../src/daily.js");
   it("quarters from 2022-Q1 to 2 May 2026; one call per focus company per quarter, queued once", async () => {
