@@ -158,7 +158,16 @@ const ownersLine = (layout: string) => (layout === "bank" ? "pat_after_minority"
  *  balance sheets (`balanceSheets`, by date). `layout` as chosen by chooseLayout. Pure: the caller stores the rows. */
 /** `cashFlows`: full-year cash-flow lines by year end (period kind FY), for capex and free cash flow. */
 export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string, cashFlows: Map<string, Record<string, string | null | undefined>> = new Map()): FeatureRow[] {
-  const qs = periods.filter((p) => p.periodKind === QUARTER_KIND && p.basis === basis).sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+  // gap census (6 Nov, 12 companies): a consolidated filer with no minority anywhere — no profit-to-NCI line in any
+  // quarter and no NCI line in any balance sheet — files no owners' line either; its profit to owners is its net profit
+  const ownersKey = basis === "standalone" ? "pat" : ownersLine(layout);
+  const noMinority = basis !== "standalone" && ownersKey === "pat_owners"
+    && !periods.some((p) => p.basis === basis && (p.lines.pat_owners != null || p.lines.pat_nci != null))
+    // positive evidence only: at least one balance sheet with its equity filed, and none with an NCI line
+    && [...balanceSheets.values()].some((b) => (b["x:Equity"] ?? b.total_equity) != null)
+    && ![...balanceSheets.values()].some((b) => b["x:NonControllingInterest"] != null || b.minority_interest != null);
+  const qs = periods.filter((p) => p.periodKind === QUARTER_KIND && p.basis === basis).sort((a, b) => a.periodEnd.localeCompare(b.periodEnd))
+    .map((p) => (noMinority && p.lines.pat != null ? { ...p, lines: { ...p.lines, pat_owners: p.lines.pat } } : p));
   const by = new Map(qs.map((q) => [q.periodEnd, q]));
   const out: FeatureRow[] = [];
   const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
@@ -236,7 +245,12 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       const eo = eq(bsEnd);
       put("equity_owners", e, eo != null ? ok(dec(eo), [`balance sheet ${e}`]) : no(`balance sheet ${e}: equity to owners not filed`));
       put("net_debt", e, netDebt(bsEnd, layout, e));
-      put("nci", e, bsEnd["x:NonControllingInterest"] != null ? ok(dec(bsEnd["x:NonControllingInterest"]!), [`balance sheet ${e}`]) : basis === "standalone" ? ok(dec("0"), [`balance sheet ${e}`], "standalone: no minority") : no(`balance sheet ${e}: non-controlling interest not filed`));
+      const totEq = bsEnd["x:Equity"] ?? bsEnd.total_equity, ownEq = bsEnd["x:EquityAttributableToOwnersOfParent"] ?? bsEnd.equity_owners;
+      put("nci", e, bsEnd["x:NonControllingInterest"] != null ? ok(dec(bsEnd["x:NonControllingInterest"]!), [`balance sheet ${e}`])
+        : basis === "standalone" ? ok(dec("0"), [`balance sheet ${e}`], "standalone: no minority")
+        // gap census (6 Nov, 18 companies): no NCI line but both equity lines filed — NCI = total equity − equity to owners
+        : totEq != null && ownEq != null ? ok(sub(dec(totEq), dec(ownEq)), [`balance sheet ${e}`], "total equity − equity to owners (no NCI line filed)")
+        : no(`balance sheet ${e}: non-controlling interest not filed`));
       put("roe", e, roe(poT, eq(bsStart), eq(bsEnd)));
       // §6: ROA = TTM net profit (whole group, as the assets are the group's) ÷ average total assets (D52 average capital)
       put("roa", e, roa(pT, bsStart ?? null, bsEnd));
@@ -263,7 +277,52 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       : dec(fyPat).units <= 0n ? no(`full year to ${end}: net profit is zero or a loss`)
       : ok(div(dec(cfo), dec(fyPat), 2), [`cash flow FY to ${end}`, `P&L FY to ${end}`]));
   }
+  if (layout === "bank") out.push(...bankFeatures(qs, balanceSheets, basis));
+  if (noMinority && qs.length) put("owners_profit_source", "latest", { value: "net profit", from: [], note: "no minority interest filed in any period: profit to owners = net profit" });
   if (qs.length) put("layout", "latest", { value: layout, from: [] });
+  return out;
+}
+
+/** Bank pack (owner, 6 Nov: "must have bank specific one for bank"). Third Schedule lines as filed; every ratio says
+ *  what it was built from. Net interest margin here is COMPUTED (TTM NII ÷ average interest-earning assets at the two
+ *  balance-sheet dates a year apart) and is not the bank's own reported NIM; CASA, slippages and restructured book are
+ *  not in the results filings and are not offered. */
+export function bankFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string): FeatureRow[] {
+  const out: FeatureRow[] = [];
+  const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
+  const by = new Map(qs.map((q) => [q.periodEnd, q]));
+  const nii = (e: string): View => { const q = by.get(e), a = v(q, "interest_earned"), b = v(q, "interest_expended"); return a && b ? ok(sub(a, b), [e]) : no(`quarter ${e} (${basis}): interest earned and interest expended must be filed`); };
+  const sum4 = (f: (e: string) => View, end: string): View => { let s = dec("0"), e = end; const from: string[] = []; for (let i = 0; i < 4; i++) { const x = f(e); if (x.value === null) return x; s = add(s, dec(x.value)); from.push(e); e = previousQuarterEnd(e); } return ok(s, from.reverse()); };
+  const lineQ = (k: string) => (e: string): View => { const x = v(by.get(e), k); return x ? ok(x, [e]) : no(`quarter ${e} (${basis}) has no filed ${k}`); };
+  const filedPct = (k: string, e: string): View => lineQ(k)(e);
+  const bsv = (d: string, k: string) => { const x = balanceSheets.get(d)?.[k]; return x != null ? dec(x) : null; };
+  for (const q of qs) {
+    const e = q.periodEnd, ya = yearBefore(e);
+    const n = nii(e);
+    put("nii_q", e, n);
+    put("nii_yoy_q", e, growth(n, nii(ya), "NII YoY"));
+    put("ppop_q", e, lineQ("operating_profit")(e));
+    put("ppop_yoy_q", e, growth(lineQ("operating_profit")(e), lineQ("operating_profit")(ya), "operating profit YoY"));
+    put("gnpa_pct_q", e, filedPct("gnpa_pct", e));
+    put("nnpa_pct_q", e, filedPct("nnpa_pct", e));
+    put("cet1_ratio_q", e, filedPct("cet1_ratio", e));
+    const g = v(q, "gross_npa"), nn = v(q, "net_npa");
+    put("pcr_q", e, g && nn ? (g.units > 0n ? ok(div(mul(sub(g, nn), dec("100")), g, 2), [e], "provision coverage = (gross NPA − net NPA) ÷ gross NPA; excludes technical write-offs") : no(`quarter ${e}: gross NPA is zero`)) : no(`quarter ${e} (${basis}): gross and net NPA amounts must be filed`));
+    const niiT = sum4(nii, e), oiT = sum4(lineQ("other_income"), e), opexT = sum4(lineQ("operating_expenses"), e), provT = sum4(lineQ("provisions"), e);
+    put("nii_ttm", e, niiT);
+    put("cost_to_income_ttm", e, niiT.value === null ? niiT : oiT.value === null ? oiT : pct(opexT, ok(add(dec(niiT.value), dec(oiT.value)), [...niiT.from]), "cost to income"));
+    // balance-sheet dates (half-year and year end): credit cost, computed NIM, loan / deposit growth, CD ratio
+    if (balanceSheets.has(e)) {
+      const avg = (k: string[]) => { const a = k.reduce<Dec | null>((s, x) => { const y = bsv(e, x); return s && y ? add(s, y) : null; }, dec("0")), b = k.reduce<Dec | null>((s, x) => { const y = bsv(ya, x); return s && y ? add(s, y) : null; }, dec("0")); return averageOf(a, b); };
+      const adv = avg(["advances"]), iea = avg(["advances", "investments", "cash_rbi", "balances_banks"]);
+      put("credit_cost_ttm", e, provT.value === null ? provT : adv ? pct(provT, ok(adv, [`balance sheets ${ya}, ${e}`]), "credit cost") : no(`advances must be filed at ${ya} and ${e}`));
+      put("nim_computed_ttm", e, niiT.value === null ? niiT : iea ? { ...pct(niiT, ok(iea, [`balance sheets ${ya}, ${e}`]), "NIM"), note: "computed: TTM NII ÷ average of advances + investments + cash with RBI + balances with banks; not the bank's reported NIM" } as View : no(`advances, investments, cash with RBI and balances with banks must be filed at ${ya} and ${e}`));
+      const a1 = bsv(e, "advances"), a0 = bsv(ya, "advances"), d1 = bsv(e, "deposits"), d0 = bsv(ya, "deposits");
+      put("advances_yoy", e, a1 && a0 ? growth(ok(a1, [`balance sheet ${e}`]), ok(a0, [`balance sheet ${ya}`]), "advances YoY") : no(`advances must be filed at ${ya} and ${e}`));
+      put("deposits_yoy", e, d1 && d0 ? growth(ok(d1, [`balance sheet ${e}`]), ok(d0, [`balance sheet ${ya}`]), "deposits YoY") : no(`deposits must be filed at ${ya} and ${e}`));
+      put("cd_ratio", e, a1 && d1 && d1.units > 0n ? ok(div(mul(a1, dec("100")), d1, 2), [`balance sheet ${e}`]) : no(`advances and deposits must be filed at ${e}`));
+    }
+  }
   return out;
 }
 

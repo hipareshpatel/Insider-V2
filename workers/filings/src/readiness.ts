@@ -93,3 +93,30 @@ export async function gapCensus(db: Sql, sids: { sid: number; symbol: string }[]
   }
   return { period, companies: sids.length, owners_missing: owners, nci_missing: nci, promoter_missing: promoter };
 }
+
+// Owner #388: is every stored row of company data linked to a company? Tables keyed by NSE symbol (not security_id)
+// can hold rows under a symbol no company carries (a rename not recorded, a placeholder, a typo) — those rows never
+// reach a company page. Read-only, manual: one grouped pass over each table's symbol index, then one identifier lookup.
+export const LINK_TABLES_FILINGS = ["insider_trade", "sast_disclosure", "board_meeting", "credit_rating"] as const;
+export const LINK_TABLES_MARKET = ["deal", "surveillance", "price_band", "fo_ban", "corp_action_extra"] as const;
+const SQL_SYMBOL_COUNTS = (t: string) => `SELECT symbol, count(*) AS n FROM ${t} GROUP BY symbol`;
+export const SQL_KNOWN_SYMBOLS = "SELECT DISTINCT value FROM security_identifier WHERE id_type = 'nse_symbol' AND value IN (SELECT value FROM json_each(?1))";
+export async function linkAudit(filings: Sql, market: Sql, focusSymbols: string[]) {
+  const focus = new Set(focusSymbols), out: Record<string, unknown> = {};
+  for (const [db, tables] of [[filings, LINK_TABLES_FILINGS], [market, LINK_TABLES_MARKET]] as const) {
+    for (const t of tables) {
+      const counts = await db.all<{ symbol: string | null; n: number }>(SQL_SYMBOL_COUNTS(t));
+      const syms = counts.map((c) => c.symbol ?? "").filter(Boolean);
+      const known = new Set<string>();
+      for (let i = 0; i < syms.length; i += 500) for (const r of await market.all<{ value: string }>(SQL_KNOWN_SYMBOLS, [JSON.stringify(syms.slice(i, i + 500))])) known.add(r.value);
+      const orphan = counts.filter((c) => !c.symbol || !known.has(c.symbol)).sort((a, b) => b.n - a.n);
+      out[t] = {
+        rows: counts.reduce((a, c) => a + c.n, 0), symbols: counts.length,
+        focus_symbols_with_rows: counts.filter((c) => c.symbol && focus.has(c.symbol)).length,
+        orphan_rows: orphan.reduce((a, c) => a + c.n, 0), orphan_symbols: orphan.length,
+        orphan_top: orphan.slice(0, 25).map((c) => ({ symbol: c.symbol, n: c.n })),
+      };
+    }
+  }
+  return out;
+}
