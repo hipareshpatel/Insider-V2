@@ -9,7 +9,7 @@ import { shpCoverage, pledgeCensus, pledgeDeclaredPass, promoterGroups, shpPromo
 import type { Sql } from "@disclo/core";
 import { ownershipStep } from "./ownership.js";
 import { eventStep } from "./eventfeatures.js";
-import { ratingCoverage } from "./ratingcov.js";
+import { parseSymbolsParam, ratingCoverage, ratingsOfSymbols } from "./ratingcov.js";
 import { fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
@@ -348,6 +348,15 @@ export default {
       // lists, by month (lists listed / loaded / stored-but-not-listed), with the first 40 missing.
       const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
       const issuers = await focusIssuers(d1Sql(env.DB_MARKET), focus ?? []);
+      // G11: ?symbols=SBIN,HINDZINC,TVSMOTOR (≤ 20) — per company instead of the totals (&lists=0: stored rows only)
+      const q = new URL(req.url).searchParams, sp = q.get("symbols");
+      if (sp !== null) {
+        const symbols = parseSymbolsParam(sp);
+        if (typeof symbols === "string") return Response.json({ error: symbols }, { status: 400, headers: { "cache-control": "no-store" } });
+        const meter: D1Meter = { rows: 0, reads: 0 };
+        const r = await ratingsOfSymbols(d1Sql(env.DB_FILINGS, meter), d1Sql(env.DB_MARKET, meter), (k) => getText(env.RAW, k), symbols, COVERAGE_FLOOR, issuers, { lists: q.get("lists") !== "0" });
+        return Response.json({ ...r, rows_read: meter.reads }, { headers: { "cache-control": "no-store" } });
+      }
       return Response.json({ issuers: issuers.issuer.size, names: issuers.names.size, ...(await ratingCoverage(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), focus ?? [], COVERAGE_FLOOR, issuers)) }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/shp-coverage") {
