@@ -279,29 +279,29 @@ describe("bank pack (owner 6 Nov)", () => {
 
 describe("gap census fixes (6 Nov)", () => {
   const qs = ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"].map((e) => ({ periodEnd: e, periodKind: "Q", basis: "consolidated", lines: { revenue: "100", pat: "10" } as Record<string, string> }));
-  it("no minority anywhere: profit to owners = net profit (labelled); not when an NCI line exists", () => {
-    const r = companyFeatures(qs, new Map([["2026-09-30", { "x:Equity": "500", "x:EquityAttributableToOwnersOfParent": "500" }]]), "consolidated", "industrial");
-    expect(r.find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("40");
+  const eqBs = (nci?: string) => new Map(["2025-09-30", "2026-03-31", "2026-09-30"].map((d) => [d, { "x:Equity": nci ? "520" : "500", "x:EquityAttributableToOwnersOfParent": "500", ...(nci ? { "x:NonControllingInterest": nci } : {}) }]));
+  const ttmAt = (r: ReturnType<typeof companyFeatures>) => r.find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value;
+  it("no minority on the quarter's balance sheet: profit to owners = net profit (labelled); not with an NCI on it", () => {
+    const r = companyFeatures(qs, eqBs(), "consolidated", "industrial");
+    expect(ttmAt(r)).toBe("40");
     expect(r.find((x) => x.field === "owners_profit_source")!.value).toBe("net profit");
-    const withNci = companyFeatures(qs, new Map([["2026-09-30", { "x:Equity": "520", "x:EquityAttributableToOwnersOfParent": "500", "x:NonControllingInterest": "20" }]]), "consolidated", "industrial");
-    expect(withNci.find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBeNull();
+    expect(ttmAt(companyFeatures(qs, eqBs("20"), "consolidated", "industrial"))).toBeNull();
+    // no balance sheet at all: no evidence, nothing assumed
+    expect(ttmAt(companyFeatures(qs, new Map(), "consolidated", "industrial"))).toBeNull();
   });
-  it("owners' line filed in older quarters (equal to net profit) then dropped: gaps filled; a different owners' figure blocks it", () => {
-    const mixed = qs.map((q, i) => (i < 2 ? { ...q, lines: { ...q.lines, pat_owners: "10" } } : q));
-    const bs = new Map([["2026-09-30", { "x:Equity": "500", "x:EquityAttributableToOwnersOfParent": "500" }]]);
-    expect(companyFeatures(mixed, bs, "consolidated", "industrial").find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("40");
-    // rounding difference (₹50,000 on ₹10 crore) still counts as equal
-    const rounded = qs.map((q, i) => ({ ...q, lines: { ...q.lines, pat: "100000000", ...(i < 2 ? { pat_owners: "100050000" } : {}) } }));
-    expect(companyFeatures(rounded, bs, "consolidated", "industrial").find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("400100000"); // two filed (100,050,000) + two filled (100,000,000)
-    const differs = qs.map((q, i) => ({ ...q, lines: { ...q.lines, pat: "100000000", ...(i < 2 ? { pat_owners: "90000000" } : {}) } })); // a real minority: 10 % to NCI
-    expect(companyFeatures(differs, bs, "consolidated", "industrial").find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBeNull();
+  it("filed owners' figures are kept; only missing quarters are filled", () => {
+    const mixed = qs.map((q, i) => ({ ...q, lines: { ...q.lines, pat: "100000000", ...(i < 2 ? { pat_owners: "100050000" } : {}) } }));
+    expect(ttmAt(companyFeatures(mixed, eqBs(), "consolidated", "industrial"))).toBe("400100000"); // two filed + two filled
   });
-  it("owners' profit filed as 0 with non-zero net profit (NESTLEIND) is not a figure: never used as 0, filled from net profit", () => {
-    const zeros = qs.map((q, i) => (i < 2 ? { ...q, lines: { ...q.lines, pat_owners: "0" } } : q));
-    const bs = new Map([["2026-09-30", { "x:Equity": "500", "x:EquityAttributableToOwnersOfParent": "500" }]]);
-    const r = companyFeatures(zeros, bs, "consolidated", "industrial");
-    expect(r.find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("40");
+  it("owners' profit filed as 0 with non-zero net profit (NESTLEIND, OBEROIRLTY) is not a figure: filled from net profit", () => {
+    const zeros = qs.map((q, i) => (i < 2 ? { ...q, lines: { ...q.lines, pat_owners: "0", pat_nci: "0" } } : q));
+    const r = companyFeatures(zeros, eqBs(), "consolidated", "industrial");
+    expect(ttmAt(r)).toBe("40");
     expect(r.find((x) => x.field === "pat_owners_q" && x.periodEnd === "2025-12-31")!.value).toBe("10");
+  });
+  it("insurer (IRDAI) with shareholders' funds and no minority line: profit to owners = net profit", () => {
+    const ins = new Map(["2025-09-30", "2026-03-31", "2026-09-30"].map((d) => [d, { "x:ShareholdersFunds": "500" }]));
+    expect(ttmAt(companyFeatures(qs.map((q) => ({ ...q, lines: { gross_premium: "100", pat: "10" } })), ins, "consolidated", "life_insurance"))).toBe("40");
   });
   it("NCI = total equity − equity to owners when no NCI line is filed", () => {
     const r = companyFeatures(qs.map((q) => ({ ...q, lines: { ...q.lines, pat_owners: "9" } })), new Map([["2026-09-30", { "x:Equity": "520", "x:EquityAttributableToOwnersOfParent": "500" }]]), "consolidated", "industrial");
