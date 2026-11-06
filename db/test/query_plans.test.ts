@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
 import { SQL_REQUEUE_LISTS } from "../../workers/prefetch/src/daily.js";
 import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, SQL_ORPHAN_RESTATED } from "../../workers/filings/src/load.js";
-import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS } from "../../workers/filings/src/events.js";
+import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS } from "../../workers/filings/src/events.js";
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
@@ -86,6 +86,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: latest shareholding filing of one company (D40 one-off)", SQL_LATEST_SHP, [1], /ix_filing_sec \(security_id=\? AND kind=\?\)/],
   ["filings: download of one file by URL (D40 one-off)", SQL_JOB_BY_URL, ["u"], /sqlite_autoindex_fetch_job_1 \(url=\?\)/],
   ["filings: promoter flag of one named holder (D40 one-off)", SQL_SET_PROMOTER, [1, 1, "holder:x", "y"], /USING (PRIMARY KEY|INDEX sqlite_autoindex_shareholding_1) \(filing_id=\? AND category=\? AND holder_name=\?\)/],
+  ["filings: stored announcement lists of one month (option 3, read-only)", SQL_ANNOUNCE_LISTS, ["announcements", "api/announcements/2026-01/", "api/announcements/2026-01/~"], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 

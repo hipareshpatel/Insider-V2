@@ -4,7 +4,7 @@ import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
-import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS } from "./events.js";
+import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS, isPitAnnouncement } from "./events.js";
 import { shpCoverage, promoterGroups, shpPromoterPass, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
 import { ratingCoverage } from "./ratingcov.js";
 import { readiness } from "./readiness.js";
@@ -396,6 +396,32 @@ export default {
       const flagged = new Set(rows.filter((r) => r.promoter != null).map((r) => r.security_id));
       return Response.json({ companies: sym.size, holder_rows: rows.length, holder_categories: cats, companies_with_named_promoters: withPromoterEntity.size, companies_flag_read: flagged.size,
         groups: groups.length, companies_in_groups: inGroup.size, list: groups }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/announce-pit") {
+      // Option 3 (read-only): insider-trading disclosures the 250 filed as announcements, from stored lists (R2), one
+      // month of lists per call (?month=2026-01), against the companies with no 2026 insider trades stored.
+      const u = new URL(req.url), month = u.searchParams.get("month") ?? "2026-01";
+      const focus = new Set((await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES)) ?? []);
+      const monthly = (await env.DB_FILINGS.prepare(SQL_ANNOUNCE_LISTS).bind("announcements", `api/announcements/${month}/`, `api/announcements/${month}/~`).all<{ job_id: number; r2_key: string }>()).results;
+      const counts = new Map<string, number>(), descs = new Map<string, number>();
+      let rows = 0, files = 0;
+      for (const j of monthly.slice(-1)) { // the latest copy of the month's list
+        const t = await getText(env.RAW, j.r2_key); if (!t) continue; files++;
+        let d: unknown; try { d = JSON.parse(t); } catch { continue; }
+        const list = (Array.isArray(d) ? d : ((d as { data?: unknown[] }).data ?? [])) as Record<string, unknown>[];
+        for (const r of list) {
+          rows++;
+          const sym = String(r.symbol ?? ""), desc = String(r.desc ?? ""), text = String(r.attchmntText ?? "");
+          if (!focus.has(sym) || !isPitAnnouncement(desc, text)) continue;
+          counts.set(sym, (counts.get(sym) ?? 0) + 1); descs.set(desc, (descs.get(desc) ?? 0) + 1);
+        }
+      }
+      const fromN = Number(`${month.replace("-", "")}01`);
+      const traded = new Set((await env.DB_FILINGS.prepare(SQL_INSIDER_SINCE).bind(JSON.stringify([...focus]), fromN).all<{ symbol: string }>()).results.map((r) => r.symbol));
+      const noTrades = [...focus].filter((s) => !traded.has(s));
+      return Response.json({ month, lists: monthly.length, files_read: files, rows, focus_companies_with_pit_announcements: counts.size,
+        of_those_without_stored_trades: noTrades.filter((s) => counts.has(s)).length, without_stored_trades: noTrades.length,
+        subjects: [...descs].sort((a, b) => b[1] - a[1]).slice(0, 15), sample: [...counts].sort((a, b) => b[1] - a[1]).slice(0, 25) }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/segments") {
       // D47 live check (read-only): one company's stored segment results for one period end, per period kind, with the
