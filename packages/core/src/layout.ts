@@ -182,6 +182,7 @@ export const PL_LIFE: LayoutNode[] = [
   n("persistency_13m", "Persistency, 13th month (filed, fraction)"), n("persistency_25m", "Persistency, 25th month (filed, fraction)"),
   n("persistency_37m", "Persistency, 37th month (filed, fraction)"), n("persistency_49m", "Persistency, 49th month (filed, fraction)"),
   n("persistency_61m", "Persistency, 61st month (filed, fraction)"), n("conservation_ratio", "Conservation ratio (filed, fraction)"),
+  n("solvency_ratio", "Solvency ratio (as filed; scale differs by filer)"),
   n("npa_gross_nonlinked_par", "Gross NPA – non-linked participating fund"), n("npa_gross_nonlinked_nonpar", "Gross NPA – non-linked non-participating fund"),
   n("npa_gross_linked_par", "Gross NPA – linked participating fund"), n("npa_gross_linked_nonpar", "Gross NPA – linked non-participating fund"),
   n("npa_gross_shareholders", "Gross NPA – shareholders' fund"),
@@ -212,6 +213,7 @@ export const PL_GENERAL: LayoutNode[] = [
   // filed ratios (fractions as filed: 0.733 = 73.3 %) and NPAs of investments (policyholders' fund)
   n("claims_ratio_filed", "Incurred claims ratio (filed, fraction)"), n("combined_ratio_filed", "Combined ratio (filed, fraction)"),
   n("expenses_of_management_ratio_filed", "Expenses of management ratio (filed, fraction)"), n("net_retention_ratio_filed", "Net retention ratio (filed, fraction)"),
+  n("solvency_ratio", "Solvency ratio (as filed; scale differs by filer)"),
   n("npa_gross_policyholders", "Gross NPA – policyholders' fund"), n("npa_net_policyholders", "Net NPA – policyholders' fund"),
 ];
 

@@ -15,7 +15,7 @@ import { GOV_CENSUS_MAX, governanceCensus } from "./governance.js";
 import { SQL_LINES_OF, fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, SQL_IF_LIST_ALL, SQL_IF_LIST_OWN, basisLists, classifyGaps, ifListKeeps, ifListSince, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
-import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
+import { CF_INDUSTRIAL, INSURER_LINES_SOLVENCY, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; WRITE_SOFT_CAP?: string; WRITE_HARD_CAP?: string; WRITE_CAP_MONTH?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string; STATUS_TOKEN?: string; DAILY_READ_CAP?: string }
 
@@ -179,6 +179,8 @@ export default {
       else if (name === "ins_bs_gi") r = await insurerBalanceSheets(ldeps, 40, 20_000, "ins_bs_gi");
       // G3 follow-up: the new insurer results lines (filed ratios, NPAs, life shareholders' investment income), stored files
       else if (name === "ins_rev") r = await insurerResultsLines(ldeps, 25, 20_000);
+      // G3 solvency: ins_rev is done, so a second pass in its own slot re-reads the stored files for the solvency ratio only
+      else if (name === "ins_rev2") r = await insurerResultsLines(ldeps, 25, 20_000, "ins_rev2", INSURER_LINES_SOLVENCY);
       else if (name === "features") r = await buildFeatures(ldeps, 25, new URL(req.url).searchParams.get("restart") === "1"); // D171 feature table
       else if (name === "valuations") {
         // D171: today's valuations again (e.g. after a fix); ?restart=1 resets today's cursor first, then 50 per call

@@ -739,13 +739,15 @@ export async function bankInsurerCashFlows(deps: Deps, limit = 40, budgetMs = 20
  *  year-end file, the full year — then the version pass for each period written. A line not filed is not written (no
  *  null row: the loader's missing rows are for lines read at load time). */
 export const SQL_FILING_PERIOD_LOADED_PAT = "SELECT 1 AS ok FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND period_end = ?2 AND statement = 'pl' AND line = 'pat' AND period_kind = ?3 AND basis = ?4 AND filing_id = ?5 LIMIT 1";
-export async function insurerResultsLines(deps: Deps, limit = 25, budgetMs = 20_000) {
-  return rereadPass(deps, "ins_rev", byTemplate(deps, ["insurance"]), limit, budgetMs,
+/** `slot` / `only`: G3 solvency (owner-approved) re-reads the stored files a second time in its own cursor slot
+ *  (`ins_rev2`: the first pass is done) offering only INSURER_LINES_SOLVENCY, so no line already stored is offered again. */
+export async function insurerResultsLines(deps: Deps, limit = 25, budgetMs = 20_000, slot = "ins_rev", only?: readonly string[]) {
+  return rereadPass(deps, slot, byTemplate(deps, ["insurance"]), limit, budgetMs,
     async (inst, f, sid) => {
       const out: unknown[][] = [], notes: string[] = [], periods: [string, string][] = [];
       const offer = async (r: CanonicalResult, kind: string, ver: string) => {
         if (r.template !== "life_insurance" && r.template !== "general_insurance") { notes.push(`${kind}: not an insurer file (${r.template})`); return; }
-        const keys = INSURER_LINES_NEW[r.template].filter((k) => r.lines[k] !== undefined);
+        const keys = INSURER_LINES_NEW[r.template].filter((k) => r.lines[k] !== undefined && (!only || only.includes(k)));
         if (!keys.length) return;
         if (r.checks.length < 2 || r.checks.some((c) => !c.ok)) { notes.push(`${kind}: checks failed`); return; }
         const [ok] = await deps.filings.all<{ ok: number }>(SQL_FILING_PERIOD_LOADED_PAT, [sid, r.periodEnd, kind, r.basis, f.filing_id]);

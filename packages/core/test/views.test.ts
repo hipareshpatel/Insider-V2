@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, nbfcSubtype, insurerFeatures, insurerInvestments, marginFlags, peVsSectorMedian, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
+import { SOLVENCY_SCALED_NOTE, canonicalResult, parseXbrl, solvencyMultiple, adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, nbfcSubtype, insurerFeatures, insurerInvestments, marginFlags, peVsSectorMedian, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
 
 const q = (periodEnd: string, lines: Record<string, string>, basis = "consolidated"): FiledPeriod => ({ periodEnd, periodKind: "Q", basis, lines });
 const four = [q("2025-12-31", { revenue: "100" }), q("2026-03-31", { revenue: "110" }), q("2026-06-30", { revenue: "120" }), q("2026-09-30", { revenue: "130" })];
@@ -473,8 +475,13 @@ describe("insurer pack (owner #389, Part 2 G3: IRDAI lines as filed)", () => {
     expect(g("investment_income_shareholders_ttm").reason).toMatch(/2026-06-30.*investment_income_shareholders/); // one quarter only
     const four = ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"].map((e) => ({ ...sbi, periodEnd: e }));
     expect(insurerFeatures(four, new Map(), "standalone", "life_insurance").find((x) => x.field === "investment_income_shareholders_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("14233228000"); // 4 × 3,558.307 ₹ m
-    // general-insurer filed ratios are not offered for a life insurer; solvency is never offered
-    for (const f of ["claims_ratio_filed_q", "combined_ratio_filed_q", "net_retention_ratio_filed_q", "solvency_ratio_filed_q"]) expect(r.some((x) => x.field === f)).toBe(false);
+    // general-insurer filed ratios are not offered for a life insurer
+    for (const f of ["claims_ratio_filed_q", "combined_ratio_filed_q", "net_retention_ratio_filed_q"]) expect(r.some((x) => x.field === f)).toBe(false);
+    // the note travels with the row (stored in feature_value.note); an unavailable value has none
+    expect(g("persistency_13m_filed_q").note).toMatch(/^filed: 13th-month persistency ratio as stated by the company/);
+    expect(g("investment_income_shareholders_ttm")).toMatchObject({ value: null, note: null });
+    // solvency not in this hand-made quarter: unavailable with the reason
+    expect(g("solvency_ratio_filed_q")).toMatchObject({ value: null, reason: "quarter 2026-09-30 (standalone) has no filed solvency_ratio", inputs: [], note: null });
     expect(unique(r)).toBe(true);
     // absent: a reason, never a number
     const gap = insurerFeatures([{ ...sbi, lines: { ...sbi.lines, persistency_13m: undefined, npa_net_shareholders: undefined } }], new Map(), "standalone", "life_insurance");
@@ -487,7 +494,7 @@ describe("insurer pack (owner #389, Part 2 G3: IRDAI lines as filed)", () => {
   const digit = { gross_premium: "27308600000", net_premium: "20941900000", premium_earned: "20069600000", claims_incurred: "14718700000", commission: "6151200000",
     operating_expenses: "2019800000", underwriting_result: "-2820100000", investment_income_policyholders: "3518300000", investment_income_shareholders: "682300000", pat: "863900000",
     claims_ratio_filed: "0.733", combined_ratio_filed: "1.123", expenses_of_management_ratio_filed: "0.39", net_retention_ratio_filed: "0.767",
-    npa_gross_policyholders: "0", npa_net_policyholders: "0" };
+    npa_gross_policyholders: "0", npa_net_policyholders: "0", solvency_ratio: "0.0243" };
   const gi = ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30"].map((e, i) => ({ periodEnd: e, periodKind: "Q", basis: "standalone",
     lines: { ...digit, ...(i === 0 ? { gross_premium: "25000000000" } : {}) } as Record<string, string | undefined> }));
   // ICICIGI Sep 2026 standalone B-BS lines (filed), placed at the GI test's quarter end; a year before: hand-made
@@ -523,8 +530,28 @@ describe("insurer pack (owner #389, Part 2 G3: IRDAI lines as filed)", () => {
     expect(g("net_retention_ratio_filed_q").value).toBe("0.767");                                     // computed 76.69 %
     expect(g("investments_gross_npa_filed_q").value).toBe("0");
     expect(g("investments_net_npa_filed_q").value).toBe("0");
-    for (const f of ["new_business_premium_q", "expenses_of_management_ratio_computed_q", "solvency_ratio", "solvency_ratio_filed_q", "vnb", "persistency_13m", "persistency_13m_filed_q", "conservation_ratio_filed_q"]) expect(r.some((x) => x.field === f)).toBe(false);
+    // solvency ratio (G3): GODIGIT files 0.0243 for 2.43× — below 0.5, so read as scaled by 1/100 and shown × 100
+    expect(g("solvency_ratio_filed_q")).toMatchObject({ value: "2.43", inputs: ["2026-06-30"], note: SOLVENCY_SCALED_NOTE });
+    for (const f of ["new_business_premium_q", "expenses_of_management_ratio_computed_q", "solvency_ratio", "vnb", "persistency_13m", "persistency_13m_filed_q", "conservation_ratio_filed_q"]) expect(r.some((x) => x.field === f)).toBe(false);
     expect(unique(r)).toBe(true);
+  });
+  it("solvency ratio (G3): the scale rule on the two real files — SBILIFE 1.97 as filed, GODIGIT 0.0243 shown × 100 = 2.43×", () => {
+    const fx = (n: string) => canonicalResult(parseXbrl(readFileSync(join(import.meta.dirname, "fixtures", "nse", n), "utf8")));
+    const sbi = fx("xbrl_SBILIFE_IF_Q2FY27_trim.xml"), digit = fx("xbrl_GODIGIT_Q1FY27_gi.xml");
+    expect([sbi.lines.solvency_ratio, digit.lines.solvency_ratio]).toEqual(["1.97", "0.0243"]); // stored as filed
+    const row = (r: typeof sbi, layout: string) => insurerFeatures([{ periodEnd: r.periodEnd, periodKind: r.periodKind, basis: r.basis, lines: r.lines }], new Map(), r.basis, layout)
+      .find((x) => x.field === "solvency_ratio_filed_q")!;
+    expect(row(sbi, "life_insurance")).toEqual({ basis: "standalone", field: "solvency_ratio_filed_q", periodEnd: "2026-09-30", value: "1.97", reason: null,
+      inputs: ["2026-09-30"], note: "filed: solvency ratio as stated by the company, a multiple (×) as filed" });
+    expect(row(digit, "general_insurance")).toEqual({ basis: "standalone", field: "solvency_ratio_filed_q", periodEnd: "2026-06-30", value: "2.43", reason: null,
+      inputs: ["2026-06-30"], note: "filed scaled by 1/100 (value < 0.5×, below any possible solvency: IRDAI minimum 1.5×); shown × 100" });
+    // the rule's edges: 0.5 is a multiple as filed, just below is × 100; zero or negative and absent are reasons, never numbers
+    const m = (x: string) => solvencyMultiple({ value: x, from: ["q"] });
+    expect(m("0.5")).toMatchObject({ value: "0.5", note: expect.stringMatching(/as filed/) });
+    expect(m("0.4999")).toMatchObject({ value: "49.99", note: SOLVENCY_SCALED_NOTE });
+    expect(m("0")).toMatchObject({ value: null, reason: expect.stringMatching(/zero or negative/) });
+    expect(m("-1.2")).toMatchObject({ value: null });
+    expect(solvencyMultiple({ value: null, reason: "absent" })).toEqual({ value: null, reason: "absent" });
   });
   it("a missing line or balance sheet gives a reason, never a number", () => {
     const gap = gi.map((q) => (q.periodEnd === "2026-03-31" ? { ...q, lines: { ...q.lines, claims_incurred: undefined, commission: undefined } } : q));

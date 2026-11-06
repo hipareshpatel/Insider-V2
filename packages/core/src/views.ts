@@ -132,7 +132,11 @@ export function ownersEquity(b: Record<string, string | null | undefined>, basis
 }
 
 /** One stored row of the feature table (D171). */
-export interface FeatureRow { basis: string; field: string; periodEnd: string; value: string | null; reason: string | null; inputs: string[] }
+export interface FeatureRow { basis: string; field: string; periodEnd: string; value: string | null; reason: string | null; inputs: string[]; note: string | null }
+/** A View as a stored row: the note (how it was computed, what it is not) is kept with a value; an unavailable value has
+ *  its reason only. */
+export const featureRow = (basis: string, field: string, periodEnd: string, x: View): FeatureRow =>
+  ({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from, note: x.value === null ? null : x.note ?? null });
 
 const QUARTER_KIND = "Q";
 const yearBefore = (end: string) => previousQuarterEnd(previousQuarterEnd(previousQuarterEnd(previousQuarterEnd(end))));
@@ -200,7 +204,7 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
   const noMinority = filledFromPat > 0;
   const by = new Map(qs.map((q) => [q.periodEnd, q]));
   const out: FeatureRow[] = [];
-  const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
+  const put = (field: string, periodEnd: string, x: View) => out.push(featureRow(basis, field, periodEnd, x));
   const line = (p: FiledPeriod | undefined, k: string | null, end: string): View => {
     if (!k) return no(`no revenue line is defined for ${layout} yet`);
     const x = p ? v(p, k) : null;
@@ -326,7 +330,7 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
  *  not in the results filings and are not offered. */
 export function bankFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string): FeatureRow[] {
   const out: FeatureRow[] = [];
-  const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
+  const put = (field: string, periodEnd: string, x: View) => out.push(featureRow(basis, field, periodEnd, x));
   const by = new Map(qs.map((q) => [q.periodEnd, q]));
   const nii = (e: string): View => { const q = by.get(e), a = v(q, "interest_earned"), b = v(q, "interest_expended"); return a && b ? ok(sub(a, b), [e]) : no(`quarter ${e} (${basis}): interest earned and interest expended must be filed`); };
   const sum4 = (f: (e: string) => View, end: string): View => { let s = dec("0"), e = end; const from: string[] = []; for (let i = 0; i < 4; i++) { const x = f(e); if (x.value === null) return x; s = add(s, dec(x.value)); from.push(e); e = previousQuarterEnd(e); } return ok(s, from.reverse()); };
@@ -417,7 +421,7 @@ export function nbfcFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Recor
   const out: FeatureRow[] = [];
   // G18: a non-lender gets the lending fields as a reason, not a number
   const notUsed = subtype === "lender" ? null : no(`not used for ${NBFC_SUBTYPE_LABEL[subtype]} (Division III filer, not a lender)`);
-  const put = (field: string, periodEnd: string, x0: View) => { const x = notUsed && NBFC_LENDING_FIELDS.includes(field) ? notUsed : x0; out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from }); };
+  const put = (field: string, periodEnd: string, x0: View) => { const x = notUsed && NBFC_LENDING_FIELDS.includes(field) ? notUsed : x0; out.push(featureRow(basis, field, periodEnd, x)); };
   if (qs.length) put("nbfc_subtype", "latest", { value: subtype, from: [] });
   const by = new Map(qs.map((q) => [q.periodEnd, q]));
   // a quarter value built from filed lines: first − the rest, every one filed
@@ -496,14 +500,14 @@ export function insurerInvestments(b: Record<string, string | null | undefined> 
  *  net retention ratios. They are the filed fraction, not rescaled (0.733 = 73.3 %), as the bank pack gives
  *  gnpa_pct_q / cet1_ratio_q; the computed ratios above are in %. NPAs of investments (₹) = the sum of the filed fund
  *  lines. Life shareholders' account investment income is read (investment_income_shareholders_ttm for both layouts).
- *  Not offered: solvency ratio (filed as a multiple by SBILIFE, 1.97, but 0.0243 by GODIGIT: scale differs across
- *  filers, not read), filed NPA percentages (zero in every file seen: scale unproven, not read); VNB, VNB margin,
+ *  Solvency ratio: `solvency_ratio_filed_q`, a multiple (×) by the scale rule of solvencyMultiple (filed scale differs
+ *  across filers: SBILIFE 1.97, GODIGIT 0.0243 for 2.43×). Not offered: filed NPA percentages (zero in every file seen: scale unproven, not read); VNB, VNB margin,
  *  embedded value and APE (not in the results files). */
 export function insurerFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string): FeatureRow[] {
   const out: FeatureRow[] = [];
   if (layout !== "life_insurance" && layout !== "general_insurance") return out;
   const life = layout === "life_insurance";
-  const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
+  const put = (field: string, periodEnd: string, x: View) => out.push(featureRow(basis, field, periodEnd, x));
   const by = new Map(qs.map((q) => [q.periodEnd, q]));
   // a quarter value: the sum of filed lines, every one filed
   const sumQ = (keys: string[], what: string) => (e: string): View => {
@@ -556,6 +560,7 @@ export function insurerFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Re
     put("expenses_of_management_ratio_filed_q", e, filedQ("expenses_of_management_ratio_filed", "expenses of management ratio")(e));
     put("investments_gross_npa_filed_q", e, npaQ("gross")(e));
     put("investments_net_npa_filed_q", e, npaQ("net")(e));
+    put("solvency_ratio_filed_q", e, solvencyMultiple(lineQ("solvency_ratio")(e)));
     if (life) {
       for (const m of ["13", "25", "37", "49", "61"])
         put(`persistency_${m}m_filed_q`, e, filedQ(`persistency_${m}m`, `${m}${m === "61" ? "st" : "th"}-month persistency ratio`, "; basis (premium or policy count) not stated in the file")(e));
@@ -600,6 +605,20 @@ export function insurerFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Re
     }
   }
   return out;
+}
+
+/** G3 solvency scale rule (owner-approved). The stored line is SolvencyRatio as filed; filers differ in scale: SBILIFE
+ *  files 1.97 for 1.97× (197 %), GODIGIT files 0.0243 for 2.43×. Shown as a multiple (×), deterministically: a filed
+ *  value ≥ 0.5 is a multiple as filed; a value below 0.5 cannot be a solvency multiple of a licensed insurer (the IRDAI
+ *  control level is 1.5×), so it is read as filed scaled by 1/100 and shown × 100 (0.0243 → 2.43), with the note. Zero or
+ *  negative is not shown. A value ≥ 0.5 filed as a percentage (197 for 197 %) would pass as filed; none seen. */
+export const SOLVENCY_SCALED_NOTE = "filed scaled by 1/100 (value < 0.5×, below any possible solvency: IRDAI minimum 1.5×); shown × 100";
+export function solvencyMultiple(filed: View): View {
+  if (filed.value === null) return filed;
+  const x = dec(filed.value);
+  if (x.units <= 0n) return no(`solvency ratio filed as ${filed.value} (zero or negative): not shown`);
+  if (cmp(x, dec("0.5")) >= 0) return ok(x, filed.from, "filed: solvency ratio as stated by the company, a multiple (×) as filed");
+  return ok(mul(x, dec("100")), filed.from, SOLVENCY_SCALED_NOTE);
 }
 
 /** Field catalogue §5: EPS growth year on year (basic EPS, 2 places). Guard: the implied share count (profit to owners ÷
@@ -756,7 +775,7 @@ export interface ValuationInputs {
  *  Stored under period_end 'latest'; P/E is also kept per trading day (owner #360) for its own-history comparison. */
 export function valuationFeatures(basis: string, x: ValuationInputs): FeatureRow[] {
   const mcap = dec(x.mcapRs), rows: FeatureRow[] = [];
-  const put = (field: string, r: View, periodEnd = "latest") => rows.push({ basis, field, periodEnd, value: r.value, reason: r.value === null ? r.reason : null, inputs: r.value === null ? [] : r.from });
+  const put = (field: string, r: View, periodEnd = "latest") => rows.push(featureRow(basis, field, periodEnd, r));
   const close = `close ${x.mcapDate}: market cap ₹${x.mcapRs}`;
   const ratio = (num: Dec, den: View, what: string, positive = true): View => {
     if (den.value === null) return den;

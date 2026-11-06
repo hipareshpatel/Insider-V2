@@ -347,7 +347,7 @@ describe("item 4 batch (V1 hints #276, D145)", () => {
   });
 });
 
-import { canonicalResult, parseXbrl } from "@disclo/core";
+import { INSURER_LINES_SOLVENCY, canonicalResult, parseXbrl } from "@disclo/core";
 describe("quarter vs year-to-date context with the same dates (C29)", () => {
   it("takes OneD even when FourD comes first in the file", () => {
     const base = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_AFFORDABLE_nonIndAS.xml"), "utf8");
@@ -792,6 +792,28 @@ describe("D171: feature table build", () => {
     // fin_value holds filed rows only: the feature build added nothing there (D170)
     expect((filings.raw.prepare("SELECT count(*) AS n FROM fin_value").get() as { n: number }).n).toBe(before + 1);
   });
+  it("stores each value's note; a changed note is written once, an unchanged one never (owner-approved: notes kept)", async () => {
+    const { filings, deps } = setup({});
+    filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (9, 7, 'results_quarterly', '2026-09-30', 'Q', 'consolidated', '2026-10-15T00:00:00Z', 'u9')");
+    const ins = filings.raw.prepare(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'industrial','pl',?,'',?,'Q','consolidated','original',?,NULL,?,9,'t','reported','results-v1')`);
+    for (const e of ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"]) for (const [k, x] of Object.entries({ revenue: 100, pat: 20, pat_nci: 1, total_expenses: 70, finance_cost: 2, depreciation: 3 })) ins.run(k, e, String(x), `${e}T12:00:00Z`);
+    await buildFeatures({ ...deps, focus: ["INFY"] }, 25, true);
+    // no owners' figure, profit to NCI filed: profit to owners by the identity, said in the note (was dropped before 0045)
+    expect(filings.raw.prepare("SELECT value, note FROM feature_value WHERE field='owners_profit_identity'").get()).toEqual({ value: "4",
+      note: "quarter(s) with no owners' figure: profit to owners = net profit − profit to NCI (both filed)" });
+    const noted = (filings.raw.prepare("SELECT count(*) AS n FROM feature_value WHERE note IS NOT NULL").get() as { n: number }).n;
+    expect(noted).toBeGreaterThan(0);
+    expect(filings.raw.prepare("SELECT count(*) AS n FROM feature_value WHERE value IS NULL AND note IS NOT NULL").get()).toEqual({ n: 0 });
+    // as the table stood before 0045 (no notes): the next rebuild rewrites exactly the rows that gain a note
+    filings.raw.exec("UPDATE feature_value SET note = NULL, computed_at = 'old'");
+    const later = { ...deps, focus: ["INFY"], now: () => new Date("2026-11-07T02:00:00Z") };
+    await buildFeatures(later, 25, true);
+    expect((filings.raw.prepare("SELECT count(*) AS n FROM feature_value WHERE computed_at <> 'old'").get() as { n: number }).n).toBe(noted);
+    // and the one after rewrites nothing
+    await buildFeatures({ ...later, now: () => new Date("2026-11-08T02:00:00Z") }, 25, true);
+    expect(filings.raw.prepare("SELECT count(*) AS n FROM feature_value WHERE computed_at LIKE '2026-11-08%'").get()).toEqual({ n: 0 });
+  });
 });
 
 describe("G18: NBFC sub-type in the feature build", () => {
@@ -953,19 +975,35 @@ describe("G3 follow-up: insurer results lines pass (ins_rev)", () => {
   };
   it("life (SBILIFE Q2 FY27, real file): adds only the new lines as filed, for the quarter this filing loaded", async () => {
     const { r, got, kinds, again } = await run("xbrl_SBILIFE_IF_Q2FY27_trim.xml", "INTEGRATED_FILING_LI_1_WEB.xml", true, "2026-09-30");
-    expect(r).toMatchObject({ done: true, companies: 1, files: 1, rows: 18 });
+    expect(r).toMatchObject({ done: true, companies: 1, files: 1, rows: 19 });
     expect(got).toMatchObject({ expenses_of_management_ratio_filed: "0.1139", persistency_13m: "0.8582", persistency_61m: "0.5801", conservation_ratio: "0.8171",
-      investment_income_shareholders: "3558307000", npa_gross_shareholders: "0", npa_net_linked_nonpar: "0" });
-    expect(Object.keys(got)).toHaveLength(18);           // nothing but INSURER_LINES_NEW (gross premium etc. not re-offered)
+      investment_income_shareholders: "3558307000", npa_gross_shareholders: "0", npa_net_linked_nonpar: "0", solvency_ratio: "1.97" });
+    expect(Object.keys(got)).toHaveLength(19);           // nothing but INSURER_LINES_NEW (gross premium etc. not re-offered)
     expect(got.gross_premium).toBeUndefined();
     expect(kinds).toEqual([{ period_kind: "Q", version: "original", extractor_version: "results-v1" }]);
-    expect(again).toMatchObject({ done: true, rows: 18 });   // the cursor is done: a second call reads nothing
+    expect(again).toMatchObject({ done: true, rows: 19 });   // the cursor is done: a second call reads nothing
   });
   it("general (GODIGIT Q1 FY27, real file): the four filed ratios and the two NPA lines", async () => {
     const { r, got } = await run("xbrl_GODIGIT_Q1FY27_gi.xml", "INTEGRATED_FILING_GI_1_WEB.xml", true, "2026-06-30");
-    expect(r).toMatchObject({ done: true, files: 1, rows: 6 });
+    expect(r).toMatchObject({ done: true, files: 1, rows: 7 });
     expect(got).toEqual({ claims_ratio_filed: "0.733", combined_ratio_filed: "1.123", expenses_of_management_ratio_filed: "0.39", net_retention_ratio_filed: "0.767",
-      npa_gross_policyholders: "0", npa_net_policyholders: "0" });
+      npa_gross_policyholders: "0", npa_net_policyholders: "0", solvency_ratio: "0.0243" });
+  });
+  it("G3 solvency second pass (ins_rev2): after ins_rev is done, re-reads the stored files for the solvency ratio alone", async () => {
+    for (const [file, name, end, filed] of [["xbrl_SBILIFE_IF_Q2FY27_trim.xml", "INTEGRATED_FILING_LI_1_WEB.xml", "2026-09-30", "1.97"],
+      ["xbrl_GODIGIT_Q1FY27_gi.xml", "INTEGRATED_FILING_GI_1_WEB.xml", "2026-06-30", "0.0243"]] as const) {
+      const url = `https://nsearchives.nseindia.com/corporate/xbrl/${name}`;
+      const { filings, deps } = setup({ [`att/xbrl/${name}`]: readFileSync(join(ROOT, "packages/core/test/fixtures/nse", file), "utf8") });
+      filings.raw.exec(`INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (41, 7, 'integrated_financials', '${end}', 'Q', 'standalone', '2026-10-28T00:00:00Z', '${url}')`);
+      filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+        VALUES (7,'insurance','pl','pat','','${end}','Q','standalone','original','1',NULL,'2026-10-28T00:00:00Z',41,'t','reported','results-v1')`);
+      // the first pass as it ran before solvency was read: its cursor is done
+      filings.raw.exec(`INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','ins_rev','t','{"sids":[7],"i":1,"after":0,"files":1,"rows":18,"done":true}')`);
+      expect(await insurerResultsLines({ ...deps, focus: ["INFY"] })).toMatchObject({ done: true, rows: 18 }); // done: nothing re-read
+      const r = await insurerResultsLines({ ...deps, focus: ["INFY"] }, 25, 20_000, "ins_rev2", INSURER_LINES_SOLVENCY);
+      expect(r).toMatchObject({ done: true, companies: 1, files: 1, rows: 1 });
+      expect(filings.raw.prepare("SELECT line, value FROM fin_value WHERE line <> 'pat'").all()).toEqual([{ line: "solvency_ratio", value: filed }]);
+    }
   });
   it("adds nothing when the period was loaded from another filing", async () => {
     const { r, got } = await run("xbrl_SBILIFE_IF_Q2FY27_trim.xml", "INTEGRATED_FILING_LI_1_WEB.xml", false, "2026-09-30");
