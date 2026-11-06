@@ -9,9 +9,11 @@ import type { Deps } from "./load.js";
 export const FEATURE_READ_FROM = "2022-06-30";
 export const FEATURE_STORE_FROM = "2024-01-01";
 const BS_LINES = ["x:EquityAttributableToOwnersOfParent", "x:Equity", "x:ShareholdersFunds", "x:ShareCapital", "x:ReservesAndSurplus", "x:ShareApplicationMoneyReceivedPendingAllotmentOfShares", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "equity_owners", "total_equity", "capital", "reserves",
-  "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents", "x:NonControllingInterest"];
+  "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents", "x:NonControllingInterest",
+  "x:TradeReceivablesCurrent", "x:Inventories", "x:TradePayablesCurrent", "x:CapitalWorkInProgress", // §7 working capital, CWIP
+  "x:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities", "cfo"]; // §6/§7 capex, free cash flow (statement cf)
 export const SQL_FEATURE_ROWS = `SELECT statement, line, period_end, period_kind, basis, value, template FROM fin_value INDEXED BY ix_fin_value_period
-   WHERE security_id = ?1 AND period_end >= ?2 AND dims = '' AND (statement = 'pl' OR (statement = 'bs' AND line IN (SELECT value FROM json_each(?3))))
+   WHERE security_id = ?1 AND period_end >= ?2 AND dims = '' AND (statement = 'pl' OR (statement IN ('bs', 'cf') AND line IN (SELECT value FROM json_each(?3))))
    ORDER BY disclosed_at`;
 export const SQL_FEATURE_UPSERT_HEAD = "INSERT INTO feature_value (security_id, basis, field, period_end, value, reason, inputs, computed_at)";
 export const SQL_FEATURE_UPSERT_TAIL = `ON CONFLICT (security_id, basis, field, period_end) DO UPDATE SET value = excluded.value, reason = excluded.reason,
@@ -25,7 +27,7 @@ export async function buildCompanyFeatures(deps: Deps, sid: number): Promise<{ r
   const rows = await deps.filings.all<{ statement: string; line: string; period_end: string; period_kind: string; basis: string; value: string | null; template: string }>(
     SQL_FEATURE_ROWS, [sid, FEATURE_READ_FROM, JSON.stringify(BS_LINES)]);
   // latest disclosed value per (statement, period, kind, basis, line): rows come oldest first (D48: restated is the default)
-  const pl = new Map<string, FiledPeriod>(), bs = new Map<string, Map<string, Record<string, string | null>>>();
+  const pl = new Map<string, FiledPeriod>(), bs = new Map<string, Map<string, Record<string, string | null>>>(), cfy = new Map<string, Map<string, Record<string, string | null>>>();
   let template: string | null = null;
   for (const r of rows) {
     if (r.statement === "pl") {
@@ -33,6 +35,10 @@ export async function buildCompanyFeatures(deps: Deps, sid: number): Promise<{ r
       const k = `${r.basis}|${r.period_end}|${r.period_kind}`;
       const p = pl.get(k) ?? { periodEnd: r.period_end, periodKind: r.period_kind, basis: r.basis, lines: {} };
       p.lines[r.line] = r.value; pl.set(k, p);
+    } else if (r.statement === "cf") {
+      if (r.period_kind !== "FY") continue; // cash flow is year to date: full years only
+      const c = cfy.get(r.basis) ?? new Map(); const d = c.get(r.period_end) ?? {};
+      d[r.line] = r.value; c.set(r.period_end, d); cfy.set(r.basis, c);
     } else {
       const b = bs.get(r.basis) ?? new Map(); const d = b.get(r.period_end) ?? {};
       d[r.line] = r.value; b.set(r.period_end, d); bs.set(r.basis, b);
@@ -45,7 +51,7 @@ export async function buildCompanyFeatures(deps: Deps, sid: number): Promise<{ r
     if (!mine.length) continue;
     const layout = chooseLayout(template, Object.assign({}, ...mine.map((p) => p.lines))).name;
     layouts.push(`${basis}:${layout}`);
-    for (const f of companyFeatures(periods, bs.get(basis) ?? new Map(), basis, layout))
+    for (const f of companyFeatures(periods, bs.get(basis) ?? new Map(), basis, layout, cfy.get(basis) ?? new Map()))
       if (f.periodEnd >= FEATURE_STORE_FROM) out.push([sid, f.basis, f.field, f.periodEnd, f.value, f.reason, JSON.stringify(f.inputs), now]);
   }
   if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 8, out, SQL_FEATURE_UPSERT_TAIL));

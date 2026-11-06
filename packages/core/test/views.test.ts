@@ -89,6 +89,21 @@ describe("item 6: feature-table values for one company (D171)", () => {
     const bank = companyFeatures(qs, bs, "consolidated", "bank");
     expect(bank.find((r) => r.field === "debt_to_equity")!.reason).toMatch(/not used for bank/);
   });
+  it("working-capital days on TTM revenue and TTM cost of goods; capex and free cash flow per full year", () => {
+    const q2 = qs.map((x) => ({ ...x, lines: { ...x.lines, materials: "50" } })); // TTM COGS = 200
+    const bs2 = new Map([...bs].map(([k, v]) => [k, { ...v, "x:TradeReceivablesCurrent": "54", "x:Inventories": "40", "x:TradePayablesCurrent": "20", "x:CapitalWorkInProgress": "7" }]));
+    const cf = new Map([["2026-03-31", { "x:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities": "-30", cfo: "100" }]]);
+    const r = companyFeatures(q2, bs2, "consolidated", "industrial", cf);
+    const g = (f: string, e: string) => r.find((x) => x.field === f && x.periodEnd === e)!;
+    expect(g("receivable_days", "2026-09-30").value).toBe("36.5"); // 54 × 365 ÷ 540
+    expect(g("inventory_days", "2026-09-30").value).toBe("73");    // 40 × 365 ÷ 200
+    expect(g("payable_days", "2026-09-30").value).toBe("36.5");
+    expect(g("working_capital_days", "2026-09-30").value).toBe("73");
+    expect(g("cwip", "2026-09-30").value).toBe("7");
+    expect(g("capex_fy", "2026-03-31").value).toBe("30");
+    expect(g("fcf_fy", "2026-03-31").value).toBe("70");
+    expect(companyFeatures(qs, bs2, "consolidated", "industrial").find((x) => x.field === "inventory_days")!.reason).toMatch(/materials or purchases/);
+  });
   it("a bank gets no EBITDA or ROCE (reasons stored) and uses total income as revenue", () => {
     const bank = qs.map((q) => ({ ...q, lines: { total_income: q.lines.revenue, pat: q.lines.pat, pat_after_minority: q.lines.pat_owners } }));
     const b = companyFeatures(bank, new Map(), "consolidated", "bank");
