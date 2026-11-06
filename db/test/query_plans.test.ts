@@ -169,6 +169,26 @@ describe("filings: stored credit-rating lists after the relink cursor (maint rat
     expect(p.some((l) => /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/.test(l)), p.join("\n")).toBe(true);
   });
 });
+describe("/ratings-coverage?symbols= (G11 per-company check, read-only)", () => {
+  it("market: named symbols to securities by ix_sid_lookup", async () => {
+    const { SQL_SIDS_OF_SYMBOLS } = await import("../../workers/filings/src/ratingcov.js");
+    const p = plan(M, SQL_SIDS_OF_SYMBOLS, ['["SBIN"]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_sid_lookup \(id_type=\? AND value=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+  it("filings: one company's stored ratings by ix_credit_rating_symbol", async () => {
+    const { SQL_CR_OF_SYMBOLS } = await import("../../workers/filings/src/ratingcov.js");
+    const p = plan(F, SQL_CR_OF_SYMBOLS, ['["SBIN"]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /SEARCH credit_rating USING INDEX ix_credit_rating_symbol \(symbol=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+  it("filings: the stored credit-rating lists from the floor by kind", async () => {
+    const { SQL_CR_LISTS } = await import("../../workers/filings/src/ratingcov.js");
+    const p = plan(F, SQL_CR_LISTS, ["api/credit_rating/all/2024-01"]);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /SEARCH fetch_job USING .*\(kind=\?/.test(l)), p.join("\n")).toBe(true);
+  });
+});
 describe("market: the focus companies' ISINs for the credit-rating issuer match (every filings run, item 7)", () => {
   it("identifiers by symbol (ix_sid_lookup), then that security's ISINs (ix_sid_security)", async () => {
     const { SQL_FOCUS_ISSUERS } = await import("../../workers/filings/src/events.js");
