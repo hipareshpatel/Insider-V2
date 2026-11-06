@@ -2,8 +2,9 @@
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
-import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, insurerResultsLines, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, insurerResultsLines, bankResultsLines, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
+import { tagProbe } from "./tagprobe.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS, isPitAnnouncement } from "./events.js";
 import { shpCoverage, pledgeCensus, pledgeDeclaredPass, promoterGroups, shpPromoterPass, shpPromoterHistory, storeGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
 import type { Sql } from "@disclo/core";
@@ -14,7 +15,7 @@ import { GOV_CENSUS_MAX, governanceCensus } from "./governance.js";
 import { SQL_LINES_OF, fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, SQL_IF_LIST_ALL, SQL_IF_LIST_OWN, basisLists, classifyGaps, ifListKeeps, ifListSince, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
-import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
+import { CF_INDUSTRIAL, INSURER_LINES_SOLVENCY, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; WRITE_SOFT_CAP?: string; WRITE_HARD_CAP?: string; WRITE_CAP_MONTH?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string; STATUS_TOKEN?: string; DAILY_READ_CAP?: string }
 
@@ -178,6 +179,10 @@ export default {
       else if (name === "ins_bs_gi") r = await insurerBalanceSheets(ldeps, 40, 20_000, "ins_bs_gi");
       // G3 follow-up: the new insurer results lines (filed ratios, NPAs, life shareholders' investment income), stored files
       else if (name === "ins_rev") r = await insurerResultsLines(ldeps, 25, 20_000);
+      // G3 solvency: ins_rev is done, so a second pass in its own slot re-reads the stored files for the solvency ratio only
+      else if (name === "ins_rev2") r = await insurerResultsLines(ldeps, 25, 20_000, "ins_rev2", INSURER_LINES_SOLVENCY);
+      // G1 (log #407): the additional Tier 1 ratio for the banks' stored results files
+      else if (name === "bank_rev") r = await bankResultsLines(ldeps, 25, 20_000);
       else if (name === "features") r = await buildFeatures(ldeps, 25, new URL(req.url).searchParams.get("restart") === "1"); // D171 feature table
       else if (name === "valuations") {
         // D171: today's valuations again (e.g. after a fix); ?restart=1 resets today's cursor first, then 50 per call
@@ -565,6 +570,13 @@ export default {
           pl_revenue_cr: pl.filter((r) => r.period_kind === k).map((r) => Number(r.value) / 1e7)[0] ?? null };
       });
       return Response.json({ symbol: sym, sid, period, basis, periods_stored: periods, kinds }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/tags") {
+      // Read-only (G2, log #407): tags matching ?grep= in one company's latest ≤ 4 stored results files, with values
+      const u = new URL(req.url), sym = u.searchParams.get("symbol") ?? "", grep = (u.searchParams.get("grep") ?? "Npa|Capital|Stage|Crar|Ratio").slice(0, 120);
+      let re: RegExp; try { re = new RegExp(grep, "i"); } catch { return Response.json({ error: "grep" }, { status: 400 }); }
+      if (!/^[A-Z0-9&-]{1,20}$/.test(sym)) return Response.json({ error: "symbol" }, { status: 400 });
+      return Response.json(await tagProbe(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), sym, RESULT_KINDS, re, Number(u.searchParams.get("files") ?? 2)), { headers: { "cache-control": "no-store" } });
     }
     if (path === "/lines") {
       // Read-only (G14): one company's stored figures for up to 12 named lines, from a period end on, every basis and

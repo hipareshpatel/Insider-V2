@@ -116,6 +116,7 @@ export const BANK_TAGS: Record<string, string> = {
   gnpa_pct: "PercentageOfGrossNpa",
   nnpa_pct: "PercentageOfNpa",
   cet1_ratio: "CET1Ratio",
+  at1_ratio: "AdditionalTier1Ratio",
   roa: "ReturnOnAssets",
 };
 
@@ -147,8 +148,7 @@ export const LIFE_TAGS: Record<string, string> = {
   investment_income_shareholders: "InvestmentIncome",
   // G3 follow-up: the insurer's own analytical ratios, stored as filed (unit "pure", a fraction: SBILIFE Q2 FY27
   // ExpensesOfManagementRatio 0.1139 = expenses of management ÷ gross premium 11.39 %, exact). Persistency carries no
-  // dimension in the file: the basis (premium or policy count) is the company's, not stated. Solvency ratio is NOT read:
-  // filed as a multiple by SBILIFE (1.97) but 0.0243 by GODIGIT (2.43× ÷ 100), scale differs across filers.
+  // dimension in the file: the basis (premium or policy count) is the company's, not stated.
   expenses_of_management_ratio_filed: "ExpensesOfManagementRatio",
   persistency_13m: "PersistencyRatio13ThMonth",
   persistency_25m: "PersistencyRatio25ThMonth",
@@ -156,6 +156,10 @@ export const LIFE_TAGS: Record<string, string> = {
   persistency_49m: "PersistencyRatio49ThMonth",
   persistency_61m: "PersistencyRatio61ThMonth",
   conservation_ratio: "ConservationRatio",
+  // G3 (owner-approved): solvency ratio, stored exactly as filed. The scale differs across filers — a multiple by SBILIFE
+  // (1.97 = 1.97×) but GODIGIT files 0.0243 for 2.43× — so the stored line is the filed figure and the feature
+  // solvency_ratio_filed_q applies the documented scale rule (insurerFeatures), never the loader.
+  solvency_ratio: "SolvencyRatio",
   // NPAs of investments (₹, as filed) by fund; the filed NPA percentages are not read (zero in every file seen: scale unproven)
   npa_gross_nonlinked_par: "NonLinkedParticipatingPolicyholdersFundGrossNPAs",
   npa_gross_nonlinked_nonpar: "NonLinkedNonParticipatingPolicyholdersFundGrossNPAs",
@@ -204,25 +208,29 @@ export const GI_TAGS: Record<string, string> = {
   eps_basic: "BasicAndDilutedEPSAfterExtraordinaryItemsNetOfTaxExpenseForThePeriodNotToBeAnnualized",
   // G3 follow-up: the insurer's own analytical ratios, stored as filed (unit "pure", a fraction). GODIGIT Q1 FY27 agrees
   // with the ratios computed from its own lines: claims 0.733 vs 73.34 %, net retention 0.767 vs 76.69 %, combined
-  // 1.123 vs 112.36 %. Solvency ratio is not read (see LIFE_TAGS).
+  // 1.123 vs 112.36 %. Solvency ratio stored as filed (scale rule in the feature, see LIFE_TAGS).
   claims_ratio_filed: "IncurredClaimRatio",
   combined_ratio_filed: "CombinedRatio",
   expenses_of_management_ratio_filed: "ExpensesOfManagementRatio",
   net_retention_ratio_filed: "NetRetentionRatio",
+  solvency_ratio: "SolvencyRatio",
   // NPAs of investments (₹, as filed), policyholders' fund; the filed NPA percentages are not read (scale unproven)
   npa_gross_policyholders: "GrossNPAsPolicyholdersFund",
   npa_net_policyholders: "NetNPAsPolicyholdersFund",
 };
 
 /** The insurer lines added to LIFE_TAGS / GI_TAGS by the G3 follow-up (filed ratios, NPAs of investments, life
- *  shareholders' investment income): the only lines the one-off `ins_rev` pass offers for stored files. */
+ *  shareholders' investment income, solvency ratio): the only lines the one-off `ins_rev` passes offer for stored files. */
 export const INSURER_LINES_NEW: Record<"life_insurance" | "general_insurance", string[]> = {
   life_insurance: ["investment_income_shareholders", "expenses_of_management_ratio_filed", "persistency_13m", "persistency_25m", "persistency_37m",
-    "persistency_49m", "persistency_61m", "conservation_ratio",
+    "persistency_49m", "persistency_61m", "conservation_ratio", "solvency_ratio",
     ...["nonlinked_par", "nonlinked_nonpar", "linked_par", "linked_nonpar", "shareholders"].flatMap((f) => [`npa_gross_${f}`, `npa_net_${f}`])],
-  general_insurance: ["claims_ratio_filed", "combined_ratio_filed", "expenses_of_management_ratio_filed", "net_retention_ratio_filed",
+  general_insurance: ["claims_ratio_filed", "combined_ratio_filed", "expenses_of_management_ratio_filed", "net_retention_ratio_filed", "solvency_ratio",
     "npa_gross_policyholders", "npa_net_policyholders"],
 };
+/** G3 solvency (owner-approved): the line added after the first `ins_rev` pass had finished — the only line the second
+ *  pass (`ins_rev2`) offers, so stored files are re-read for it alone (lines already stored are not offered again). */
+export const INSURER_LINES_SOLVENCY = ["solvency_ratio"];
 
 /** Old Indian GAAP (non-Ind AS) results file: its schema is not an Ind AS entry point and it isn't an Integrated Filing.
  *  Seen: "other_than_banks_entry_point_2019-09-30.xsd" (old GAAP) vs "Ind-AS_entry_point_2020-03-31.xsd". */

@@ -19,12 +19,14 @@ const BS_LINES = ["x:EquityAttributableToOwnersOfParent", "x:Equity", "x:Shareho
 export const SQL_FEATURE_ROWS = `SELECT statement, line, period_end, period_kind, basis, value, template FROM fin_value INDEXED BY ix_fin_value_period
    WHERE security_id = ?1 AND period_end >= ?2 AND dims = '' AND (statement = 'pl' OR (statement IN ('bs', 'cf') AND line IN (SELECT value FROM json_each(?3))))
    ORDER BY disclosed_at`;
-export const SQL_FEATURE_UPSERT_HEAD = "INSERT INTO feature_value (security_id, basis, field, period_end, value, reason, inputs, computed_at)";
+// the note (how a value was computed, what it is not) is stored with it (filings 0045); a changed note is a change
+export const SQL_FEATURE_UPSERT_HEAD = "INSERT INTO feature_value (security_id, basis, field, period_end, value, reason, inputs, computed_at, note)";
 export const SQL_FEATURE_UPSERT_TAIL = `ON CONFLICT (security_id, basis, field, period_end) DO UPDATE SET value = excluded.value, reason = excluded.reason,
-   inputs = excluded.inputs, computed_at = excluded.computed_at
-   WHERE feature_value.value IS NOT excluded.value OR feature_value.reason IS NOT excluded.reason OR feature_value.inputs IS NOT excluded.inputs`;
+   inputs = excluded.inputs, computed_at = excluded.computed_at, note = excluded.note
+   WHERE feature_value.value IS NOT excluded.value OR feature_value.reason IS NOT excluded.reason OR feature_value.inputs IS NOT excluded.inputs
+      OR feature_value.note IS NOT excluded.note`;
 
-export const SQL_FEATURES_OF = "SELECT basis, field, period_end, value, reason, inputs, computed_at FROM feature_value WHERE security_id = ?1 AND (?2 = '' OR field = ?2) ORDER BY basis, field, period_end";
+export const SQL_FEATURES_OF = "SELECT basis, field, period_end, value, reason, inputs, note, computed_at FROM feature_value WHERE security_id = ?1 AND (?2 = '' OR field = ?2) ORDER BY basis, field, period_end";
 
 /** One company: read its filed P&L quarters and the balance-sheet lines needed, compute, upsert. Returns rows offered. */
 export async function buildCompanyFeatures(deps: Deps, sid: number): Promise<{ rows: number; layouts: string[] }> {
@@ -61,9 +63,9 @@ export async function buildCompanyFeatures(deps: Deps, sid: number): Promise<{ r
   for (const { basis, layout } of chosen) {
     layouts.push(`${basis}:${layout}`);
     for (const f of companyFeatures(periods, bs.get(basis) ?? new Map(), basis, layout, cfy.get(basis) ?? new Map(), subtype))
-      if (f.periodEnd >= FEATURE_STORE_FROM) out.push([sid, f.basis, f.field, f.periodEnd, f.value, f.reason, JSON.stringify(f.inputs), now]);
+      if (f.periodEnd >= FEATURE_STORE_FROM) out.push([sid, f.basis, f.field, f.periodEnd, f.value, f.reason, JSON.stringify(f.inputs), now, f.note]);
   }
-  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 8, out, SQL_FEATURE_UPSERT_TAIL));
+  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 9, out, SQL_FEATURE_UPSERT_TAIL));
   return { rows: out.length, layouts };
 }
 
@@ -141,9 +143,9 @@ export async function companyValuations(deps: Deps, sid: number): Promise<number
     const layout = t.find((r) => r.field === "layout")?.value ?? "industrial";
     for (const f of valuationFeatures(basis, { mcapRs, mcapDate, layout, patOwnersTtm: latest("pat_owners_ttm"), revenueTtm: latest("revenue_ttm"), ebitdaTtm: latest("ebitda_ttm"),
       equityOwners: latest("equity_owners"), netDebt: latest("net_debt"), nci: latest("nci") }))
-      out.push([sid, f.basis, f.field, f.periodEnd, f.value, f.reason, JSON.stringify(f.inputs), now]);
+      out.push([sid, f.basis, f.field, f.periodEnd, f.value, f.reason, JSON.stringify(f.inputs), now, f.note]);
   }
-  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 8, out, SQL_FEATURE_UPSERT_TAIL));
+  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 9, out, SQL_FEATURE_UPSERT_TAIL));
   return out.length;
 }
 
@@ -181,7 +183,7 @@ export async function sectorPeStep(deps: Deps, focusSids: Set<number>): Promise<
     return { sid, basis, sector: sector.get(sid) ?? null, pe: pe.find((r) => r.security_id === sid && r.basis === basis)?.value ?? null };
   });
   const res = peVsSectorMedian(rows), now = deps.now().toISOString();
-  const out = rows.map((r) => { const v = res.get(r.sid)!; return [r.sid, r.basis, "pe_vs_industry_median", "latest", v.value, v.value === null ? v.reason : null, JSON.stringify(v.value === null ? [] : v.from), now]; });
-  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 8, out, SQL_FEATURE_UPSERT_TAIL));
+  const out = rows.map((r) => { const v = res.get(r.sid)!; return [r.sid, r.basis, "pe_vs_industry_median", "latest", v.value, v.value === null ? v.reason : null, JSON.stringify(v.value === null ? [] : v.from), now, v.value === null ? null : v.note ?? null]; });
+  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 9, out, SQL_FEATURE_UPSERT_TAIL));
   return out.length;
 }
