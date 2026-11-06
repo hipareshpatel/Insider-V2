@@ -161,13 +161,18 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
   // gap census (6 Nov, 12 companies): a consolidated filer with no minority anywhere — no profit-to-NCI line in any
   // quarter and no NCI line in any balance sheet — files no owners' line either; its profit to owners is its net profit
   const ownersKey = basis === "standalone" ? "pat" : ownersLine(layout);
+  // (live check 6 Nov: these companies filed an owners' line in older quarters — always equal to net profit — and dropped it)
+  const nz = (x: string | null | undefined) => x != null && dec(x).units !== 0n;
+  const mine = periods.filter((p) => p.basis === basis);
   const noMinority = basis !== "standalone" && ownersKey === "pat_owners"
-    && !periods.some((p) => p.basis === basis && (p.lines.pat_owners != null || p.lines.pat_nci != null))
-    // positive evidence only: at least one balance sheet with its equity filed, and none with an NCI line
+    // no period with a non-zero profit to NCI, and every filed owners' line equal to net profit
+    && !mine.some((p) => nz(p.lines.pat_nci))
+    && mine.every((p) => p.lines.pat_owners == null || p.lines.pat == null || cmp(dec(p.lines.pat_owners), dec(p.lines.pat)) === 0)
+    // positive evidence: at least one balance sheet with its equity filed, and no non-zero NCI in any
     && [...balanceSheets.values()].some((b) => (b["x:Equity"] ?? b.total_equity) != null)
-    && ![...balanceSheets.values()].some((b) => b["x:NonControllingInterest"] != null || b.minority_interest != null);
+    && ![...balanceSheets.values()].some((b) => nz(b["x:NonControllingInterest"]) || nz(b.minority_interest));
   const qs = periods.filter((p) => p.periodKind === QUARTER_KIND && p.basis === basis).sort((a, b) => a.periodEnd.localeCompare(b.periodEnd))
-    .map((p) => (noMinority && p.lines.pat != null ? { ...p, lines: { ...p.lines, pat_owners: p.lines.pat } } : p));
+    .map((p) => (noMinority && p.lines.pat != null && p.lines.pat_owners == null ? { ...p, lines: { ...p.lines, pat_owners: p.lines.pat } } : p));
   const by = new Map(qs.map((q) => [q.periodEnd, q]));
   const out: FeatureRow[] = [];
   const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
