@@ -19,6 +19,11 @@ export const SQL_PIT_JOBS = "SELECT symbol, r2_key, status, http_status FROM fet
 export const SQL_INSIDER_YEARS = "SELECT from_d / 10000 AS y, (key >= 'pitx:' AND key < 'pitx;') AS new_system, count(*) AS trades, count(DISTINCT symbol) AS companies FROM insider_trade WHERE symbol IN (SELECT value FROM json_each(?1)) AND from_d >= 20210101 GROUP BY 1, 2";
 /** Every company in NSE's new-system rows (key range 'pitx:'), to tell "the 250 file nothing" from "only some are read". */
 export const SQL_PITX_SYMBOLS = "SELECT count(DISTINCT symbol) AS companies, count(DISTINCT did) AS filings, min(disclosed_at) AS first_at, max(disclosed_at) AS last_at FROM insider_trade WHERE key >= 'pitx:' AND key < 'pitx;'";
+/** Option 3 (owner, 6 Nov; read-only /announce-pit): the stored announcement lists (all companies; monthly from
+ *  2024-01 and daily) of one kind, by key prefix within the kind's ledger range. */
+export const SQL_ANNOUNCE_LISTS = "SELECT job_id, r2_key FROM fetch_job WHERE kind = ?1 AND job_id > 0 AND status = 'done' AND r2_key >= ?2 AND r2_key < ?3";
+/** An announcement that is an insider-trading (SEBI PIT) disclosure, by its filed subject or text. */
+export const isPitAnnouncement = (desc: string, text: string) => /insider trading|prohibition of insider|\bPIT\b|regulation\s*7\s*\(2\)|reg\.?\s*7\(2\)/i.test(`${desc} ${text}`);
 /** Credit ratings from a date (owner #365 names them with insider trades), ix_credit_rating_symbol per symbol. */
 export const SQL_RATINGS_SINCE = "SELECT symbol, count(*) AS ratings FROM credit_rating WHERE symbol IN (SELECT value FROM json_each(?1)) AND rated_on >= ?2 GROUP BY symbol";
 export const SQL_EVENTS_NEXT = "SELECT job_id, kind, r2_key, status, attempts FROM fetch_job WHERE kind = ? AND job_id > ? ORDER BY job_id LIMIT ?";
