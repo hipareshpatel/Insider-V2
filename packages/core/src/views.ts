@@ -381,9 +381,21 @@ export function workingCapital(b: Record<string, string | null | undefined>, rev
   const rec = days(line("x:TradeReceivablesCurrent", "trade receivables"), revenueTtm, "receivable days");
   const inv = days(line("x:Inventories", "inventories"), cogs, "inventory days");
   const pay = days(line("x:TradePayablesCurrent", "trade payables"), cogs, "payable days");
-  const wc: View = rec.value === null ? rec : inv.value === null ? inv : pay.value === null ? pay
+  // cash conversion cycle (catalogue §7): receivable + inventory − payable days, the last two on cost of goods — none for
+  // companies with no cost of goods (services)
+  const ccc: View = rec.value === null ? rec : inv.value === null ? inv : pay.value === null ? pay
     : ok(sub(add(dec(rec.value), dec(inv.value)), dec(pay.value)), [...new Set([...rec.from, ...inv.from, ...pay.from])]);
-  return [{ field: "receivable_days", view: rec }, { field: "inventory_days", view: inv }, { field: "payable_days", view: pay }, { field: "working_capital_days", view: wc }];
+  // working-capital days: (trade receivables + inventories − trade payables) ÷ TTM revenue × 365, so asset-light companies
+  // get one too (INFY check, 6 Nov); an inventories line that is not filed counts as none (noted)
+  let wc: View;
+  if (b["x:TradeReceivablesCurrent"] == null || b["x:TradePayablesCurrent"] == null) wc = no(`balance sheet ${date}: trade receivables and trade payables must be filed`);
+  else if (revenueTtm.value === null) wc = revenueTtm;
+  else if (dec(revenueTtm.value).units <= 0n) wc = no("working-capital days: TTM revenue is zero or negative");
+  else {
+    const net = sub(add(dec(b["x:TradeReceivablesCurrent"]!), dec(b["x:Inventories"] ?? "0")), dec(b["x:TradePayablesCurrent"]!));
+    wc = ok(div(mul(net, dec("365")), dec(revenueTtm.value), 1), [...new Set([`balance sheet ${date}`, ...revenueTtm.from])], b["x:Inventories"] == null ? "no inventories line filed: taken as none" : undefined);
+  }
+  return [{ field: "receivable_days", view: rec }, { field: "inventory_days", view: inv }, { field: "payable_days", view: pay }, { field: "cash_conversion_cycle", view: ccc }, { field: "working_capital_days", view: wc }];
 }
 
 /** Net debt for EV (industrial only): borrowings (current + non-current) − cash and cash equivalents − other bank

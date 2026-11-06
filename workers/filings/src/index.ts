@@ -8,6 +8,7 @@ import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE
 import { shpCoverage, promoterGroups, shpPromoterPass, shpPromoterHistory, storeGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
 import type { Sql } from "@disclo/core";
 import { ownershipStep } from "./ownership.js";
+import { eventStep } from "./eventfeatures.js";
 import { ratingCoverage } from "./ratingcov.js";
 import { readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
@@ -106,6 +107,8 @@ export default {
           });
           // §11: ownership and pledge fields, once per IST day, 50 companies a run (after the groups, for the group pledge)
           await step("ownership", () => ownershipStep(ldeps.filings, [...sids], new Date(), 50));
+          // §12/§13: results timing, filing timeliness, credit rating — once per IST day, 50 companies a run
+          await step("event_features", () => eventStep(ldeps.filings, market, [...sids], new Date(), 50));
         }
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
@@ -151,6 +154,10 @@ export default {
       else if (name === "ownership") {
         const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
         r = await ownershipStep(db, sids, new Date(), 50, new URL(req.url).searchParams.get("restart") === "1");
+      }
+      else if (name === "event_features") {
+        const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
+        r = await eventStep(db, mk, sids, new Date(), 50, new URL(req.url).searchParams.get("restart") === "1");
       }
       else if (name === "groups") { const g = await groupInputs(db, mk, focus ?? []); r = { ...(await storeGroups(db, g.rows, g.sym, g.names, new Date())), done: true }; }
       else if (name === "shp_promoter") {
@@ -420,6 +427,14 @@ export default {
       const rows = (await env.DB_FILINGS.prepare("SELECT field, value, reason, as_of FROM ownership_feature WHERE security_id=?1 ORDER BY field").bind(sid).all()).results;
       const group = await env.DB_FILINGS.prepare("SELECT group_name, members FROM company_group WHERE security_id=?1").bind(sid).first();
       return Response.json({ symbol: sym, group, rows }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/event-features") {
+      // §12/§13 (read-only): one company's results timing, filing timeliness and credit-rating fields
+      const sym = new URL(req.url).searchParams.get("symbol") ?? "";
+      const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
+      if (!sid) return Response.json({ error: "symbol" }, { status: 400 });
+      const rows = (await env.DB_FILINGS.prepare("SELECT field, value, reason, as_of FROM event_feature WHERE security_id=?1 ORDER BY field").bind(sid).all()).results;
+      return Response.json({ symbol: sym, rows }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/promoter-groups") {
       // D40 (read-only): companies of the 250 that name the same promoter entity in their latest shareholding filing.

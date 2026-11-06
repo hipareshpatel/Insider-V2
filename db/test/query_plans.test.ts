@@ -17,6 +17,7 @@ import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
 import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS, SQL_LATEST_SHP, SQL_JOB_BY_URL, SQL_SET_PROMOTER, SQL_SHP_FILINGS_FROM, SQL_SHP_UNFLAGGED } from "../../workers/filings/src/shpcov.js";
 import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
 import { SQL_FOCUS } from "../../packages/core/src/focus.js";
+import { SQL_RESULTS_FIRST, SQL_MEETINGS_FROM, SQL_RATINGS_OF, SQL_SYMBOLS_OF_SID } from "../../workers/filings/src/eventfeatures.js";
 import { SQL_TWO_LATEST_SHP, SQL_SHP_CATEGORIES, SQL_SHP_PLEDGE, SQL_GROUP_PLEDGES } from "../../workers/filings/src/ownership.js";
 
 const root = join(import.meta.dirname, "..", "migrations");
@@ -67,6 +68,9 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: one company's filed figures for the feature table (D171)", SQL_FEATURE_ROWS, [1, "2022-06-30", '["x:Equity"]'], /ix_fin_value_period \(security_id=\? AND period_end>\?\)/],
   ["filings: results filings since the feature cursor (cron, D171)", SQL_FEATURE_NEW, [0, 2000], /SEARCH filing USING INTEGER PRIMARY KEY \(rowid>\?\)/],
   ["filings: latest TTM values for valuations (D171)", SQL_LATEST_TTM, [1, "consolidated"], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\? AND field=\?\)/],
+  ["filings: first disclosure of each results period of one company (§12/§13, daily)", SQL_RESULTS_FIRST, [1, "2025-10-01"], /SEARCH filing USING (COVERING )?INDEX ix_filing_sec \(security_id=\? AND kind=\? AND period_end>\?\)/],
+  ["filings: results board meetings of one company from today (§13, daily)", SQL_MEETINGS_FROM, ['["INFY"]', 20261106], /SEARCH board_meeting USING INDEX ix_board_meeting_symbol \(symbol=\? AND meeting_d>\?\)/],
+  ["filings: credit ratings of one company (§12, daily)", SQL_RATINGS_OF, ['["INFY"]'], /SEARCH credit_rating USING INDEX ix_credit_rating_symbol \(symbol=\? AND rated_on>\?\)/],
   ["filings: latest P/E of the 250 for the sector median (§4, daily)", SQL_PE_LATEST, ['[1,2]'], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\? AND field=\? AND period_end=\?\)/],
   ["filings: primary basis of the 250 (§4, daily)", SQL_PRIMARY_BASIS_OF, ['[1,2]'], /SEARCH primary_basis USING INTEGER PRIMARY KEY \(rowid=\?\)/],
   ["filings: one company's feature-table values (read-only page)", SQL_FEATURES_OF, [1, ""], /SEARCH feature_value USING PRIMARY KEY \(security_id=\?\)/],
@@ -100,6 +104,13 @@ const cases: [string, string, unknown[], RegExp][] = [
 ];
 
 const M = schema("market");
+describe("market: one security's NSE symbols (§12/§13, daily)", () => {
+  it("by ix_sid_security", () => {
+    const p = plan(M, SQL_SYMBOLS_OF_SID, [1]);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_sid_security \(security_id=\?/.test(l)), p.join("\n")).toBe(true);
+  });
+});
 describe("market: latest sector of the 250 (§4 P/E vs sector median, daily)", () => {
   it("classification by primary key", () => {
     const p = plan(M, SQL_SECTOR_LATEST, ['[1,2]']);
@@ -129,6 +140,7 @@ describe("market: price features of the focus companies (field catalogue §3, on
   const t = await import("../../workers/market/src/technicals.js");
   it.each([
     ["sessions of one security in a date range", t.SQL_SESSIONS, [1, 20250101, 20260101], /SEARCH price_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
+    ["last split / bonus of one security", t.SQL_LAST_SPLIT_BONUS, [1], /SEARCH corp_action USING INDEX sqlite_autoindex_corp_action_1 \(security_id=\?\)/],
     ["dividends of one security over a year", t.SQL_DIVIDENDS, [1, "2025-11-05", "2026-11-05"], /SEARCH corp_action USING INDEX sqlite_autoindex_corp_action_1 \(security_id=\? AND ex_date>\? AND ex_date<\?\)/],
     ["applied factors of one security", t.SQL_APPLIED_FACTORS, [1], /USING (PRIMARY KEY|INDEX sqlite_autoindex_adj_factor_1) \(security_id=\?\)/],
     ["delivery of one security in a date range", t.SQL_DELIVERY, [1, 20250101, 20260101], /SEARCH delivery_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
