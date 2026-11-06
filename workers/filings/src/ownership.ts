@@ -28,8 +28,12 @@ export function ownershipFields(now: Snapshot, prev: Snapshot | null): { field: 
     put(field === "promoter_pledged_pct" ? "pledge_change_qoq" : `${field.replace(/_pct$/, "")}_change_qoq`,
       a === null || b === null ? null : r2(a - b), prev ? `${what} not filed for ${prev.asOf}` : "no earlier shareholding filing stored");
   };
-  pair("promoter_holding_pct", (s) => pctOf(s, "promoter"), "promoter holding");
-  pair("promoter_pledged_pct", pledged, "promoter pledge");
+  // gap census (6 Nov, 13 companies: HDFCBANK, ICICIBANK, ITC, LT, ETERNAL, …): a filing with public holdings but no
+  // promoter category means the company has no promoter group — promoter holding 0, pledge not applicable
+  const noPromoter = (s: Snapshot) => s.shares.promoter == null && s.shares.public != null && s.shares.total != null;
+  pair("promoter_holding_pct", (s) => (noPromoter(s) ? 0 : pctOf(s, "promoter")), "promoter holding");
+  if (noPromoter(now)) { put("promoter_pledged_pct", null, "not applicable: no promoter group in the filing"); put("pledge_change_qoq", null, "not applicable: no promoter group in the filing"); }
+  else pair("promoter_pledged_pct", pledged, "promoter pledge");
   pair("fii_holding_pct", (s) => pctOf(s, "fii"), "foreign institutions' holding");
   pair("dii_holding_pct", (s) => pctOf(s, "dii"), "domestic institutions' holding");
   pair("mf_holding_pct", (s) => pctOf(s, "mutual_funds"), "mutual funds' holding");

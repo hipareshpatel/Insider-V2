@@ -221,7 +221,7 @@ describe("standalone statements have no owners' line (live INFY check, 5 Nov)", 
     const rows = companyFeatures(qs, bs, "standalone", "industrial");
     expect(rows.find((r) => r.field === "pat_owners_ttm" && r.periodEnd === "2026-09-30")!.value).toBe("80");
     expect(rows.find((r) => r.field === "roe" && r.periodEnd === "2026-09-30")!.value).toBe("40"); // 80 ÷ avg 200
-    // consolidated still needs the owners' line (never assumed equal to net profit)
+    // consolidated with no balance sheet stored: no evidence of "no minority", so no owners' profit is assumed
     const cons = companyFeatures(qs.map((q) => ({ ...q, basis: "consolidated" })), new Map(), "consolidated", "industrial");
     expect(cons.find((r) => r.field === "pat_owners_ttm" && r.periodEnd === "2026-09-30")!.value).toBeNull();
   });
@@ -274,5 +274,20 @@ describe("bank pack (owner 6 Nov)", () => {
     expect(g("deposits_yoy").value).toBe("20");
     expect(g("cd_ratio").value).toBe("83.33");
     expect(companyFeatures(qs, bs, "standalone", "industrial").some((x) => x.field === "nii_q")).toBe(false);
+  });
+});
+
+describe("gap census fixes (6 Nov)", () => {
+  const qs = ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"].map((e) => ({ periodEnd: e, periodKind: "Q", basis: "consolidated", lines: { revenue: "100", pat: "10" } as Record<string, string> }));
+  it("no minority anywhere: profit to owners = net profit (labelled); not when an NCI line exists", () => {
+    const r = companyFeatures(qs, new Map([["2026-09-30", { "x:Equity": "500", "x:EquityAttributableToOwnersOfParent": "500" }]]), "consolidated", "industrial");
+    expect(r.find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("40");
+    expect(r.find((x) => x.field === "owners_profit_source")!.value).toBe("net profit");
+    const withNci = companyFeatures(qs, new Map([["2026-09-30", { "x:Equity": "520", "x:EquityAttributableToOwnersOfParent": "500", "x:NonControllingInterest": "20" }]]), "consolidated", "industrial");
+    expect(withNci.find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBeNull();
+  });
+  it("NCI = total equity − equity to owners when no NCI line is filed", () => {
+    const r = companyFeatures(qs.map((q) => ({ ...q, lines: { ...q.lines, pat_owners: "9" } })), new Map([["2026-09-30", { "x:Equity": "520", "x:EquityAttributableToOwnersOfParent": "500" }]]), "consolidated", "industrial");
+    expect(r.find((x) => x.field === "nci" && x.periodEnd === "2026-09-30")!.value).toBe("20");
   });
 });

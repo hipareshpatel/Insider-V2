@@ -158,7 +158,16 @@ const ownersLine = (layout: string) => (layout === "bank" ? "pat_after_minority"
  *  balance sheets (`balanceSheets`, by date). `layout` as chosen by chooseLayout. Pure: the caller stores the rows. */
 /** `cashFlows`: full-year cash-flow lines by year end (period kind FY), for capex and free cash flow. */
 export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string, cashFlows: Map<string, Record<string, string | null | undefined>> = new Map()): FeatureRow[] {
-  const qs = periods.filter((p) => p.periodKind === QUARTER_KIND && p.basis === basis).sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+  // gap census (6 Nov, 12 companies): a consolidated filer with no minority anywhere — no profit-to-NCI line in any
+  // quarter and no NCI line in any balance sheet — files no owners' line either; its profit to owners is its net profit
+  const ownersKey = basis === "standalone" ? "pat" : ownersLine(layout);
+  const noMinority = basis !== "standalone" && ownersKey === "pat_owners"
+    && !periods.some((p) => p.basis === basis && (p.lines.pat_owners != null || p.lines.pat_nci != null))
+    // positive evidence only: at least one balance sheet with its equity filed, and none with an NCI line
+    && [...balanceSheets.values()].some((b) => (b["x:Equity"] ?? b.total_equity) != null)
+    && ![...balanceSheets.values()].some((b) => b["x:NonControllingInterest"] != null || b.minority_interest != null);
+  const qs = periods.filter((p) => p.periodKind === QUARTER_KIND && p.basis === basis).sort((a, b) => a.periodEnd.localeCompare(b.periodEnd))
+    .map((p) => (noMinority && p.lines.pat != null ? { ...p, lines: { ...p.lines, pat_owners: p.lines.pat } } : p));
   const by = new Map(qs.map((q) => [q.periodEnd, q]));
   const out: FeatureRow[] = [];
   const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
@@ -236,7 +245,12 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       const eo = eq(bsEnd);
       put("equity_owners", e, eo != null ? ok(dec(eo), [`balance sheet ${e}`]) : no(`balance sheet ${e}: equity to owners not filed`));
       put("net_debt", e, netDebt(bsEnd, layout, e));
-      put("nci", e, bsEnd["x:NonControllingInterest"] != null ? ok(dec(bsEnd["x:NonControllingInterest"]!), [`balance sheet ${e}`]) : basis === "standalone" ? ok(dec("0"), [`balance sheet ${e}`], "standalone: no minority") : no(`balance sheet ${e}: non-controlling interest not filed`));
+      const totEq = bsEnd["x:Equity"] ?? bsEnd.total_equity, ownEq = bsEnd["x:EquityAttributableToOwnersOfParent"] ?? bsEnd.equity_owners;
+      put("nci", e, bsEnd["x:NonControllingInterest"] != null ? ok(dec(bsEnd["x:NonControllingInterest"]!), [`balance sheet ${e}`])
+        : basis === "standalone" ? ok(dec("0"), [`balance sheet ${e}`], "standalone: no minority")
+        // gap census (6 Nov, 18 companies): no NCI line but both equity lines filed — NCI = total equity − equity to owners
+        : totEq != null && ownEq != null ? ok(sub(dec(totEq), dec(ownEq)), [`balance sheet ${e}`], "total equity − equity to owners (no NCI line filed)")
+        : no(`balance sheet ${e}: non-controlling interest not filed`));
       put("roe", e, roe(poT, eq(bsStart), eq(bsEnd)));
       // §6: ROA = TTM net profit (whole group, as the assets are the group's) ÷ average total assets (D52 average capital)
       put("roa", e, roa(pT, bsStart ?? null, bsEnd));
@@ -264,6 +278,7 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       : ok(div(dec(cfo), dec(fyPat), 2), [`cash flow FY to ${end}`, `P&L FY to ${end}`]));
   }
   if (layout === "bank") out.push(...bankFeatures(qs, balanceSheets, basis));
+  if (noMinority && qs.length) put("owners_profit_source", "latest", { value: "net profit", from: [], note: "no minority interest filed in any period: profit to owners = net profit" });
   if (qs.length) put("layout", "latest", { value: layout, from: [] });
   return out;
 }
