@@ -457,9 +457,14 @@ export function insurerInvestments(b: Record<string, string | null | undefined> 
  *  claims, expense and combined ratios here are COMPUTED from those lines (IRDAI definitions) and are not the company's
  *  own filed ratios. Profit to shareholders growth is the generic pat_yoy_q / pat_ttm_yoy (IRDAI net profit is the
  *  shareholders' account) and premium income as revenue is revenue_* (owner #360), so neither is repeated here.
- *  Not offered (not stored from the results files): solvency ratio, persistency, conservation ratio, filed claims /
- *  combined / expense-of-management ratios (in the files, not read by LIFE_TAGS / GI_TAGS); VNB, VNB margin, embedded
- *  value and APE (not in the results files). */
+ *  The company's own filed ratios are given as `*_filed_q` (G3 follow-up): life expenses of management ratio,
+ *  persistency 13/25/37/49/61 month, conservation ratio; general incurred claims, combined, expenses of management and
+ *  net retention ratios. They are the filed fraction, not rescaled (0.733 = 73.3 %), as the bank pack gives
+ *  gnpa_pct_q / cet1_ratio_q; the computed ratios above are in %. NPAs of investments (₹) = the sum of the filed fund
+ *  lines. Life shareholders' account investment income is read (investment_income_shareholders_ttm for both layouts).
+ *  Not offered: solvency ratio (filed as a multiple by SBILIFE, 1.97, but 0.0243 by GODIGIT: scale differs across
+ *  filers, not read), filed NPA percentages (zero in every file seen: scale unproven, not read); VNB, VNB margin,
+ *  embedded value and APE (not in the results files). */
 export function insurerFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string): FeatureRow[] {
   const out: FeatureRow[] = [];
   if (layout !== "life_insurance" && layout !== "general_insurance") return out;
@@ -496,6 +501,11 @@ export function insurerFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Re
   const EXPENSE = "computed: (net commission + operating expenses related to insurance business) ÷ net premium written; not the company's filed ratio";
   const COMBINED = "computed: claims ratio (on net premium earned) + expense ratio (on net premium written); premium deficiency not included; not the company's filed ratio";
   const EOM = "computed: expenses of management (commission + operating expenses) ÷ gross premium; not the company's filed ratio";
+  // the company's own ratio as filed: a fraction, not rescaled (the bank pack's gnpa_pct_q / cet1_ratio_q likewise)
+  const filedQ = (k: string, what: string, extra = "") => (e: string): View => note(lineQ(k)(e), `filed: ${what} as stated by the company, a fraction as filed (0.733 = 73.3 %)${extra}`);
+  const NPA_FUNDS = life ? ["nonlinked_par", "nonlinked_nonpar", "linked_par", "linked_nonpar", "shareholders"] : ["policyholders"];
+  const npaQ = (kind: "gross" | "net") => (e: string): View => note(sumQ(NPA_FUNDS.map((f) => `npa_${kind}_${f}`), `${kind} NPA of investments of every fund (${NPA_FUNDS.join(", ")})`)(e),
+    `filed: ${kind} NPAs of investments, sum of the ${life ? "four policyholders' funds and the shareholders' fund" : "policyholders' fund"} (₹)`);
   for (const q of qs) {
     const e = q.periodEnd, ya = yearBefore(e);
     put("gross_premium_yoy_q", e, growth(gross(e), gross(ya), "gross premium YoY"));
@@ -507,7 +517,15 @@ export function insurerFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Re
     put("net_premium_ttm_yoy", e, growth(nT, sum4(net, ya), "net premium TTM YoY"));
     const phT = note(sum4(invPh, e), "policyholders' account investment income, as filed (net of losses; can be negative)");
     put("investment_income_policyholders_ttm", e, phT);
+    const shT = sum4(invSh, e);
+    put("investment_income_shareholders_ttm", e, shT);
+    put("expenses_of_management_ratio_filed_q", e, filedQ("expenses_of_management_ratio_filed", "expenses of management ratio")(e));
+    put("investments_gross_npa_filed_q", e, npaQ("gross")(e));
+    put("investments_net_npa_filed_q", e, npaQ("net")(e));
     if (life) {
+      for (const m of ["13", "25", "37", "49", "61"])
+        put(`persistency_${m}m_filed_q`, e, filedQ(`persistency_${m}m`, `${m}${m === "61" ? "st" : "th"}-month persistency ratio`, "; basis (premium or policy count) not stated in the file")(e));
+      put("conservation_ratio_filed_q", e, filedQ("conservation_ratio", "conservation ratio")(e));
       const nb = newBusiness(e), nbT = sum4(newBusiness, e);
       put("new_business_premium_q", e, note(nb, NB));
       put("new_business_premium_yoy_q", e, note(growth(nb, newBusiness(ya), "new business premium YoY"), NB));
@@ -516,8 +534,9 @@ export function insurerFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Re
       put("expenses_of_management_ratio_computed_q", e, r2(ratio6(eom(e), gross(e), "expenses of management ratio"), EOM));
       put("expenses_of_management_ratio_computed_ttm", e, r2(ratio6(sum4(eom, e), gT, "expenses of management ratio"), EOM));
     } else {
-      const shT = sum4(invSh, e);
-      put("investment_income_shareholders_ttm", e, shT);
+      put("claims_ratio_filed_q", e, filedQ("claims_ratio_filed", "incurred claims ratio")(e));
+      put("combined_ratio_filed_q", e, filedQ("combined_ratio_filed", "combined ratio")(e));
+      put("net_retention_ratio_filed_q", e, filedQ("net_retention_ratio_filed", "net retention ratio")(e));
       put("investment_income_ttm", e, note(plus(phT, shT), "computed: policyholders' (revenue account) + shareholders' account investment income"));
       const cQ = ratio6(claims(e), earned(e), "claims ratio"), xQ = ratio6(expenses(e), net(e), "expense ratio");
       const cT = ratio6(sum4(claims, e), sum4(earned, e), "claims ratio"), xT = ratio6(sum4(expenses, e), nT, "expense ratio");

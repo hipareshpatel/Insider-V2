@@ -142,6 +142,31 @@ export const LIFE_TAGS: Record<string, string> = {
   pbt: "ProfitLossBeforeTax",
   tax: "ProvisionsForTaxes",
   pat: "ProfitLossAfterTaxAndExtraordinaryItems",
+  // shareholders' account investment income (SBILIFE Q2 FY27: 3,558.307 ₹ m + other income 2.071 = income under the
+  // shareholders' account 3,560.378, filed; + transfer from policyholders 2,416.731 = 5,977.109, filed)
+  investment_income_shareholders: "InvestmentIncome",
+  // G3 follow-up: the insurer's own analytical ratios, stored as filed (unit "pure", a fraction: SBILIFE Q2 FY27
+  // ExpensesOfManagementRatio 0.1139 = expenses of management ÷ gross premium 11.39 %, exact). Persistency carries no
+  // dimension in the file: the basis (premium or policy count) is the company's, not stated. Solvency ratio is NOT read:
+  // filed as a multiple by SBILIFE (1.97) but 0.0243 by GODIGIT (2.43× ÷ 100), scale differs across filers.
+  expenses_of_management_ratio_filed: "ExpensesOfManagementRatio",
+  persistency_13m: "PersistencyRatio13ThMonth",
+  persistency_25m: "PersistencyRatio25ThMonth",
+  persistency_37m: "PersistencyRatio37ThMonth",
+  persistency_49m: "PersistencyRatio49ThMonth",
+  persistency_61m: "PersistencyRatio61ThMonth",
+  conservation_ratio: "ConservationRatio",
+  // NPAs of investments (₹, as filed) by fund; the filed NPA percentages are not read (zero in every file seen: scale unproven)
+  npa_gross_nonlinked_par: "NonLinkedParticipatingPolicyholdersFundGrossNPAs",
+  npa_gross_nonlinked_nonpar: "NonLinkedNonParticipatingPolicyholdersFundGrossNPAs",
+  npa_gross_linked_par: "LinkedParticipatingPolicyholdersFundGrossNPAs",
+  npa_gross_linked_nonpar: "LinkedNonParticipatingPolicyholdersFundGrossNPAs",
+  npa_gross_shareholders: "GrossNPAsShareholdersFund",
+  npa_net_nonlinked_par: "NonLinkedParticipatingPolicyholdersFundNetNPAs",
+  npa_net_nonlinked_nonpar: "NonLinkedNonParticipatingPolicyholdersFundNetNPAs",
+  npa_net_linked_par: "LinkedParticipatingPolicyholdersFundNetNPAs",
+  npa_net_linked_nonpar: "LinkedNonParticipatingPolicyholdersFundNetNPAs",
+  npa_net_shareholders: "NetNPAsShareholdersFund",
 };
 
 /** General-insurance template (IRDAI format, Integrated Filing "IFGI": revenue account + profit and loss account).
@@ -177,6 +202,16 @@ export const GI_TAGS: Record<string, string> = {
   tax: "ProvisionForTax",
   pat: "ProfitLossAfterTax",
   eps_basic: "BasicAndDilutedEPSAfterExtraordinaryItemsNetOfTaxExpenseForThePeriodNotToBeAnnualized",
+  // G3 follow-up: the insurer's own analytical ratios, stored as filed (unit "pure", a fraction). GODIGIT Q1 FY27 agrees
+  // with the ratios computed from its own lines: claims 0.733 vs 73.34 %, net retention 0.767 vs 76.69 %, combined
+  // 1.123 vs 112.36 %. Solvency ratio is not read (see LIFE_TAGS).
+  claims_ratio_filed: "IncurredClaimRatio",
+  combined_ratio_filed: "CombinedRatio",
+  expenses_of_management_ratio_filed: "ExpensesOfManagementRatio",
+  net_retention_ratio_filed: "NetRetentionRatio",
+  // NPAs of investments (₹, as filed), policyholders' fund; the filed NPA percentages are not read (scale unproven)
+  npa_gross_policyholders: "GrossNPAsPolicyholdersFund",
+  npa_net_policyholders: "NetNPAsPolicyholdersFund",
 };
 
 /** Old Indian GAAP (non-Ind AS) results file: its schema is not an Ind AS entry point and it isn't an Integrated Filing.
