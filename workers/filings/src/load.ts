@@ -157,16 +157,16 @@ export async function loadShp(job: { job_id: number; kind: string; symbol: strin
      ON CONFLICT (kind, source_url) DO NOTHING`, [sec.security_id, "shareholding", r.asOf, disclosedAt, job.url]);
   const [f] = await deps.filings.all<{ filing_id: number }>("SELECT filing_id FROM filing WHERE kind='shareholding' AND source_url=?", [job.url]);
   const fid = f!.filing_id;
-  const rows: unknown[][] = [[fid, sec.security_id, r.asOf, "total", "", r.totalShares, "1", null, "1"]];
-  for (const c of r.categories) rows.push([fid, sec.security_id, r.asOf, c.category, "", c.shares, c.filedPct, c.category === "promoter" ? r.promoterEncumbrance.pledged : null, c.pct]);
+  const rows: unknown[][] = [[fid, sec.security_id, r.asOf, "total", "", r.totalShares, "1", null, "1", null]];
+  for (const c of r.categories) rows.push([fid, sec.security_id, r.asOf, c.category, "", c.shares, c.filedPct, c.category === "promoter" ? r.promoterEncumbrance.pledged : null, c.pct, null]);
   const seen = new Set<string>();
   for (const h of r.namedHolders) {
     const k = `${h.group}|${h.name}`;
     if (seen.has(k)) continue; seen.add(k);
-    rows.push([fid, sec.security_id, r.asOf, `holder:${h.group}`, h.name, h.shares, h.filedPct, null, h.pct]);
+    rows.push([fid, sec.security_id, r.asOf, `holder:${h.group}`, h.name, h.shares, h.filedPct, null, h.pct, h.promoter ? 1 : 0]);
   }
   await batchAll(deps.filings, [
-    ...insertRows("INSERT INTO shareholding (filing_id,security_id,as_of,category,holder_name,shares,pct,pledged_shares,pct_all_shares)", 9, rows, "ON CONFLICT DO NOTHING"),
+    ...insertRows("INSERT INTO shareholding (filing_id,security_id,as_of,category,holder_name,shares,pct,pledged_shares,pct_all_shares,promoter)", 10, rows, "ON CONFLICT DO NOTHING"),
     { sql: `INSERT INTO promoter_encumbrance (filing_id,security_id,as_of,encumbered,pledged,non_disposal,other,pct_of_promoter_holding) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
       params: [fid, sec.security_id, r.asOf, r.promoterEncumbrance.encumbered, r.promoterEncumbrance.pledged, r.promoterEncumbrance.nonDisposal, r.promoterEncumbrance.other, r.promoterEncumbrance.pctOfPromoterHolding] },
   ]);

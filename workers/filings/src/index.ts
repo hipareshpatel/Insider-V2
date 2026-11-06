@@ -5,7 +5,7 @@ import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS } from "./events.js";
-import { shpCoverage, promoterGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
+import { shpCoverage, promoterGroups, shpPromoterPass, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
 import { ratingCoverage } from "./ratingcov.js";
 import { readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
@@ -121,6 +121,11 @@ export default {
       // 2.12: re-read the full year of named loaded files (after a loadFy fix); per-line version relabel (dry=1 counts)
       else if (name === "fy_reread") r = await fyReread(ldeps, (new URL(req.url).searchParams.get("jobs") ?? "").split(",").map(Number));
       else if (name === "version_fix") r = await versionFix(ldeps, { dry: new URL(req.url).searchParams.get("dry") === "1" });
+      // D40 (owner yes, 6 Nov): promoter flag of each focus company's latest shareholding filing, from its stored file
+      else if (name === "shp_promoter") {
+        const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
+        r = await shpPromoterPass(db, ldeps.getText, sids, new Date(), 25, new URL(req.url).searchParams.get("restart") === "1");
+      }
       else if (name === "segments") { const u = new URL(req.url); r = await segmentPass(ldeps, { dry: u.searchParams.get("dry") === "1", companies: u.searchParams.has("companies") ? Number(u.searchParams.get("companies")) : undefined }, 30, 20_000); }
       // item 7 (owner #363): credit ratings re-read with the issuer match; missing ones added, stored ones get their symbol
       else if (name === "ratings_relink") r = await ratingsRelink(db, ldeps.getText, focus ?? [], await focusIssuers(mk, focus ?? []), 12);
@@ -381,13 +386,15 @@ export default {
       const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
       const ids = (await env.DB_MARKET.prepare("SELECT security_id, min(value) AS symbol FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) GROUP BY security_id").bind(JSON.stringify(focus ?? [])).all<{ security_id: number; symbol: string }>()).results;
       const sym = new Map(ids.map((r) => [r.security_id, r.symbol]));
-      const rows = (await env.DB_FILINGS.prepare(SQL_PROMOTER_HOLDERS).bind(JSON.stringify([...sym.keys()])).all<{ security_id: number; category: string; holder_name: string; pct: string | null }>()).results;
+      const rows = (await env.DB_FILINGS.prepare(SQL_PROMOTER_HOLDERS).bind(JSON.stringify([...sym.keys()])).all<{ security_id: number; category: string; holder_name: string; pct: string | null; promoter: number | null }>()).results;
+      const names = new Map((await env.DB_MARKET.prepare("SELECT security_id, name FROM security WHERE security_id IN (SELECT value FROM json_each(?1))").bind(JSON.stringify([...sym.keys()])).all<{ security_id: number; name: string }>()).results.map((r) => [r.security_id, r.name]));
       const cats: Record<string, number> = {};
       for (const r of rows) cats[r.category] = (cats[r.category] ?? 0) + 1;
-      const groups = promoterGroups(rows, sym);
+      const groups = promoterGroups(rows, sym, names);
       const inGroup = new Set(groups.flatMap((g) => g.companies));
-      const withPromoterEntity = new Set(rows.filter((r) => /promoter/i.test(r.category)).map((r) => r.security_id));
-      return Response.json({ companies: sym.size, holder_rows: rows.length, holder_categories: cats, companies_with_named_promoters: withPromoterEntity.size,
+      const withPromoterEntity = new Set(rows.filter((r) => r.promoter === 1).map((r) => r.security_id));
+      const flagged = new Set(rows.filter((r) => r.promoter != null).map((r) => r.security_id));
+      return Response.json({ companies: sym.size, holder_rows: rows.length, holder_categories: cats, companies_with_named_promoters: withPromoterEntity.size, companies_flag_read: flagged.size,
         groups: groups.length, companies_in_groups: inGroup.size, list: groups }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/segments") {

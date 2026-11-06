@@ -13,7 +13,7 @@ import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED,
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
-import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS } from "../../workers/filings/src/shpcov.js";
+import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS, SQL_LATEST_SHP, SQL_JOB_BY_URL, SQL_SET_PROMOTER } from "../../workers/filings/src/shpcov.js";
 import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
 import { SQL_FOCUS } from "../../packages/core/src/focus.js";
 
@@ -81,6 +81,9 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: the 250's insider trades per year (owner #365, read-only)", SQL_INSIDER_YEARS, ['["INFY"]'], /ix_insider_symbol \(symbol=\? AND from_d>\?\)/],
   ["filings: new-system insider rows, all companies (owner #365, read-only)", SQL_PITX_SYMBOLS, [], /SEARCH insider_trade USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_insider_trade_1) \(key>\? AND key<\?\)/],
   ["filings: named promoter holders of the 250, latest filing (D40, read-only)", SQL_PROMOTER_HOLDERS, ['[1,2]'], /ix_shareholding_sec \(security_id=\?/],
+  ["filings: latest shareholding filing of one company (D40 one-off)", SQL_LATEST_SHP, [1], /ix_filing_sec \(security_id=\? AND kind=\?\)/],
+  ["filings: download of one file by URL (D40 one-off)", SQL_JOB_BY_URL, ["u"], /sqlite_autoindex_fetch_job_1 \(url=\?\)/],
+  ["filings: promoter flag of one named holder (D40 one-off)", SQL_SET_PROMOTER, [1, 1, "holder:x", "y"], /USING (PRIMARY KEY|INDEX sqlite_autoindex_shareholding_1) \(filing_id=\? AND category=\? AND holder_name=\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 

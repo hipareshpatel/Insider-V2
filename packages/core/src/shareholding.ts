@@ -19,7 +19,9 @@ const SUB: Record<string, string> = {
  *  (ADR custodian, employee trusts) — so HDFCBANK's public = 1 (100%) is correct. Default for display.
  *  pct = shares ÷ all shares (ours), kept for checks and for comparing companies with large DR holdings. */
 export interface CategoryHolding { category: string; shares: number; pct: string; filedPct: string | null }
-export interface NamedHolder { group: string; name: string; shares: number; pct: string; filedPct: string | null }
+/** `promoter`: the holder is listed in the promoter tables (A1/A2) — the file then carries its TypeOfPromoterShareholding
+ *  fact in the same context (only its presence is used, D40); public holders (tables B) never carry it. */
+export interface NamedHolder { group: string; name: string; shares: number; pct: string; filedPct: string | null; promoter: boolean }
 export interface Shareholding {
   symbol: string | null;
   asOf: string;
@@ -71,6 +73,7 @@ export function parseShareholding(inst: XbrlInstance, opts: { totalOverride?: nu
   const key = (dims: Record<string, string>) => Object.entries(dims).map(([a, b]) => `${a}=${b}`).sort().join("|");
   const instantByKey = new Map<string, string>();
   for (const c of inst.contexts.values()) if (c.instant && Object.keys(c.dims).length && !c.dims[P + "CategoryOfShareholdersAxis"]) instantByKey.set(key(c.dims), c.id);
+  const promoterHolderCtx = new Set(inst.facts.filter((f) => f.tag === P + "TypeOfPromoterShareholding").map((f) => f.contextRef));
   for (const f of inst.facts) {
     if (f.tag !== P + "NameOfTheShareholder" || !f.value) continue;
     const c = inst.contexts.get(f.contextRef);
@@ -79,7 +82,7 @@ export function parseShareholding(inst: XbrlInstance, opts: { totalOverride?: nu
     const shares = num("NumberOfShares", ic ?? undefined);
     if (shares === null) continue;
     const axis = Object.keys(c.dims)[0]!.replace(P, "").replace(/^Details(Of)?SharesHeldBy/, "").replace(/Axis$/, "");
-    namedHolders.push({ group: axis, name: f.value, shares, pct: frac(shares), filedPct: ic ? fact("ShareholdingAsAPercentageOfTotalNumberOfShares", ic) : null });
+    namedHolders.push({ group: axis, name: f.value, shares, pct: frac(shares), filedPct: ic ? fact("ShareholdingAsAPercentageOfTotalNumberOfShares", ic) : null, promoter: promoterHolderCtx.has(f.contextRef) });
   }
 
   const top = categories.filter((c) => names.ShareholdingOfPromoterAndPromoterGroup === c.category || c.category === "public" || c.category === "non_promoter_non_public");
