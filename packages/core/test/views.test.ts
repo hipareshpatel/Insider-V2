@@ -299,6 +299,10 @@ describe("gap census fixes (6 Nov)", () => {
     expect(ttmAt(r)).toBe("40");
     expect(r.find((x) => x.field === "pat_owners_q" && x.periodEnd === "2025-12-31")!.value).toBe("10");
   });
+  it("owners' figure missing but profit to NCI filed: owners = net profit − NCI (even with a minority on the balance sheet)", () => {
+    const r = companyFeatures(qs.map((q) => ({ ...q, lines: { ...q.lines, pat_nci: "2" } })), eqBs("20"), "consolidated", "industrial");
+    expect(ttmAt(r)).toBe("32");
+  });
   it("insurer (IRDAI) with shareholders' funds and no minority line: profit to owners = net profit", () => {
     const ins = new Map(["2025-09-30", "2026-03-31", "2026-09-30"].map((d) => [d, { "x:ShareholdersFunds": "500" }]));
     expect(ttmAt(companyFeatures(qs.map((q) => ({ ...q, lines: { gross_premium: "100", pat: "10" } })), ins, "consolidated", "life_insurance"))).toBe("40");

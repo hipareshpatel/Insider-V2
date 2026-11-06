@@ -185,9 +185,14 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
     if (tot != null && own != null) return tol(own, tot);
     return (layout === "life_insurance" || layout === "general_insurance") && b["x:ShareholdersFunds"] != null;
   };
-  let filledFromPat = 0;
+  let filledFromPat = 0, filledFromIdentity = 0;
   const qs = periods.filter((p) => p.periodKind === QUARTER_KIND && p.basis === basis).sort((a, b) => a.periodEnd.localeCompare(b.periodEnd))
     .map((p) => {
+      // identity: with profit to NCI filed (non-zero) and no owners' figure, profit to owners = net profit − profit to NCI
+      if (basis !== "standalone" && ownersKey === "pat_owners" && p.lines.pat != null && p.lines.pat_owners == null && nz(p.lines.pat_nci)) {
+        filledFromIdentity++;
+        return { ...p, lines: { ...p.lines, pat_owners: toText(sub(dec(p.lines.pat), dec(p.lines.pat_nci!))) } };
+      }
       if (basis === "standalone" || ownersKey !== "pat_owners" || p.lines.pat == null || p.lines.pat_owners != null || nz(p.lines.pat_nci) || !noMinorityAt(p.periodEnd)) return p;
       filledFromPat++;
       return { ...p, lines: { ...p.lines, pat_owners: p.lines.pat } };
@@ -303,6 +308,7 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       : ok(div(dec(cfo), dec(fyPat), 2), [`cash flow FY to ${end}`, `P&L FY to ${end}`]));
   }
   if (layout === "bank") out.push(...bankFeatures(qs, balanceSheets, basis));
+  if (filledFromIdentity && qs.length) put("owners_profit_identity", "latest", { value: String(filledFromIdentity), from: [], note: "quarter(s) with no owners' figure: profit to owners = net profit − profit to NCI (both filed)" });
   if (noMinority && qs.length) put("owners_profit_source", "latest", { value: "net profit", from: [], note: `${filledFromPat} quarter(s) with no owners' figure and no minority on the balance sheet: profit to owners = net profit` });
   if (qs.length) put("layout", "latest", { value: layout, from: [] });
   return out;
