@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, marginFlags, peVsSectorMedian, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
+import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, insurerFeatures, insurerInvestments, marginFlags, peVsSectorMedian, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
 
 const q = (periodEnd: string, lines: Record<string, string>, basis = "consolidated"): FiledPeriod => ({ periodEnd, periodKind: "Q", basis, lines });
 const four = [q("2025-12-31", { revenue: "100" }), q("2026-03-31", { revenue: "110" }), q("2026-06-30", { revenue: "120" }), q("2026-09-30", { revenue: "130" })];
@@ -353,5 +353,111 @@ describe("gap census fixes (6 Nov)", () => {
   it("NCI = total equity − equity to owners when no NCI line is filed", () => {
     const r = companyFeatures(qs.map((q) => ({ ...q, lines: { ...q.lines, pat_owners: "9" } })), new Map([["2026-09-30", { "x:Equity": "520", "x:EquityAttributableToOwnersOfParent": "500" }]]), "consolidated", "industrial");
     expect(r.find((x) => x.field === "nci" && x.periodEnd === "2026-09-30")!.value).toBe("20");
+  });
+});
+
+describe("insurer pack (owner #389, Part 2 G3: IRDAI lines as filed)", () => {
+  const ends = ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"];
+  const unique = (r: ReturnType<typeof companyFeatures>) => new Set(r.map((x) => `${x.field}|${x.periodEnd}`)).size === r.length;
+  // life: first-year + renewal + single = gross premium (the filed identity holds in every quarter)
+  const life = ends.map((e, i) => ({ periodEnd: e, periodKind: "Q", basis: "standalone", lines: {
+    gross_premium: String(1000 + 100 * i), net_premium: String(980 + 100 * i), premium_first_year: String(200 + 20 * i), premium_single: "100",
+    premium_renewal: String(700 + 80 * i), investment_income_policyholders: "50", expenses_of_management: "120", pat: "30" } as Record<string, string | undefined> }));
+  // HDFCLIFE Sep 2026 standalone (filed; the three investment lines add to its filed "Investments" 40,96,725.5 ₹ m); a year before: hand-made
+  const lifeBs = new Map<string, Record<string, string | undefined>>([
+    ["2025-09-30", { "x:ShareholdersFunds": "170000000000", "x:ApplicationOfFunds": "2700000000000", "x:InvestmentsShareholders": "200000000000", "x:InvestmentsPolicyholders": "2400000000000" }],
+    ["2026-09-30", { "x:ShareholdersFunds": "193977400000", "x:ApplicationOfFunds": "4124862500000", "x:InvestmentsShareholders": "219010000000",
+      "x:InvestmentsPolicyholders": "2733618200000", "x:AssetsHeldToCoverLinkLiabilities": "1144097300000" }]]);
+  it("life: premium growth and TTM, new business premium, expenses of management ratio, shareholders' funds and investments", () => {
+    const r = companyFeatures(life, lifeBs, "standalone", "life_insurance");
+    const g = (f: string) => r.find((x) => x.field === f && x.periodEnd === "2026-09-30")!;
+    expect(g("gross_premium_yoy_q")).toMatchObject({ value: "36.36", inputs: ["2025-09-30", "2026-09-30"] }); // 1,500 vs 1,100
+    expect(g("net_premium_yoy_q").value).toBe("37.04");                // 1,480 vs 1,080
+    expect(g("gross_premium_ttm").value).toBe("5400");                 // 1,200 + 1,300 + 1,400 + 1,500
+    expect(g("net_premium_ttm").value).toBe("5320");
+    expect(g("gross_premium_ttm_yoy")).toMatchObject({ value: null, reason: expect.stringMatching(/2025-03-31.*gross_premium/) }); // year-ago TTM needs 2024-12, 2025-03
+    expect(g("new_business_premium_q")).toMatchObject({ value: "400" }); // 300 + 100
+    expect(g("new_business_premium_yoy_q").value).toBe("25");          // 400 vs 220 + 100
+    expect(g("new_business_premium_ttm").value).toBe("1480");          // (240 + 260 + 280 + 300) + 4 × 100
+    expect(g("renewal_premium_yoy_q").value).toBe("41.03");            // 1,100 vs 780
+    expect(g("expenses_of_management_ratio_computed_q").value).toBe("8"); // 120 ÷ 1,500
+    expect(g("expenses_of_management_ratio_computed_ttm").value).toBe("8.89"); // 480 ÷ 5,400
+    expect(g("investment_income_policyholders_ttm").value).toBe("200");
+    expect(g("shareholders_funds_yoy").value).toBe("14.1");            // 19,397.74 vs 17,000 ₹ cr
+    expect(g("investments_total")).toMatchObject({ value: "4096725500000", inputs: ["balance sheet 2026-09-30"] });
+    expect(g("investments_yoy")).toMatchObject({ value: "57.57", inputs: ["balance sheet 2025-09-30", "balance sheet 2026-09-30"] }); // vs 2,00,000 + 24,00,000 (no linked line filed: none)
+    // general-insurer fields are not offered for a life insurer; no field is given twice for one date
+    for (const f of ["claims_ratio_computed_q", "combined_ratio_computed_ttm", "underwriting_result_ttm", "investment_income_ttm"]) expect(r.some((x) => x.field === f)).toBe(false);
+    expect(r.filter((x) => x.field === "debt_to_equity" && x.periodEnd === "2026-09-30")).toHaveLength(1);
+    expect(unique(r)).toBe(true);
+    // the generic rows still carry profit growth and the premium revenue base (not repeated in the pack)
+    expect(g("revenue_ttm").value).toBe("5400");
+    expect(companyFeatures(life, lifeBs, "standalone", "industrial").some((x) => x.field === "gross_premium_ttm")).toBe(false);
+  });
+  it("notes say what is computed and what a missing part was taken as", () => {
+    const rows = insurerFeatures(life, lifeBs, "standalone", "life_insurance");
+    expect(rows.some((x) => x.field === "investments_total")).toBe(true);
+    const nb = insurerFeatures(life.slice(-1), new Map(), "standalone", "life_insurance").find((x) => x.field === "new_business_premium_q")!;
+    expect(nb.inputs).toEqual(["2026-09-30"]);
+    expect(insurerInvestments(lifeBs.get("2025-09-30"), "2025-09-30", "life_insurance")).toMatchObject({ value: "2600000000000", note: expect.stringMatching(/taken as none.*AssetsHeldToCoverLinkLiabilities/) });
+    expect(insurerInvestments(lifeBs.get("2026-09-30"), "2026-09-30", "life_insurance")).toEqual({ value: "4096725500000", from: ["balance sheet 2026-09-30"] });
+    expect(insurerFeatures(life, lifeBs, "standalone", "bank")).toEqual([]);
+  });
+  it("life: SBILIFE Q2 FY27 standalone as filed — new business premium and the expenses of management ratio (filed 0.1139)", () => {
+    const sbi = { periodEnd: "2026-09-30", periodKind: "Q", basis: "standalone", lines: { gross_premium: "271151274000", premium_first_year: "57558640000",
+      premium_renewal: "157636352000", premium_single: "55956282000", expenses_of_management: "30874746000", pat: "5492318000" } };
+    const r = companyFeatures([sbi], new Map(), "standalone", "life_insurance");
+    const g = (f: string) => r.find((x) => x.field === f && x.periodEnd === "2026-09-30")!;
+    expect(g("new_business_premium_q").value).toBe("113514922000");
+    expect(g("expenses_of_management_ratio_computed_q").value).toBe("11.39");
+    expect(g("gross_premium_yoy_q").reason).toMatch(/2025-09-30.*gross_premium/);
+  });
+  // general: GODIGIT Q1 FY27 standalone as filed (₹), repeated over four quarters; the year-ago quarter's gross premium 2,500 ₹ cr
+  const digit = { gross_premium: "27308600000", net_premium: "20941900000", premium_earned: "20069600000", claims_incurred: "14718700000", commission: "6151200000",
+    operating_expenses: "2019800000", underwriting_result: "-2820100000", investment_income_policyholders: "3518300000", investment_income_shareholders: "682300000", pat: "863900000" };
+  const gi = ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30"].map((e, i) => ({ periodEnd: e, periodKind: "Q", basis: "standalone",
+    lines: { ...digit, ...(i === 0 ? { gross_premium: "25000000000" } : {}) } as Record<string, string | undefined> }));
+  // ICICIGI Sep 2026 standalone B-BS lines (filed), placed at the GI test's quarter end; a year before: hand-made
+  const giBs = new Map<string, Record<string, string | undefined>>([
+    ["2025-06-30", { "x:ShareCapital": "4996100000", "x:ReservesAndSurplus": "150000000000", "x:ShareholdersFunds": "5000000000", "x:ApplicationOfFunds": "1",
+      "x:InvestmentsShareholders": "150000000000", "x:InvestmentsPolicyholders": "400000000000" }],
+    ["2026-06-30", { "x:ShareCapital": "4996100000", "x:ShareApplicationMoneyReceivedPendingAllotmentOfShares": "34300000", "x:ReservesAndSurplus": "175056900000",
+      "x:ShareholdersFunds": "8146100000", "x:ApplicationOfFunds": "208915200000", "x:InvestmentsShareholders": "169531700000", "x:InvestmentsPolicyholders": "473785100000" }]]);
+  it("general: computed claims / expense / combined ratios agree with the filed 0.733 / 0.39 / 1.123 (Q1 FY27); retention, underwriting, investment income", () => {
+    const r = companyFeatures(gi, giBs, "standalone", "general_insurance");
+    const g = (f: string) => r.find((x) => x.field === f && x.periodEnd === "2026-06-30")!;
+    expect(g("claims_ratio_computed_q")).toMatchObject({ value: "73.34", inputs: ["2026-06-30"] });
+    expect(g("expense_ratio_computed_q").value).toBe("39.02");         // (6,151.2 + 2,019.8) ÷ 20,941.9
+    expect(g("combined_ratio_computed_q").value).toBe("112.36");       // 73.338… + 39.017…, rounded once
+    expect(g("claims_ratio_computed_ttm")).toMatchObject({ value: "73.34", inputs: ["2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30"] });
+    expect(g("expense_ratio_computed_ttm").value).toBe("39.02");
+    expect(g("combined_ratio_computed_ttm").value).toBe("112.36");
+    expect(g("retention_ratio_computed_ttm").value).toBe("76.69");     // filed NetRetentionRatio 0.767
+    expect(g("underwriting_result_ttm").value).toBe("-11280400000");   // 4 × −2,820.1 ₹ m, sign as filed
+    expect(g("investment_income_policyholders_ttm").value).toBe("14073200000");
+    expect(g("investment_income_shareholders_ttm").value).toBe("2729200000");
+    expect(g("investment_income_ttm").value).toBe("16802400000");
+    expect(g("gross_premium_yoy_q").value).toBe("9.23");               // 2,730.86 vs 2,500 ₹ cr
+    expect(g("net_premium_yoy_q").value).toBe("0");
+    expect(g("gross_premium_ttm").value).toBe("109234400000");
+    expect(g("shareholders_funds_yoy").value).toBe("17.65");           // 18,823.34 vs 499.61 + 15,000 + 500 ₹ cr
+    expect(g("investments_total").value).toBe("643316800000");         // = ICICIGI's filed "Investments"
+    expect(g("investments_yoy").value).toBe("16.97");
+    for (const f of ["new_business_premium_q", "expenses_of_management_ratio_computed_q", "solvency_ratio", "vnb", "persistency_13m"]) expect(r.some((x) => x.field === f)).toBe(false);
+    expect(unique(r)).toBe(true);
+  });
+  it("a missing line or balance sheet gives a reason, never a number", () => {
+    const gap = gi.map((q) => (q.periodEnd === "2026-03-31" ? { ...q, lines: { ...q.lines, claims_incurred: undefined, commission: undefined } } : q));
+    const noAof = new Map([...giBs].map(([d, b]) => [d, d === "2025-06-30" ? { ...b, "x:ApplicationOfFunds": undefined } : b]));
+    const r = companyFeatures(gap, noAof, "standalone", "general_insurance");
+    const g = (f: string) => r.find((x) => x.field === f && x.periodEnd === "2026-06-30")!;
+    expect(g("claims_ratio_computed_ttm")).toMatchObject({ value: null, reason: expect.stringMatching(/2026-03-31.*claims_incurred/) });
+    expect(g("combined_ratio_computed_ttm").value).toBeNull();
+    expect(g("expense_ratio_computed_ttm").reason).toMatch(/2026-03-31.*net commission and operating expenses must be filed/);
+    expect(g("claims_ratio_computed_q").value).toBe("73.34");          // the quarter itself is complete
+    expect(g("investments_yoy").reason).toMatch(/2025-06-30: IRDAI application of funds not filed/);
+    expect(g("investments_total").value).toBe("643316800000");
+    const lr = companyFeatures(life, new Map([...lifeBs].map(([d, b]) => [d, d === "2025-09-30" ? { ...b, "x:ShareholdersFunds": undefined } : b])), "standalone", "life_insurance");
+    expect(lr.find((x) => x.field === "shareholders_funds_yoy" && x.periodEnd === "2026-09-30")!.reason).toMatch(/2025-09-30: shareholders' funds not filed/);
   });
 });
