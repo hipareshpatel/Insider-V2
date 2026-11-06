@@ -5,7 +5,7 @@ import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS, isPitAnnouncement } from "./events.js";
-import { shpCoverage, pledgeCensus, promoterGroups, shpPromoterPass, shpPromoterHistory, storeGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
+import { shpCoverage, pledgeCensus, pledgeDeclaredPass, promoterGroups, shpPromoterPass, shpPromoterHistory, storeGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
 import type { Sql } from "@disclo/core";
 import { ownershipStep } from "./ownership.js";
 import { eventStep } from "./eventfeatures.js";
@@ -154,6 +154,10 @@ export default {
       else if (name === "ownership") {
         const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
         r = await ownershipStep(db, sids, new Date(), 50, new URL(req.url).searchParams.get("restart") === "1");
+      }
+      else if (name === "pledge_declared") {
+        const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
+        r = await pledgeDeclaredPass(db, (k) => getText(env.RAW, k), sids, new Date(), 25, new URL(req.url).searchParams.get("restart") === "1");
       }
       else if (name === "event_features") {
         const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);

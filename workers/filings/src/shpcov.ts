@@ -207,7 +207,7 @@ export async function shpPromoterPass(db: Sql, getText: (k: string) => Promise<s
  *  Classes: parsed (a pledge figure was read), no_tags (the file has no pledge or encumbrance fact at all), zero_only
  *  (such facts exist but are all zero or nil), missed (a non-zero pledge / encumbrance fact the reader did not use). */
 export async function pledgeCensus(db: Sql, getText: (k: string) => Promise<string | null>, sids: number[]) {
-  const out = { files: 0, unreadable: 0, parsed: 0, parsed_zero: 0, no_tags: 0, zero_only: 0, missed: 0, tags: {} as Record<string, { files: number; nonzero: number }>, missed_sample: [] as { sid: number; as_of: string; facts: string[] }[] };
+  const out = { files: 0, unreadable: 0, parsed: 0, parsed_zero: 0, no_tags: 0, zero_only: 0, missed: 0, from: {} as Record<string, number>, tags: {} as Record<string, { files: number; nonzero: number }>, missed_sample: [] as { sid: number; as_of: string; facts: string[] }[] };
   for (const sid of sids) {
     const [f] = await db.all<{ filing_id: number; source_url: string; period_end?: string }>(SQL_LATEST_SHP, [sid]);
     const [j] = f ? await db.all<{ r2_key: string }>(SQL_JOB_BY_URL, [f.source_url]) : [];
@@ -225,10 +225,45 @@ export async function pledgeCensus(db: Sql, getText: (k: string) => Promise<stri
       if (!seen.has(name)) { t.files++; seen.add(name); }
       if (!x.nil && Number.isFinite(v) && v !== 0) { t.nonzero++; nonzero.push(`${name}@${x.contextRef}=${x.value}`); }
     }
+    const e = parseShareholding(inst, { totalOverride: 1 }).promoterEncumbrance, key = `${e.pledgedFrom ?? "none"}|declared:${e.pledgeDeclared ?? "absent"}`;
+    out.from[key] = (out.from[key] ?? 0) + 1;
     if (pledged != null) { out.parsed++; if (pledged === 0) out.parsed_zero++; }
     else if (!facts.length) out.no_tags++;
     else if (!nonzero.length) out.zero_only++;
     else { out.missed++; if (out.missed_sample.length < 25) out.missed_sample.push({ sid, as_of: f.period_end ?? "", facts: nonzero.slice(0, 6) }); }
   }
   return out;
+}
+
+/** Readiness map defect 2, one-off (/maint/pledge_declared): the two latest shareholding filings of each focus company
+ *  whose stored pledge is empty are re-read; when the file declares no pledge ("false") and files no figure, pledged = 0
+ *  is written (promoter_encumbrance and the promoter row of shareholding). Only empty values are filled; nothing else
+ *  changes. `limit` companies per call, cursor in daily_refresh. */
+export const SQL_TWO_LATEST_SHP_URL = "SELECT f.filing_id, f.source_url, e.pledged FROM filing f JOIN promoter_encumbrance e ON e.filing_id = f.filing_id WHERE f.security_id = ?1 AND f.kind = 'shareholding' ORDER BY f.period_end DESC LIMIT 2";
+export async function pledgeDeclaredPass(db: Sql, getText: (k: string) => Promise<string | null>, sids: number[], now: Date, limit = 25, restart = false) {
+  const [st] = restart ? [] : await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='pledge_declared'");
+  const cur = st ? JSON.parse(st.detail) as { after: number; files: number; filled: number; declared_yes: number; unreadable: number } : { after: 0, files: 0, filled: 0, declared_yes: 0, unreadable: 0 };
+  const todo = [...sids].sort((a, b) => a - b).filter((x) => x > cur.after).slice(0, limit);
+  for (const sid of todo) {
+    cur.after = sid;
+    for (const f of await db.all<{ filing_id: number; source_url: string; pledged: number | null }>(SQL_TWO_LATEST_SHP_URL, [sid])) {
+      if (f.pledged != null) continue;
+      const [j] = await db.all<{ r2_key: string }>(SQL_JOB_BY_URL, [f.source_url]);
+      const xml = j ? await getText(j.r2_key) : null;
+      if (!xml) { cur.unreadable++; continue; }
+      let e;
+      try { e = parseShareholding(parseXbrl(xml), { totalOverride: 1 }).promoterEncumbrance; } catch { cur.unreadable++; continue; }
+      cur.files++;
+      if (e.pledgedFrom === "declaration" && e.pledged === 0) {
+        await db.batch([
+          { sql: "UPDATE promoter_encumbrance SET pledged = 0 WHERE filing_id = ?1 AND pledged IS NULL", params: [f.filing_id] },
+          { sql: "UPDATE shareholding SET pledged_shares = 0 WHERE filing_id = ?1 AND category = 'promoter' AND pledged_shares IS NULL", params: [f.filing_id] },
+        ]);
+        cur.filled++;
+      } else if (e.pledgeDeclared === true) cur.declared_yes++;
+    }
+  }
+  const done = todo.length < limit;
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','pledge_declared',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [now.toISOString(), JSON.stringify(cur)]);
+  return { ...cur, done };
 }

@@ -2261,7 +2261,7 @@ Hand-off to design. Measured live: `/readiness` over all 250 companies (5 pages)
 
 **C. Defects and checks found by this map (next)**
 1. ~~`eps_yoy_q`: 8 companies get "implied share count changed ×NaN"~~ — zero profit to owners makes 0 ÷ 0; fixed 6 Nov (states the reason), stored at the next rebuild of those companies.
-2. Promoter pledge on 196 companies: confirm from the stored files whether a filing with no encumbrance table means nothing pledged (0 %) — if so the field should be 0, labelled "no pledge reported".
+2. Promoter pledge on 196 companies — **census done 6 Nov (`/pledge-census`, 247 latest files): 48 carry pledge figures (all read), 199 carry no figure, 0 non-zero pledge facts missed by the reader.** Every file answers "Whether any shares held by promoters are encumbered under pledge" (true / false). Fix: no figure + declaration "false" → pledged 0, sourced to the declaration (`pledgedFrom`); "true" with no figure stays unknown. Reader changed for new filings; one-off `/maint/pledge_declared` fills the two latest filings per company (empty values only), then `/maint/ownership?restart=1`.
 3. NCI missing in 38 companies' Sep 2026 quarter balance sheets (quarter files often carry no balance sheet NCI line) — EV/EBITDA falls back for 12; check whether the half-year value should carry.
 4. Consolidated profit to owners missing for 12 companies in Sep 2026 (affects P/E, ROE, earnings yield for them) — check which line they file.
 
