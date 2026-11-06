@@ -2,7 +2,7 @@
 // ratings into their tables. Walks the ledger by a (kind, job_id) cursor over ix_fetch_kind_job (P0, 4 Nov: the former
 // "+kind" form scanned the whole table tail from the cursor on every run, since no new event list sits there) and stops at a
 // list that is not downloaded yet, so nothing is skipped. Rows are keyed; INSERT OR IGNORE makes re-reads harmless.
-import { type Sql, batchAll, byKindAfter, markFresh, insertRows, parseBoardMeetings, parseCreditRatings, parsePit, parsePitXbrl, parseSast, parseXbrl } from "@disclo/core";
+import { type FocusIssuers, type Sql, batchAll, buildFocusIssuers, byKindAfter, ratingLink, markFresh, insertRows, parseBoardMeetings, parseCreditRatings, parsePit, parsePitXbrl, parseSast, parseXbrl } from "@disclo/core";
 
 /** Newest of a set of ISO timestamps (null when none). */
 const newestOf = (xs: (string | null | undefined)[]) => xs.reduce<string | null>((a, x) => (x && (!a || x > a) ? x : a), null);
@@ -35,46 +35,28 @@ const parsed = <T>(f: () => T): T => { try { return f(); } catch (e) { throw new
 async function recordFailure(db: Sql, jobId: number, kind: string, detail: string) {
   await db.run("INSERT INTO event_load (job_id, kind, status, detail, at) VALUES (?,?, 'failed', ?, ?) ON CONFLICT (job_id) DO UPDATE SET detail=excluded.detail, at=excluded.at", [jobId, kind, detail.slice(0, 300), new Date().toISOString()]);
 }
-export interface EventOpts { focus?: string[]; deadline?: number; issuers?: Map<string, string> }
+export interface EventOpts { focus?: string[]; deadline?: number; issuers?: FocusIssuers }
 
 /** Item 7 (2.10): NSE's credit-rating feed carries no symbol (all 40,900 stored rows: Symbol null) and the rated
  *  instrument's ISIN, not the share's. An Indian ISIN's first 7 characters name the issuer (INE040A… = HDFC Bank for
  *  its shares INE040A01034 and its bonds INE040A08…), so a rating is the focus company's when its ISIN's issuer part is
- *  that of one of the company's own ISINs. */
-export const issuerOf = (isin: string | null | undefined) => (isin && /^IN[A-Z][0-9A-Z]{4}/.test(isin) ? isin.slice(0, 7) : null);
+ *  that of one of the company's own ISINs; G11: else when its company name equals one focus company's listed name
+ *  exactly after nameKey (rule and order: packages/core/src/creditlink.ts). */
+export { issuerOf, nameKey } from "@disclo/core";
 export const SQL_FOCUS_ISSUERS = `SELECT n.value AS symbol, i.value AS isin, s.name AS name FROM security_identifier n
   JOIN security_identifier i ON i.security_id = n.security_id AND i.id_type = 'isin'
   JOIN security s ON s.security_id = n.security_id
   WHERE n.id_type = 'nse_symbol' AND n.value IN (SELECT value FROM json_each(?1))`;
-/** Company name reduced for an exact match: upper case, "&" → AND, punctuation and a leading THE dropped, the legal
- *  suffix dropped, CO/CORP spelled one way ("The Tata Power Company Limited" = "TATA POWER CO LTD"). */
-export function nameKey(name: string | null | undefined): string {
-  const w = String(name ?? "").toUpperCase().replace(/&/g, " AND ").replace(/[^A-Z0-9 ]/g, " ").split(/\s+/).filter(Boolean)
-    .map((x) => (x === "COMPANY" ? "CO" : x === "CORPORATION" ? "CORP" : x === "LIMITED" ? "LTD" : x));
-  if (w[0] === "THE") w.shift();
-  while (w.length && (w[w.length - 1] === "LTD" || w[w.length - 1] === "PVT" || w[w.length - 1] === "PRIVATE")) w.pop();
-  return w.join(" ");
+/** The focus companies' issuer codes, reduced listed names (a name shared by two companies links neither) and symbols. */
+export async function focusIssuers(market: Sql, focus: string[]): Promise<FocusIssuers> {
+  return buildFocusIssuers(await market.all<{ symbol: string; isin: string; name: string }>(SQL_FOCUS_ISSUERS, [JSON.stringify(focus)]));
 }
-/** Issuer code → symbol, and "name:<nameKey>" → symbol (the fallback for bonds under another issuer code, e.g. SBI
- *  INE649A / INE651A vs shares INE062A, and placeholder ISINs such as ZZZ000Z00000). */
-export async function focusIssuers(market: Sql, focus: string[]): Promise<Map<string, string>> {
-  const m = new Map<string, string>();
-  for (const r of await market.all<{ symbol: string; isin: string; name: string }>(SQL_FOCUS_ISSUERS, [JSON.stringify(focus)])) {
-    const k = issuerOf(r.isin); if (k && !m.has(k)) m.set(k, r.symbol);
-    const nk = nameKey(r.name); if (nk.length >= 4 && !m.has(`name:${nk}`)) m.set(`name:${nk}`, r.symbol);
-  }
-  return m;
-}
-/** The symbol a rating belongs to. The issuer code decides; NSE's own Symbol field counts only when it is one of the
- *  focus companies' symbols — it often holds "NOTLISTED", "NA", "Not Listed", "000000" or "222333" even for listed
- *  issuers (L&T INE018A08BJ8 "NOTLISTED", Reliance INE002A08690 "NA"). Without an issuer map: NSE's field as given. */
-export function ratingSymbol(c: { symbol: string; isin: string; company?: string }, issuers?: Map<string, string>): string {
-  if (!issuers) return c.symbol;
-  const m = issuers.get(issuerOf(c.isin) ?? "");
-  if (m) return m;
-  for (const v of issuers.values()) if (v === c.symbol) return c.symbol;
-  // last: the rated company's exact (reduced) name is a focus company's listed name
-  return issuers.get(`name:${nameKey(c.company)}`) ?? "";
+/** The symbol a rating belongs to ("" when none): ISIN issuer code, then exact reduced name (one focus company only),
+ *  then NSE's own Symbol field when it is a focus symbol — it often holds "NOTLISTED", "NA", "Not Listed", "000000" or
+ *  "222333" even for listed issuers (L&T INE018A08BJ8 "NOTLISTED", Reliance INE002A08690 "NA"). Without a map: NSE's
+ *  field as given. */
+export function ratingSymbol(c: { symbol: string; isin: string; company?: string }, issuers?: FocusIssuers): string {
+  return ratingLink(c, issuers).symbol;
 }
 type Cursor = { after: number; rows: number; stuck?: number; tries?: number; failed?: number };
 /** Read one stored file: text, null when it is not in R2, or "wait" on a storage error (≤ 3 runs, then recorded). */
@@ -117,7 +99,7 @@ export async function loadEvents(db: Sql, getText: (k: string) => Promise<string
 }
 
 /** Rows of one list (D161: focus companies only, `keep`); a parse failure is a BadFile, a D1 failure is not. */
-async function write(db: Sql, kind: string, json: string, jobId: number, keep: (sym: unknown) => boolean = () => true, issuers?: Map<string, string>): Promise<number> {
+async function write(db: Sql, kind: string, json: string, jobId: number, keep: (sym: unknown) => boolean = () => true, issuers?: FocusIssuers): Promise<number> {
   if (kind === "pit") {
     const r = parsed(() => parsePit(json)).filter((t) => keep(t.symbol)).map((t) => [t.key, t.symbol, t.person, t.category, t.secType, t.txn, t.mode, t.qty, t.valueRs, t.beforeQty, t.afterQty, t.beforePct, t.afterPct, dnum(t.fromDate), dnum(t.toDate), dnum(t.intimated), t.disclosedAt, t.did, t.pid, t.exchange, t.derivative, jobId]);
     await batchAll(db, insertRows("INSERT OR IGNORE INTO insider_trade (key,symbol,person,category,sec_type,txn,mode,qty,value_rs,before_qty,after_qty,before_pct,after_pct,from_d,to_d,intimated,disclosed_at,did,pid,exchange,derivative,job_id)", 22, r));
@@ -202,22 +184,34 @@ export async function loadPitXbrl(db: Sql, getText: (k: string) => Promise<strin
   return { files, rows: cur.rows, after: cur.after, waiting };
 }
 
-/** Item 7 (2.10), one-off: re-read every stored credit-rating list with the issuer match; ratings of the focus companies
- *  not stored yet are added (INSERT OR IGNORE), stored ones still without a symbol get it (owner #363: symbol filled,
- *  nothing deleted). Cursor by job_id in ('once','ratings_relink'). */
-export async function ratingsRelink(db: Sql, getText: (k: string) => Promise<string | null>, focus: string[], issuers: Map<string, string>, limit = 12) {
-  const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='ratings_relink_v3'");
-  const cur = st ? JSON.parse(st.detail) as { after: number; lists: number; rows: number; inserted: number; linked: number; done: boolean }
-    : { after: 0, lists: 0, rows: 0, inserted: 0, linked: 0, done: false };
+/** The stored credit-rating lists after a cursor (ix_fetch_kind_job range). */
+export const SQL_RATING_LISTS_AFTER = "SELECT job_id, r2_key FROM fetch_job WHERE kind = 'credit_rating' AND status = 'done' AND job_id > ?1 ORDER BY job_id LIMIT ?2";
+/** Item 7 (2.10), one-off: re-read every stored credit-rating list with the focus match (ratingLink: ISIN issuer code,
+ *  then — G11 — exact reduced company name, then NSE's symbol); ratings of the focus companies not stored yet are added
+ *  (INSERT OR IGNORE), stored ones under another symbol get the match (owner #363: symbol filled, nothing deleted).
+ *  Counts per link method (by_via) and the ambiguous names (a name of two focus companies: not linked; stored rows left
+ *  as they are). Cursor by job_id in ('once','ratings_relink_v4'); v4 = the G11 name rule with its ambiguity check. */
+export async function ratingsRelink(db: Sql, getText: (k: string) => Promise<string | null>, focus: string[], issuers: FocusIssuers, limit = 12) {
+  type Cur = { after: number; lists: number; rows: number; inserted: number; linked: number; by_via: Record<string, number>; ambiguous: number; ambiguous_sample: string[]; done: boolean };
+  const [st] = await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='ratings_relink_v4'");
+  const cur: Cur = st ? JSON.parse(st.detail) as Cur
+    : { after: 0, lists: 0, rows: 0, inserted: 0, linked: 0, by_via: {}, ambiguous: 0, ambiguous_sample: [], done: false };
   if (cur.done) return cur;
   const fs = new Set(focus);
-  const jobs = await db.all<{ job_id: number; r2_key: string }>("SELECT job_id, r2_key FROM fetch_job WHERE kind = 'credit_rating' AND status = 'done' AND job_id > ?1 ORDER BY job_id LIMIT ?2", [cur.after, limit]);
+  const jobs = await db.all<{ job_id: number; r2_key: string }>(SQL_RATING_LISTS_AFTER, [cur.after, limit]);
   for (const j of jobs) {
     const t = await getText(j.r2_key).catch(() => null);
     cur.after = j.job_id; cur.lists++;
     if (!t) continue;
     let objs; try { objs = parseCreditRatings(t); } catch { continue; }
-    const mine = objs.map((c) => ({ ...c, symbol: ratingSymbol(c, issuers) })).filter((c) => fs.has(c.symbol));
+    const mine = [];
+    for (const c of objs) {
+      const l = ratingLink(c, issuers);
+      if (l.reason?.startsWith("ambiguous")) { cur.ambiguous++; if (cur.ambiguous_sample.length < 5 && !cur.ambiguous_sample.includes(l.reason)) cur.ambiguous_sample.push(l.reason); }
+      if (!fs.has(l.symbol)) continue;
+      cur.by_via[l.via ?? "none"] = (cur.by_via[l.via ?? "none"] ?? 0) + 1;
+      mine.push({ ...c, symbol: l.symbol });
+    }
     if (!mine.length) continue;
     cur.rows += mine.length;
     const r = mine.map((c) => [c.key, c.symbol, c.company, c.isin, c.agency, c.rating, c.outlook, c.action, dnum(c.ratedOn), c.earlierRating, c.earlierOutlook, c.disclosedAt, c.appId, j.job_id]);
@@ -226,6 +220,6 @@ export async function ratingsRelink(db: Sql, getText: (k: string) => Promise<str
     cur.linked += await batchAll(db, mine.map((c) => ({ sql: "UPDATE credit_rating SET symbol = ?1 WHERE key = ?2 AND symbol <> ?1", params: [c.symbol, c.key] })));
   }
   cur.done = jobs.length < limit;
-  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','ratings_relink_v3',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','ratings_relink_v4',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [new Date().toISOString(), JSON.stringify(cur)]);
   return cur;
 }

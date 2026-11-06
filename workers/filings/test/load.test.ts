@@ -974,10 +974,11 @@ describe("work list 2.10: credit ratings coverage vs NSE's lists", async () => {
 
 describe("item 7: credit ratings matched to companies by the issuer part of the ISIN", async () => {
   const { issuerOf, ratingSymbol, ratingsRelink, loadEvents } = await import("../src/events.js");
+  const { buildFocusIssuers } = await import("@disclo/core");
   const row = (isin: string, app: string) => ({ AppID: app, Symbol: app === "1" ? "NOTLISTED" : null, CompanyName: "HDFC Bank Limited", ISIN: isin, NameOfCRAgency: "CRISIL Ratings Limited", CreditRating: "CRISIL AAA",
     RatingAction: "Reaffirmed", DateofCR: "01-10-2026", BroadcastDateTime: "05-OCT-2026 10:00:00" });
   const list = JSON.stringify([row("INE040A08AB1", "1"), row("INE0L6807393", "2")]); // HDFC Bank bond; an unlisted issuer
-  const issuers = new Map([["INE040A", "HDFCBANK"]]);
+  const issuers = buildFocusIssuers([{ symbol: "HDFCBANK", isin: "INE040A01034", name: null }]); // no name: this block tests the issuer code alone
   it("issuer code = first 7 characters of an Indian ISIN; a rating with no symbol takes the matching focus company's", () => {
     expect(issuerOf("INE040A01034")).toBe("INE040A");
     expect(issuerOf("")).toBeNull();
@@ -1038,19 +1039,90 @@ describe("D167 (b): cash-flow detail with untagged adjustments", async () => {
   });
 });
 
-describe("item 7: credit-rating company-name fallback", async () => {
-  const { nameKey, ratingSymbol } = await import("../src/events.js");
-  it("reduces names for an exact match only", () => {
+describe("item 7 / G11: credit-rating company-name fallback, ambiguity and link method", async () => {
+  const { nameKey, ratingSymbol, ratingsRelink, loadEvents } = await import("../src/events.js");
+  const { buildFocusIssuers, ratingLink, ratingLinkVia } = await import("@disclo/core");
+  // Focus rows as SQL_FOCUS_ISSUERS returns them: security.name is the UDiFF bhavcopy's FinInstrmNm (upper case).
+  const focusRows = [
+    { symbol: "SBIN", isin: "INE062A01020", name: "STATE BANK OF INDIA" },
+    { symbol: "HINDZINC", isin: "INE267A01025", name: "HINDUSTAN ZINC LIMITED" },
+    { symbol: "TVSMOTOR", isin: "INE494B01023", name: "TVS MOTOR COMPANY LTD" },
+    // synthetic pair: two focus symbols whose listed names reduce to one key (e.g. a demerged company listed under the
+    // parent's old name for a while) — the name must link neither
+    { symbol: "ALPHA", isin: "INE111X01011", name: "ALPHA INDUSTRIES LIMITED" },
+    { symbol: "ALPHANEW", isin: "INE222Y01012", name: "Alpha Industries Ltd." },
+  ];
+  const fi = buildFocusIssuers(focusRows);
+  it("nameKey equates the feed's spellings with the stored names, and nothing looser", () => {
+    expect(nameKey("TVS Motor Company Ltd.")).toBe(nameKey("TVS MOTOR COMPANY LTD"));
+    expect(nameKey("TVS Motor Company Limited")).toBe("TVS MOTOR CO");
+    expect(nameKey("Hindustan Zinc Limited")).toBe(nameKey("HINDUSTAN ZINC LIMITED"));
+    expect(nameKey("Hindustan Zinc Ltd.")).toBe("HINDUSTAN ZINC");
+    expect(nameKey("State Bank of India")).toBe(nameKey("STATE BANK OF INDIA"));
     expect(nameKey("The Tata Power Company Limited")).toBe(nameKey("TATA POWER CO LTD"));
-    expect(nameKey("State Bank Of India")).toBe("STATE BANK OF INDIA");
-    expect(nameKey("Larsen & Toubro Limited")).toBe("LARSEN AND TOUBRO");
+    expect(nameKey("Larsen & Toubro Limited")).toBe(nameKey("LARSEN AND TOUBRO LTD"));
+    expect(nameKey("  Larsen   &  Toubro, Ltd. ")).toBe("LARSEN AND TOUBRO");
     expect(nameKey("Bank of India")).not.toBe(nameKey("Bank of Maharashtra"));
+    expect(nameKey("Hindustan Zinc Alloys Limited")).not.toBe(nameKey("Hindustan Zinc Limited")); // no prefix / fuzzy match
+    expect(nameKey("SBI Cards and Payment Services Limited")).not.toBe(nameKey("STATE BANK OF INDIA"));
   });
-  it("matches by name only when the issuer code does not (SBI bond under INE651A; TVS Motor with a placeholder ISIN)", () => {
-    const issuers = new Map([["INE062A", "SBIN"], [`name:${nameKey("STATE BANK OF INDIA")}`, "SBIN"], ["INE494B", "TVSMOTOR"], [`name:${nameKey("TVS MOTOR COMPANY LTD")}`, "TVSMOTOR"]]);
-    expect(ratingSymbol({ symbol: "", isin: "INE651A08041", company: "State Bank Of India" }, issuers)).toBe("SBIN");
-    expect(ratingSymbol({ symbol: "", isin: "FFF000F00000", company: "TVS Motor Company Limited" }, issuers)).toBe("TVSMOTOR");
-    expect(ratingSymbol({ symbol: "", isin: "INE530B08144", company: "IIFL Finance Limited" }, issuers)).toBe("");
+  it("links by the issuer code first, then NSE's symbol, then the exact name; says how and why not", () => {
+    expect(ratingLink({ symbol: "", isin: "INE062A08223", company: "State Bank of India" }, fi)).toEqual({ symbol: "SBIN", via: "isin_issuer", reason: null });
+    // SBI bonds issued under INE649A / INE651A (not the shares' INE062A)
+    expect(ratingLink({ symbol: "", isin: "INE649A09092", company: "State Bank of India" }, fi)).toEqual({ symbol: "SBIN", via: "name", reason: null });
+    expect(ratingLink({ symbol: "NOTLISTED", isin: "INE651A08041", company: "State Bank Of India" }, fi)).toEqual({ symbol: "SBIN", via: "name", reason: null });
+    // placeholder ISINs
+    expect(ratingLink({ symbol: "222333", isin: "ZZZ000Z00000", company: "Hindustan Zinc Limited" }, fi)).toEqual({ symbol: "HINDZINC", via: "name", reason: null });
+    expect(ratingLink({ symbol: "", isin: "FFF000F00000", company: "TVS Motor Company Ltd." }, fi)).toEqual({ symbol: "TVSMOTOR", via: "name", reason: null });
+    expect(ratingLink({ symbol: "TVSMOTOR", isin: "FFF000F00000", company: "TVS Motor Co." }, fi)).toEqual({ symbol: "TVSMOTOR", via: "nse_symbol", reason: null });
+    // ambiguous name: no link, with reason
+    const amb = ratingLink({ symbol: "NA", isin: "ZZZ000Z00000", company: "Alpha Industries Limited" }, fi);
+    expect(amb).toMatchObject({ symbol: "", via: null });
+    expect(amb.reason).toBe('ambiguous name: "ALPHA INDUSTRIES" is shared by ALPHA, ALPHANEW');
+    // but the issuer code still decides for a bond of either
+    expect(ratingLink({ symbol: "", isin: "INE222Y07019", company: "Alpha Industries Limited" }, fi).symbol).toBe("ALPHANEW");
+    // non-match: unlisted issuer, not a focus name
+    expect(ratingLink({ symbol: "NOTLISTED", isin: "INE530B08144", company: "IIFL Finance Limited" }, fi)).toMatchObject({ symbol: "", via: null, reason: expect.stringMatching(/^no focus company/) });
+    expect(ratingSymbol({ symbol: "", isin: "INE651A08041", company: "State Bank Of India" }, fi)).toBe("SBIN");
+  });
+  it("an issuer code shared by two focus symbols links neither by the code", () => {
+    const two = buildFocusIssuers([{ symbol: "OMEGA", isin: "INE333Z01010", name: "OMEGA LIMITED" }, { symbol: "OMEGADVR", isin: "INE333Z01028", name: "OMEGA DVR" }]);
+    const r = ratingLink({ symbol: "", isin: "INE333Z08011", company: "Some Trust" }, two);
+    expect(r).toMatchObject({ symbol: "", via: null });
+    expect(r.reason).toBe('ambiguous issuer code: "INE333Z" is shared by OMEGA, OMEGADVR');
+    expect(ratingLink({ symbol: "", isin: "INE333Z08011", company: "Omega Limited" }, two)).toEqual({ symbol: "OMEGA", via: "name", reason: null }); // the name still decides
+  });
+  it("labels a stored row's link from the company's own ISINs and name (no stored column)", () => {
+    const sbi = { isins: ["INE062A01020"], name: "STATE BANK OF INDIA" };
+    expect(ratingLinkVia({ isin: "INE062A08223", company: "State Bank of India" }, sbi)).toBe("isin_issuer");
+    expect(ratingLinkVia({ isin: "INE651A08041", company: "State Bank of India" }, sbi)).toBe("name");
+    expect(ratingLinkVia({ isin: "FFF000F00000", company: "SBI" }, sbi)).toBe("nse_symbol");
+  });
+  const r = (app: string, isin: string, company: string, symbol: string | null = null) => ({ AppID: app, Symbol: symbol, CompanyName: company, ISIN: isin, NameOfCRAgency: "CRISIL Ratings Limited",
+    CreditRating: "CRISIL AAA", Outlook: "Stable", RatingAction: "Reaffirmed", DateofCR: "01-10-2026", BroadcastDateTime: "05-OCT-2026 10:00:00" });
+  const list = JSON.stringify([
+    r("11", "INE651A08041", "State Bank of India", "NOTLISTED"), r("12", "INE649A09092", "State Bank of India"),
+    r("13", "ZZZ000Z00000", "Hindustan Zinc Limited", "222333"), r("14", "FFF000F00000", "TVS Motor Company Ltd."),
+    r("15", "ZZZ000Z00000", "Alpha Industries Limited", "NA"), r("16", "INE530B08144", "IIFL Finance Limited", "NOTLISTED"),
+    r("17", "INE062A08223", "State Bank of India")]);
+  const key = "api/credit_rating/all/2026-10.json", get = async (k: string) => (k === key ? list : null);
+  const focus = focusRows.map((x) => x.symbol);
+  it("the loader stores the name-matched ratings under their company and drops the ambiguous and unmatched ones", async () => {
+    const { filings } = setup({});
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,url,r2_key,status) VALUES (70,'credit_rating','c','${key}','done')`);
+    await loadEvents(filings, get, 50, { focus, issuers: fi });
+    expect(filings.raw.prepare("SELECT symbol, isin, company FROM credit_rating ORDER BY app_id").all()).toEqual([
+      { symbol: "SBIN", isin: "INE651A08041", company: "State Bank of India" }, { symbol: "SBIN", isin: "INE649A09092", company: "State Bank of India" },
+      { symbol: "HINDZINC", isin: "ZZZ000Z00000", company: "Hindustan Zinc Limited" }, { symbol: "TVSMOTOR", isin: "FFF000F00000", company: "TVS Motor Company Ltd." },
+      { symbol: "SBIN", isin: "INE062A08223", company: "State Bank of India" }]);
+  });
+  it("the relink pass (v4) counts each link method and the ambiguous names", async () => {
+    const { filings } = setup({});
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,url,r2_key,status) VALUES (71,'credit_rating','c','${key}','done')`);
+    const out = await ratingsRelink(filings, get, focus, fi, 12);
+    expect(out).toMatchObject({ done: true, lists: 1, rows: 5, inserted: 5, by_via: { name: 4, isin_issuer: 1 }, ambiguous: 1 });
+    expect(out.ambiguous_sample).toEqual(['ambiguous name: "ALPHA INDUSTRIES" is shared by ALPHA, ALPHANEW']);
+    expect(filings.raw.prepare("SELECT slot FROM daily_refresh WHERE slot LIKE 'ratings_relink%'").all()).toEqual([{ slot: "ratings_relink_v4" }]);
   });
 });
 

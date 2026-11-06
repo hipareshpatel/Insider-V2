@@ -152,6 +152,23 @@ describe("market: the focus list (every filings run) starts from the index membe
   });
 });
 
+describe("market: one security's name and ISINs to label how its latest rating was linked (§12, daily; G11)", () => {
+  it("security by primary key, its ISINs by ix_sid_security", async () => {
+    const { SQL_LINK_OF_SID } = await import("../../workers/filings/src/eventfeatures.js");
+    const p = plan(M, SQL_LINK_OF_SID, [1]);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /SEARCH s USING INTEGER PRIMARY KEY \(rowid=\?\)/.test(l)), p.join("\n")).toBe(true);
+    expect(p.some((l) => /ix_sid_security \(security_id=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
+describe("filings: stored credit-rating lists after the relink cursor (maint ratings_relink v4, G11)", () => {
+  it("by the (kind, job_id) range", async () => {
+    const { SQL_RATING_LISTS_AFTER } = await import("../../workers/filings/src/events.js");
+    const p = plan(F, SQL_RATING_LISTS_AFTER, [0, 12]);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
 describe("market: the focus companies' ISINs for the credit-rating issuer match (every filings run, item 7)", () => {
   it("identifiers by symbol (ix_sid_lookup), then that security's ISINs (ix_sid_security)", async () => {
     const { SQL_FOCUS_ISSUERS } = await import("../../workers/filings/src/events.js");

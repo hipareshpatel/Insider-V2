@@ -1,12 +1,14 @@
 // Field catalogue §12 / §13 (log #382): results timing and filing timeliness from the stored results filings and
 // board-meeting intimations, and the latest credit rating with its 12-month direction. Once per IST day, 50 companies a
 // run; ≈ 4 indexed reads per company.
-import { type Sql, batchAll, insertRows } from "@disclo/core";
+import { type Sql, batchAll, insertRows, ratingLinkVia } from "@disclo/core";
 
 export const SQL_SYMBOLS_OF_SID = "SELECT DISTINCT value FROM security_identifier WHERE security_id = ?1 AND +id_type = 'nse_symbol'"; // +id_type: the planner would otherwise pick ix_sid_lookup (every NSE symbol)
 export const SQL_RESULTS_FIRST = "SELECT period_end, min(disclosed_at) AS first_at FROM filing WHERE security_id = ?1 AND kind IN ('results_quarterly','results_annual','integrated_financials') AND period_end >= ?2 GROUP BY period_end";
 export const SQL_MEETINGS_FROM = "SELECT meeting_d, purpose, description FROM board_meeting WHERE symbol IN (SELECT value FROM json_each(?1)) AND meeting_d >= ?2";
-export const SQL_RATINGS_OF = "SELECT agency, rating, outlook, action, rated_on FROM credit_rating WHERE symbol IN (SELECT value FROM json_each(?1)) AND rated_on IS NOT NULL ORDER BY rated_on";
+export const SQL_RATINGS_OF = "SELECT agency, rating, outlook, action, rated_on, isin, company FROM credit_rating WHERE symbol IN (SELECT value FROM json_each(?1)) AND rated_on IS NOT NULL ORDER BY rated_on";
+/** G11: one security's listed name and ISINs, to label how its latest rating was linked (read only when it has one). */
+export const SQL_LINK_OF_SID = "SELECT s.name AS name, i.value AS isin FROM security s LEFT JOIN security_identifier i ON i.security_id = s.security_id AND +i.id_type = 'isin' WHERE s.security_id = ?1";
 const HEAD = "INSERT INTO event_feature (security_id, field, value, reason, as_of, computed_at)";
 const TAIL = `ON CONFLICT (security_id, field) DO UPDATE SET value = excluded.value, reason = excluded.reason, as_of = excluded.as_of, computed_at = excluded.computed_at
   WHERE event_feature.value IS NOT excluded.value OR event_feature.reason IS NOT excluded.reason`;
@@ -20,7 +22,9 @@ export interface EventInputs {
   today: string; // IST date
   results: { periodEnd: string; firstAt: string }[]; // first disclosure (UTC) of each results period
   meetings: { d: number; purpose: string | null; description: string | null }[];
-  ratings: { agency: string | null; rating: string | null; outlook: string | null; action: string | null; ratedOn: number }[];
+  ratings: { agency: string | null; rating: string | null; outlook: string | null; action: string | null; ratedOn: number; isin?: string | null; company?: string | null }[];
+  /** The company's own ISINs and listed name (G11: how its latest rating was linked); absent → link not labelled. */
+  company?: { isins: (string | null)[]; name: string | null };
 }
 export interface EventField { field: string; value: string | null; reason: string | null }
 
@@ -51,6 +55,10 @@ export function eventFields(x: EventInputs): EventField[] {
   const lr = rt[rt.length - 1];
   put("credit_rating_latest", lr?.rating ? `${lr.rating}${lr.outlook ? ` (${lr.outlook})` : ""}, ${lr.agency ?? "agency not given"}, ${dnumIso(lr.ratedOn)}` : null,
     "no credit rating stored (many companies have no rated debt)");
+  // G11: how the latest rating was matched to the company — isin_issuer (its ISIN's issuer code), name (exact reduced
+  // company name: bonds under another issuer code or a placeholder ISIN) or nse_symbol (NSE's own symbol field)
+  put("credit_rating_linked_by", lr?.rating && x.company ? ratingLinkVia({ isin: lr.isin ?? null, company: lr.company ?? null }, x.company) : null,
+    !lr?.rating ? "no credit rating stored (many companies have no rated debt)" : "company identifiers not read");
   const yr = rt.filter((r) => dnumIso(r.ratedOn) > yearAgo), up = yr.some((r) => /upgrade/i.test(r.action ?? "")), down = yr.some((r) => /downgrade/i.test(r.action ?? ""));
   put("rating_action_12m", !rt.length ? null : !yr.length ? "none" : up && down ? "mixed" : down ? "down" : up ? "up" : "none",
     "no credit rating stored (many companies have no rated debt)");
@@ -69,8 +77,11 @@ export async function eventStep(filings: Sql, market: Sql, sids: number[], now: 
     const syms = JSON.stringify((await market.all<{ value: string }>(SQL_SYMBOLS_OF_SID, [sid])).map((r) => r.value));
     const results = (await filings.all<{ period_end: string; first_at: string }>(SQL_RESULTS_FIRST, [sid, from])).map((r) => ({ periodEnd: r.period_end, firstAt: r.first_at }));
     const meetings = (await filings.all<{ meeting_d: number; purpose: string | null; description: string | null }>(SQL_MEETINGS_FROM, [syms, Number(day.replace(/-/g, ""))])).map((m) => ({ d: m.meeting_d, purpose: m.purpose, description: m.description }));
-    const ratings = (await filings.all<{ agency: string | null; rating: string | null; outlook: string | null; action: string | null; rated_on: number }>(SQL_RATINGS_OF, [syms])).map((r) => ({ agency: r.agency, rating: r.rating, outlook: r.outlook, action: r.action, ratedOn: r.rated_on }));
-    for (const f of eventFields({ today: day, results, meetings, ratings })) rows.push([sid, f.field, f.value, f.reason, day, at]);
+    const ratings = (await filings.all<{ agency: string | null; rating: string | null; outlook: string | null; action: string | null; rated_on: number; isin: string | null; company: string | null }>(SQL_RATINGS_OF, [syms]))
+      .map((r) => ({ agency: r.agency, rating: r.rating, outlook: r.outlook, action: r.action, ratedOn: r.rated_on, isin: r.isin, company: r.company }));
+    const ids = ratings.length ? await market.all<{ name: string | null; isin: string | null }>(SQL_LINK_OF_SID, [sid]) : [];
+    const company = ids.length ? { name: ids[0]!.name, isins: ids.map((r) => r.isin) } : undefined;
+    for (const f of eventFields({ today: day, results, meetings, ratings, company })) rows.push([sid, f.field, f.value, f.reason, day, at]);
   }
   if (rows.length) await batchAll(filings, insertRows(HEAD, 6, rows, TAIL));
   const done = todo.length < limit;

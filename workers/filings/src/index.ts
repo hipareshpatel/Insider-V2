@@ -348,7 +348,7 @@ export default {
       // lists, by month (lists listed / loaded / stored-but-not-listed), with the first 40 missing.
       const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
       const issuers = await focusIssuers(d1Sql(env.DB_MARKET), focus ?? []);
-      return Response.json({ issuers: issuers.size, ...(await ratingCoverage(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), focus ?? [], COVERAGE_FLOOR, issuers)) }, { headers: { "cache-control": "no-store" } });
+      return Response.json({ issuers: issuers.issuer.size, names: issuers.names.size, ...(await ratingCoverage(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), focus ?? [], COVERAGE_FLOOR, issuers)) }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/shp-coverage") {
       // Work list 2.8 (read-only): shareholding filings NSE lists for the focus companies (from the D168 floor) vs those

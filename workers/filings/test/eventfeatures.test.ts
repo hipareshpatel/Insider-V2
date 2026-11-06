@@ -32,4 +32,14 @@ describe("§12/§13 event fields", () => {
     expect(f(d, "rating_action_12m").value).toBe("mixed");
     expect(f(d, "next_result_date").reason).toMatch(/no board meeting/);
   });
+  it("credit rating: how the latest rating was linked (G11)", () => {
+    const base = { today: "2026-11-06", results: [], meetings: [] };
+    const company = { isins: ["INE062A01020"], name: "STATE BANK OF INDIA" };
+    const old = { agency: "CRISIL", rating: "AAA", outlook: "Stable", action: "Reaffirm", ratedOn: 20250101, isin: "INE062A08223", company: "State Bank of India" };
+    const bond = { agency: "ICRA", rating: "AAA", outlook: "Stable", action: "Reaffirm", ratedOn: 20260301, isin: "INE651A08041", company: "State Bank of India" };
+    expect(f(eventFields({ ...base, ratings: [old, bond], company }), "credit_rating_linked_by").value).toBe("name");
+    expect(f(eventFields({ ...base, ratings: [old], company }), "credit_rating_linked_by").value).toBe("isin_issuer");
+    expect(f(eventFields({ ...base, ratings: [], company }), "credit_rating_linked_by").reason).toMatch(/no credit rating/);
+    expect(f(eventFields({ ...base, ratings: [old] }), "credit_rating_linked_by").reason).toBe("company identifiers not read");
+  });
 });
