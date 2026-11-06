@@ -794,6 +794,29 @@ describe("D171: feature table build", () => {
   });
 });
 
+describe("G18: NBFC sub-type in the feature build", () => {
+  const build = async (symbol: string | null) => {
+    const { filings, market, deps } = setup({});
+    if (symbol) market.raw.exec(`INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (7,'nse_symbol','${symbol}','2025-01-01','t')`);
+    filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (9, 7, 'integrated_financials', '2026-09-30', 'Q', 'consolidated', '2026-10-15T00:00:00Z', 'u9')");
+    const ins = filings.raw.prepare(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'industrial','pl',?,'',?,'Q','consolidated','original',?,NULL,?,9,'t','reported','results-v1')`);
+    for (const e of ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"])
+      for (const [k, x] of Object.entries({ interest_earned: 100, total_income: 130, finance_cost: 50, impairment_financial_instruments: 5, total_expenses: 90, pat: 30 })) ins.run(k, e, String(x), `${e}T12:00:00Z`);
+    await buildFeatures({ ...deps, focus: ["INFY"] }, 25, true);
+    return (f: string, e: string) => filings.raw.prepare("SELECT value, reason FROM feature_value WHERE security_id=7 AND field=? AND period_end=?").get(f, e) as { value: string | null; reason: string | null };
+  };
+  it("an AMC symbol (any it traded under) gives reasons for the lending fields; a lender keeps the numbers", async () => {
+    const amc = await build("HDFCAMC");
+    expect(amc("nbfc_subtype", "latest").value).toBe("amc");
+    expect(amc("nii_ttm", "2026-09-30")).toEqual({ value: null, reason: "not used for asset manager (Division III filer, not a lender)" });
+    expect(amc("net_total_income_ttm", "2026-09-30").value).toBe("320");
+    const lender = await build(null);
+    expect(lender("nbfc_subtype", "latest").value).toBe("lender");
+    expect(lender("nii_ttm", "2026-09-30").value).toBe("200");
+  });
+});
+
 describe("D171: feature table kept current by the cron step", () => {
   it("first run starts at the newest filing; a later results filing rebuilds only its company", async () => {
     const { filings, deps } = setup({});

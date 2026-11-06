@@ -157,7 +157,7 @@ const ownersLine = (layout: string) => (layout === "bank" ? "pat_after_minority"
 /** D171: every feature-table value of one company on one basis, from its filed quarters (`periods` with kind Q) and its
  *  balance sheets (`balanceSheets`, by date). `layout` as chosen by chooseLayout. Pure: the caller stores the rows. */
 /** `cashFlows`: full-year cash-flow lines by year end (period kind FY), for capex and free cash flow. */
-export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string, cashFlows: Map<string, Record<string, string | null | undefined>> = new Map()): FeatureRow[] {
+export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string, cashFlows: Map<string, Record<string, string | null | undefined>> = new Map(), nbfcSubtype: NbfcSubtype = "lender"): FeatureRow[] {
   // gap census (6 Nov, 12 companies): a consolidated filer with no minority anywhere — no profit-to-NCI line in any
   // quarter and no NCI line in any balance sheet — files no owners' line either; its profit to owners is its net profit
   const ownersKey = basis === "standalone" ? "pat" : ownersLine(layout);
@@ -312,7 +312,7 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       : ok(div(dec(cfo), dec(fyPat), 2), [`cash flow FY to ${end}`, `P&L FY to ${end}`]));
   }
   if (layout === "bank") out.push(...bankFeatures(qs, balanceSheets, basis));
-  if (layout === "nbfc") out.push(...nbfcFeatures(qs, balanceSheets, basis));
+  if (layout === "nbfc") out.push(...nbfcFeatures(qs, balanceSheets, basis, nbfcSubtype));
   if (layout === "life_insurance" || layout === "general_insurance") out.push(...insurerFeatures(qs, balanceSheets, basis, layout));
   if (filledFromIdentity && qs.length) put("owners_profit_identity", "latest", { value: String(filledFromIdentity), from: [], note: "quarter(s) with no owners' figure: profit to owners = net profit − profit to NCI (both filed)" });
   if (noMinority && qs.length) put("owners_profit_source", "latest", { value: "net profit", from: [], note: `${filledFromPat} quarter(s) with no owners' figure and no minority on the balance sheet: profit to owners = net profit` });
@@ -376,15 +376,45 @@ export function nbfcBorrowedFunds(b: Record<string, string | null | undefined> |
   return ok(filed.reduce((a, k) => add(a, dec(b[k]!)), dec("0")), [`balance sheet ${date}`], none.length ? `not filed, taken as none (financial liabilities add up without them): ${none.join(", ")}` : undefined);
 }
 
+/** G18 (log #398): what a Division III filer does. Schedule III Division III puts every non-bank financial company on
+ *  the NBFC layout, but not all of them lend: holding companies, asset managers and a lessor file it too, and for them
+ *  NII, credit cost, NIM and loan / borrowing growth are meaningless (IRFC's income is lease income, its NII negative). */
+export type NbfcSubtype = "lender" | "holding" | "amc" | "lessor" | "other";
+/** The stored classification cannot tell these apart: market.classification.industry_detail is the announcement
+ *  smIndustry (D121 / D150), which files lenders, holding companies and AMCs alike under "Finance" (sector_map has only
+ *  Finance, Finance - Housing, Financial Institution); NSE's basic industry is not stored. So this is an explicit,
+ *  owner-reviewable list by NSE symbol (log #398, Part 2 G18); every other Division III filer is a lender. */
+export const NBFC_SUBTYPE_OVERRIDES: Readonly<Record<string, NbfcSubtype>> = {
+  BAJAJHLDNG: "holding", // Bajaj Holdings & Investment
+  BAJAJFINSV: "holding", // Bajaj Finserv (holds Bajaj Finance, the insurers)
+  TATAINVEST: "holding", // Tata Investment Corporation
+  MFSL: "holding",       // Max Financial Services (holds Axis Max Life)
+  HDFCAMC: "amc",        // HDFC Asset Management
+  "NAM-INDIA": "amc",    // Nippon Life India Asset Management
+  ICICIAMC: "amc",       // ICICI Prudential Asset Management (among the 30 NBFCs, log #398)
+  IRFC: "lessor",        // Indian Railway Finance Corporation: lease income, NII negative
+};
+export const NBFC_SUBTYPE_LABEL: Readonly<Record<NbfcSubtype, string>> = { lender: "lender", holding: "holding company", amc: "asset manager", lessor: "lessor", other: "non-lending financial company" };
+/** The sub-type of a Division III filer from its NSE symbols (any symbol it has traded under); default lender. */
+export function nbfcSubtype(symbols: readonly string[]): NbfcSubtype {
+  for (const s of symbols) { const t = NBFC_SUBTYPE_OVERRIDES[s.trim().toUpperCase()]; if (t) return t; }
+  return "lender";
+}
+/** Lending fields of the NBFC pack, given only for lenders; the rest (net total income, opex, debt ratios) for all. */
+export const NBFC_LENDING_FIELDS = ["nii_q", "nii_yoy_q", "nii_ttm", "cost_to_income_ttm", "credit_cost_ttm", "nim_computed_ttm", "loans_yoy", "borrowings_yoy"];
+
 /** NBFC pack (owner #389, Part 2 G2). Schedule III Division III lines as filed: P&L interest income (`interest_earned`),
  *  finance costs (`finance_cost`), impairment on financial instruments (`impairment_financial_instruments`, an expense
  *  as filed; a write-back is negative), total income and total expenses; balance sheet loans (`x:Loans`), investments
  *  (`x:Investments`), the debt lines (NBFC_DEBT_LINES) and equity to owners. NII and NIM here are COMPUTED (finance costs
  *  are all of them, leases included), loans are the balance-sheet loans (net of impairment allowance), not AUM. GNPA /
  *  NNPA % (stage 3), CRAR, AUM, disbursements and cost of funds are not read from the results files (not offered). */
-export function nbfcFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string): FeatureRow[] {
+export function nbfcFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, subtype: NbfcSubtype = "lender"): FeatureRow[] {
   const out: FeatureRow[] = [];
-  const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
+  // G18: a non-lender gets the lending fields as a reason, not a number
+  const notUsed = subtype === "lender" ? null : no(`not used for ${NBFC_SUBTYPE_LABEL[subtype]} (Division III filer, not a lender)`);
+  const put = (field: string, periodEnd: string, x0: View) => { const x = notUsed && NBFC_LENDING_FIELDS.includes(field) ? notUsed : x0; out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from }); };
+  if (qs.length) put("nbfc_subtype", "latest", { value: subtype, from: [] });
   const by = new Map(qs.map((q) => [q.periodEnd, q]));
   // a quarter value built from filed lines: first − the rest, every one filed
   const diff = (keys: string[], what: string) => (e: string): View => {
