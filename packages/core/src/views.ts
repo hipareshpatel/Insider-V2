@@ -167,7 +167,8 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
   const noMinority = basis !== "standalone" && ownersKey === "pat_owners"
     // no period with a non-zero profit to NCI, and every filed owners' line equal to net profit
     && !mine.some((p) => nz(p.lines.pat_nci))
-    && mine.every((p) => p.lines.pat_owners == null || p.lines.pat == null || cmp(dec(p.lines.pat_owners), dec(p.lines.pat)) === 0)
+    // within ₹1 lakh or 0.1 % (filings round to lakhs / crores; a period's lines can come from the original and a revision)
+    && mine.every((p) => { if (p.lines.pat_owners == null || p.lines.pat == null) return true; const a = Number(p.lines.pat_owners), b = Number(p.lines.pat); return Math.abs(a - b) <= Math.max(1e5, Math.abs(b) * 0.001); })
     // positive evidence: at least one balance sheet with its equity filed, and no non-zero NCI in any
     && [...balanceSheets.values()].some((b) => (b["x:Equity"] ?? b.total_equity) != null)
     && ![...balanceSheets.values()].some((b) => nz(b["x:NonControllingInterest"]) || nz(b.minority_interest));
