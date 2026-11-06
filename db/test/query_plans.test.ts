@@ -17,6 +17,7 @@ import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
 import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS, SQL_LATEST_SHP, SQL_JOB_BY_URL, SQL_SET_PROMOTER, SQL_SHP_FILINGS_FROM, SQL_SHP_UNFLAGGED } from "../../workers/filings/src/shpcov.js";
 import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
 import { SQL_FOCUS } from "../../packages/core/src/focus.js";
+import { SQL_TWO_LATEST_SHP, SQL_SHP_CATEGORIES, SQL_SHP_PLEDGE, SQL_GROUP_PLEDGES } from "../../workers/filings/src/ownership.js";
 
 const root = join(import.meta.dirname, "..", "migrations");
 function schema(domain: string): DatabaseSync {
@@ -89,6 +90,10 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: stored announcement lists of one month (option 3, read-only)", SQL_ANNOUNCE_LISTS, ["announcements", "api/announcements/2026-01/", "api/announcements/2026-01/~"], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
   ["filings: shareholding filings of one company from the floor (D40 history)", SQL_SHP_FILINGS_FROM, [1, "2024-01-01"], /ix_filing_sec \(security_id=\? AND kind=\? AND period_end>\?\)/],
   ["filings: unflagged named holder in one filing (D40 history)", SQL_SHP_UNFLAGGED, [1], /USING (PRIMARY KEY|INDEX sqlite_autoindex_shareholding_1) \(filing_id=\?/],
+  ["filings: two latest shareholding filings of one company (§11, daily)", SQL_TWO_LATEST_SHP, [1], /ix_filing_sec \(security_id=\? AND kind=\?\)/],
+  ["filings: category rows of two filings (§11, daily)", SQL_SHP_CATEGORIES, [1, 2], /USING (PRIMARY KEY|INDEX sqlite_autoindex_shareholding_1) \(filing_id=\?\)/],
+  ["filings: promoter pledge of two filings (§11, daily)", SQL_SHP_PLEDGE, [1, 2], /USING (INTEGER PRIMARY KEY|PRIMARY KEY) \(rowid=\?\)|filing_id=\?/],
+  ["filings: pledges of the 250 with their groups (§11, daily)", SQL_GROUP_PLEDGES, ['[1,2]'], /SEARCH o USING PRIMARY KEY \(security_id=\? AND field=\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 
