@@ -250,6 +250,27 @@ export function structureFeatures(x: StructureInput): PriceFeature[] {
   return out;
 }
 
+/** A stored corporate-action purpose that is a buyback: NSE's Bc file writes "BUY BACK" / "BUYBACK" (also inside combined
+ *  purposes such as "DIV RS 5/BUY BACK"), its per-company lists "Buyback" / "Buy Back" / "BUY BACK OF SHARES". */
+export const BUYBACK_PURPOSE = /buy\s*-?\s*back/i;
+/** First day corporate actions are stored (both official sources, D138). */
+export const CORP_ACTIONS_FROM = "2024-01-01";
+
+/** Field catalogue §13 (G10): `buyback_12m` ("1"/"0": a buyback with ex/record date in (asOf − 12 months, asOf]) and
+ *  `last_buyback_date` (latest such date on or before asOf), from `corp_action.raw_purpose` matched by BUYBACK_PURPOSE.
+ *  The stored rows carry no offer price or size (NSE's purpose text is the bare word), so neither is offered. */
+export function buybackFeatures(asOf: string, actions: readonly { exDate: string; purpose: string }[]): { field: string; value: string | null; reason: string | null }[] {
+  const from = shift(asOf, 0, -12);
+  const dates = actions.filter((a) => BUYBACK_PURPOSE.test(a.purpose) && a.exDate <= asOf).map((a) => a.exDate).sort();
+  const last = dates[dates.length - 1] ?? null;
+  const covered = from >= shift(CORP_ACTIONS_FROM, -1); // the window (from, asOf] lies inside the stored span
+  const in12 = dates.some((d) => d > from);
+  return [
+    { field: "buyback_12m", value: in12 ? "1" : covered ? "0" : null, reason: in12 || covered ? null : `12-month window starts before corporate actions are stored (${CORP_ACTIONS_FROM})` },
+    { field: "last_buyback_date", value: last, reason: last ? null : `no buyback stored (corporate actions are stored from ${CORP_ACTIONS_FROM})` },
+  ];
+}
+
 /** Field catalogue §4: dividend yield over the last twelve months, % of the latest unadjusted close. Dividends with an
  *  ex-date in (asOf − 12 months, asOf] (D7: recorded, never price-adjusted); one paid before a split / bonus inside the
  *  window is put on today's share basis by the applied factors after it ("multiply prices before ex_date by factor").

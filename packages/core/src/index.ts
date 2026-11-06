@@ -25,3 +25,4 @@ export * from "./auth.js";
 export * from "./freshness.js";
 export * from "./technicals.js";
 export * from "./creditlink.js";
+export * from "./governance.js";

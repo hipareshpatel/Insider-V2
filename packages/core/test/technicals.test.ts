@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustCloses, dividendYieldTtm, ema, priceFeatures, rsi, SECTOR_INDEX, SECTORAL_INDICES, sectorIndexNames, sectorIndexOf, type SectorInput, type Session } from "../src/index.js";
+import { adjustCloses, BUYBACK_PURPOSE, buybackFeatures, dividendYieldTtm, ema, priceFeatures, rsi, SECTOR_INDEX, SECTORAL_INDICES, sectorIndexNames, sectorIndexOf, type SectorInput, type Session } from "../src/index.js";
 
 // 300 sessions on weekdays from 2025-07-01, close rising 1 a day from 100; a 1:1 bonus (factor 0.5) on 2026-01-05
 function series(): Session[] {
@@ -109,5 +109,33 @@ describe("§4 dividend yield (TTM)", () => {
     expect(r).toMatchObject({ value: "3.33", reason: null }); // (5 + 5) ÷ 300
     expect(dividendYieldTtm("2026-11-05", 300, [], []).value).toBe("0.00");
     expect(dividendYieldTtm("2026-11-05", 300, [{ exDate: "2026-06-01", amount: "abc" }], []).reason).toMatch(/not readable/);
+  });
+});
+
+describe("§13 buyback (G10) from stored corporate-action purposes", () => {
+  const f = (asOf: string, a: { exDate: string; purpose: string }[]) => Object.fromEntries(buybackFeatures(asOf, a).map((x) => [x.field, x]));
+  it("matches NSE's buyback spellings (Bc and per-company lists), alone or in a combined purpose; nothing else", () => {
+    for (const p of ["BUY BACK", "BUYBACK", "Buyback", "Buy Back", "BUY BACK OF SHARES", "Buy-Back", "DIV RS 5/BUY BACK"]) expect(BUYBACK_PURPOSE.test(p), p).toBe(true);
+    for (const p of ["Interim Dividend - Rs 21 Per Share", "BONUS 1:1", "PAYBACK", "Buy", "BACK", "Demerger"]) expect(BUYBACK_PURPOSE.test(p), p).toBe(false);
+  });
+  it("INFY: buyback within 12 months gives 1 and its date; one after asOf is not counted", () => {
+    // INFY's 2025 tender buyback (record date 14 Nov 2025) as the Bc file states it, and a dividend
+    const r = f("2026-11-05", [{ exDate: "2025-11-14", purpose: "BUY BACK" }, { exDate: "2026-10-27", purpose: "INT DIV RS 23 PER SH" }, { exDate: "2026-12-01", purpose: "BUYBACK" }]);
+    expect(r.buyback_12m).toMatchObject({ value: "1", reason: null });
+    expect(r.last_buyback_date).toMatchObject({ value: "2025-11-14", reason: null });
+  });
+  it("last buyback more than 12 months ago gives 0 and that date; window edge is (asOf − 12 m, asOf] (illustrative TCS-style rows)", () => {
+    const r = f("2026-11-05", [{ exDate: "2024-01-25", purpose: "Buyback" }, { exDate: "2025-11-05", purpose: "BUY BACK OF SHARES" }]);
+    expect(r.buyback_12m).toMatchObject({ value: "0", reason: null });       // 2025-11-05 is exactly 12 months back: outside
+    expect(r.last_buyback_date!.value).toBe("2025-11-05");
+    expect(f("2026-11-04", [{ exDate: "2025-11-05", purpose: "BUY BACK OF SHARES" }]).buyback_12m!.value).toBe("1");
+  });
+  it("nothing stored: 0 when the window is covered by stored actions, null with reason otherwise; date null with reason", () => {
+    const r = f("2026-11-05", [{ exDate: "2026-07-01", purpose: "DIVIDEND - RS 10 PER SHARE" }]);
+    expect(r.buyback_12m).toMatchObject({ value: "0", reason: null });
+    expect(r.last_buyback_date).toMatchObject({ value: null, reason: "no buyback stored (corporate actions are stored from 2024-01-01)" });
+    expect(f("2024-12-31", []).buyback_12m).toMatchObject({ value: "0", reason: null });     // window starts 2024-01-01
+    expect(f("2024-12-30", []).buyback_12m).toMatchObject({ value: null, reason: expect.stringMatching(/before corporate actions are stored/) });
+    expect(f("2024-12-30", [{ exDate: "2024-06-01", purpose: "BUYBACK" }]).buyback_12m!.value).toBe("1"); // a stored one still answers yes
   });
 });

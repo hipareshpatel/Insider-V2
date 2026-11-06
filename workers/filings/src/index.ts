@@ -10,7 +10,8 @@ import type { Sql } from "@disclo/core";
 import { ownershipStep } from "./ownership.js";
 import { eventStep } from "./eventfeatures.js";
 import { parseSymbolsParam, ratingCoverage, ratingsOfSymbols } from "./ratingcov.js";
-import { fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
+import { GOV_CENSUS_MAX, governanceCensus } from "./governance.js";
+import { SQL_LINES_OF, fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, SQL_IF_LIST_ALL, SQL_IF_LIST_OWN, basisLists, classifyGaps, ifListKeeps, ifListSince, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
 import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
@@ -349,6 +350,24 @@ export default {
       const all = [...bySid].map(([sid, symbols]) => ({ sid, symbols }));
       return Response.json({ companies_total: all.length, offset, ...(await readiness(d1Sql(env.DB_FILINGS), all.slice(offset, offset + limit), COVERAGE_FLOOR, offset === 0)) }, { headers: { "cache-control": "no-store" } });
     }
+    if (path === "/governance-census") {
+      // G8 phase 1 (read-only): stored governance lists / XBRL and results files naming their auditors, for a page of the
+      // focus companies (?offset=&limit= ≤ 5, sorted by symbol) or named ones (?symbols=, ≤ 5); &shapes=0 skips the
+      // field-name samples of one governance file per kind.
+      const q = new URL(req.url).searchParams, sp = q.get("symbols"), meter: D1Meter = { rows: 0, reads: 0 };
+      const limit = Math.min(GOV_CENSUS_MAX, Math.max(1, Number(q.get("limit") ?? 3) || 3)), offset = Math.max(0, Number(q.get("offset") ?? 0) || 0);
+      let symbols: string[], total: number | null = null;
+      if (sp !== null) {
+        const s = parseSymbolsParam(sp);
+        if (typeof s === "string" || s.length > GOV_CENSUS_MAX) return Response.json({ error: typeof s === "string" ? s : `symbols: at most ${GOV_CENSUS_MAX}` }, { status: 400, headers: { "cache-control": "no-store" } });
+        symbols = s;
+      } else {
+        const all = [...((await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES, meter)) ?? [])].sort();
+        total = all.length; symbols = all.slice(offset, offset + limit);
+      }
+      const r = await governanceCensus(d1Sql(env.DB_FILINGS, meter), (k) => getText(env.RAW, k), symbols, { shapes: q.get("shapes") !== "0" });
+      return Response.json({ companies_total: total, offset: sp === null ? offset : null, next_offset: total !== null && offset + limit < total ? offset + limit : null, ...r, rows_read: meter.reads }, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/ratings-coverage") {
       // Work list 2.10 (item 7, read-only): credit ratings of the focus companies from the D168 floor vs NSE's stored
       // lists, by month (lists listed / loaded / stored-but-not-listed), with the first 40 missing.
@@ -546,6 +565,17 @@ export default {
           pl_revenue_cr: pl.filter((r) => r.period_kind === k).map((r) => Number(r.value) / 1e7)[0] ?? null };
       });
       return Response.json({ symbol: sym, sid, period, basis, periods_stored: periods, kinds }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/lines") {
+      // Read-only (G14): one company's stored figures for up to 12 named lines, from a period end on, every basis and
+      // version, e.g. /lines?symbol=CANBK&lines=gross_npa,net_npa,gnpa_pct&since=2025-06-30
+      const u = new URL(req.url), sym = u.searchParams.get("symbol") ?? "", since = u.searchParams.get("since") ?? "2025-01-01";
+      const lines = (u.searchParams.get("lines") ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 12);
+      if (!lines.length || !/^\d{4}-\d{2}-\d{2}$/.test(since)) return Response.json({ error: "lines=a,b&since=YYYY-MM-DD" }, { status: 400 });
+      const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
+      if (!sid) return Response.json({ error: "unknown symbol" }, { status: 404 });
+      const rows = (await env.DB_FILINGS.prepare(SQL_LINES_OF).bind(sid, since, JSON.stringify(lines)).all()).results;
+      return Response.json({ symbol: sym, security_id: sid, since, lines, rows }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/features") {
       // D171 (read-only): one company's stored feature-table values (computed from filed figures, with their inputs)

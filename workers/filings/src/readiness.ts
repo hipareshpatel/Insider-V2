@@ -65,7 +65,7 @@ export const SQL_PRICE_COVERAGE = current("price_feature"), SQL_PRICE_REASONS = 
 
 type Cov = { field: string; companies: number; with_value: number; latest_with_value?: number };
 type Why = { field: string; why: string | null; companies: number; sids?: string | null; symbols?: string[] };
-export const SQL_SYMBOL_OF_SIDS = "SELECT security_id, min(value) AS symbol FROM security_identifier WHERE security_id IN (SELECT value FROM json_each(?1)) AND +id_type = 'nse_symbol' GROUP BY security_id";
+export const SQL_SYMBOL_OF_SIDS = "SELECT security_id, coalesce(min(CASE WHEN valid_to IS NULL THEN value END), min(value)) AS symbol FROM security_identifier WHERE security_id IN (SELECT value FROM json_each(?1)) AND +id_type = 'nse_symbol' GROUP BY security_id";
 export async function fieldReadiness(filings: Sql, market: Sql, sids: number[]) {
   const ids = [JSON.stringify(sids)];
   const top = (rows: Why[]) => { const m: Record<string, { why: string | null; companies: number; symbols?: string[] }[]> = {}; for (const r of rows) { const a = (m[r.field] ??= []); if (a.length < 3) a.push({ why: r.why, companies: r.companies, ...(r.symbols ? { symbols: r.symbols } : {}) }); } return m; };
@@ -180,3 +180,7 @@ export async function linkAudit(filings: Sql, market: Sql, focusSymbols: string[
   }
   return out;
 }
+
+/** Read-only `/lines` (G14): one company's stored figures for named lines from a period end on (all bases, versions). */
+export const SQL_LINES_OF = `SELECT period_end, period_kind, basis, version, statement, line, value, null_reason, disclosed_at FROM fin_value INDEXED BY ix_fin_value_period
+  WHERE security_id = ?1 AND period_end >= ?2 AND +line IN (SELECT value FROM json_each(?3)) ORDER BY period_end DESC LIMIT 400`;

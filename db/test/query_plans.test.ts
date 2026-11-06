@@ -208,6 +208,7 @@ describe("market: price features of the focus companies (field catalogue §3, on
     ["sessions of one security in a date range", t.SQL_SESSIONS, [1, 20250101, 20260101], /SEARCH price_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
     ["last split / bonus of one security", t.SQL_LAST_SPLIT_BONUS, [1], /SEARCH corp_action USING INDEX sqlite_autoindex_corp_action_1 \(security_id=\?\)/],
     ["dividends of one security over a year", t.SQL_DIVIDENDS, [1, "2025-11-05", "2026-11-05"], /SEARCH corp_action USING INDEX sqlite_autoindex_corp_action_1 \(security_id=\? AND ex_date>\? AND ex_date<\?\)/],
+    ["buyback purposes of the step's securities (G10, once per step)", t.SQL_BUYBACKS_OF, ["[1,2]"], /SEARCH corp_action USING INDEX sqlite_autoindex_corp_action_1 \(security_id=\?\)/],
     ["applied factors of one security", t.SQL_APPLIED_FACTORS, [1], /USING (PRIMARY KEY|INDEX sqlite_autoindex_adj_factor_1) \(security_id=\?\)/],
     ["delivery of one security in a date range", t.SQL_DELIVERY, [1, 20250101, 20260101], /SEARCH delivery_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
     ["Nifty 50 closes in a date range", t.SQL_NIFTY, [20250101, 20260101], /SEARCH index_daily USING PRIMARY KEY \(index_name=\? AND d>\? AND d<\?\)/],
@@ -257,6 +258,7 @@ describe("recurring queries read only what they need (C56)", () => {
 describe("/gap-census late_start (G19, read-only): index-backed per company", async () => {
   const r = await import("../../workers/filings/src/readiness.js");
   it.each([
+    ["filings: /lines, one company's named lines from a period end (G14)", F, r.SQL_LINES_OF, [1, "2025-06-30", '["gross_npa"]'], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\? AND period_end>\?\)/],
     ["filings: a quarterly P&L row at the first quarter end", F, r.SQL_LATE_Q_AT, [1, "2024-03-31"], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\?\)/],
     ["filings: the earliest stored quarterly P&L (index order, no sort)", F, r.SQL_LATE_FIRST_Q, [1], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\?\)/],
     ["filings: the company's per-company results lists in the ledger", F, r.SQL_LATE_LISTS, ['["INFY"]'], /SEARCH fetch_job USING INDEX ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/],
@@ -281,5 +283,15 @@ describe("market: /maint/listed_on (log #402, one-off): security.listed_on from 
     const p = plan(M, sql, params);
     expect(p.filter(bad), p.join("\n")).toEqual([]);
     expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
+  });
+});
+describe("/governance-census (G8 phase 1, read-only, ≤ 5 companies per call)", () => {
+  it("filings: stored governance / results jobs of named companies by ix_fetch_symbol_kind (counts and files)", async () => {
+    const { SQL_GOV_COUNTS, SQL_GOV_FILES } = await import("../../workers/filings/src/governance.js");
+    for (const sql of [SQL_GOV_COUNTS, SQL_GOV_FILES]) {
+      const p = plan(F, sql, ['["INFY"]', '["governance","xbrl_integrated_financials"]']);
+      expect(p.filter(bad), p.join("\n")).toEqual([]);
+      expect(p.some((l) => /SEARCH fetch_job USING INDEX ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/.test(l)), p.join("\n")).toBe(true);
+    }
   });
 });
