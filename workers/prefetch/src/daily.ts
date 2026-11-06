@@ -9,7 +9,7 @@
 // Every response is kept in R2 and recorded in the ledger (fetch_job: one row per URL, never fetched twice).
 import { type Sql, batchAll, insertRows, sha256Hex } from "@disclo/core";
 import { attachmentKey } from "./discover.js";
-import { API, PER_COMPANY } from "./jobs.js";
+import { API, PER_COMPANY, companyJobs } from "./jobs.js";
 
 const ARCHIVE = /https:\/\/nsearchives\.nseindia\.com\/corporate\/[^"\s\\]+?\.xml/gi;
 const MON: Record<string, string> = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
@@ -110,6 +110,25 @@ export async function seedPitWindows(db: Sql, now: Date, focus: string[]): Promi
   await batchAll(db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key)", 4, rows));
   await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once', 'pit_windows', ?, ?)", [now.toISOString(), JSON.stringify({ queued: rows.length })]);
   return rows.length;
+}
+
+/** MCX / ABBOTINDIA (data-readiness map, 5 Nov: nothing stored at all). The per-company lists are queued once, from
+ *  EQUITY_L at the very first run (seed), and their outcome is final: 'empty' is never fetched again, 'failed' only
+ *  while attempts < 4, and a symbol missing from that first EQUITY_L copy was never queued. The seed queues a company's
+ *  12 lists one after another, so one bad minute at NSE (a refusal streak, or a 200 with an empty body) loses the whole
+ *  company. Started explicitly (POST /maint/company_lists?symbols=…), named focus companies only (≤ 12): queues every
+ *  per-company list not yet in the ledger and puts the company's empty or failed ones back on the queue (same URLs;
+ *  a list already fetched is never touched); runBatch fetches them, discover() then queues their XBRL. */
+export const SQL_REQUEUE_LISTS = `UPDATE fetch_job SET status='todo', attempts=0, error=NULL, discovered=0
+  WHERE url IN (SELECT value FROM json_each(?1)) AND +status IN ('empty','failed')`;
+export async function requeueCompanyLists(db: Sql, now: Date, symbols: string[], focus: string[] | undefined): Promise<{ symbols: string[]; skipped: string[]; queued: number; requeued: number }> {
+  const f = focus ? new Set(focus) : null;
+  const asked = [...new Set(symbols.map((s) => s.trim()).filter(Boolean))].slice(0, 12);
+  const take = asked.filter((s) => !f || f.has(s)), skipped = asked.filter((s) => f && !f.has(s));
+  const jobs = companyJobs(take, istDay(now));
+  const queued = await batchAll(db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key)", 4, jobs.map((j) => [j.kind, j.symbol, j.url, j.key])));
+  const r = jobs.length ? await db.run(SQL_REQUEUE_LISTS, [JSON.stringify(jobs.map((j) => j.url))]) : { changes: 0 };
+  return { symbols: take, skipped, queued, requeued: r.changes };
 }
 
 /** Owner #289 / C40: several per-company lists return only the latest 20 rows (PIT, SAST, board meetings, corporate

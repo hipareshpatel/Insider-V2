@@ -8,12 +8,13 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
+import { SQL_REQUEUE_LISTS } from "../../workers/prefetch/src/daily.js";
 import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, SQL_ORPHAN_RESTATED } from "../../workers/filings/src/load.js";
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS } from "../../workers/filings/src/events.js";
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
-import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS } from "../../workers/filings/src/shpcov.js";
+import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS, SQL_LATEST_SHP, SQL_JOB_BY_URL, SQL_SET_PROMOTER } from "../../workers/filings/src/shpcov.js";
 import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
 import { SQL_FOCUS } from "../../packages/core/src/focus.js";
 
@@ -50,6 +51,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: half-year filing of one gap (D169, manual)", "SELECT filing_id, kind, source_url, disclosed_at FROM filing WHERE security_id=? AND period_end=? AND period_kind='H' AND basis=?", [1, "2025-03-31", "consolidated"], /ix_filing_sec/],
   ["filings: filings stored under another company than their list (C61, manual)", SQL_MISATTR, ['["INFY"]'], /ix_filing_source_url \(source_url=\?\)/],
   ["filings: move one filing's rows to the linking company (C61, manual)", SQL_MOVE_FIN_VALUE, [783, 2215, 22294], /SEARCH fin_value USING INDEX \w+ \(security_id=\?\)/],
+  ["prefetch: re-queue named focus companies' empty / failed lists (manual, bounded)", SQL_REQUEUE_LISTS, ['["u"]'], /SEARCH fetch_job USING INDEX sqlite_autoindex_fetch_job_1 \(url=\?\)/],
   ["filings: re-queue named 404 jobs (manual, bounded)", SQL_REQUEUE_404, ["[1,2]", '["INFY"]'], /SEARCH fetch_job USING INTEGER PRIMARY KEY \(rowid=\?\)/],
   ["filings: earlier filed quarters of the year (C62 proof, per half-year file)", SQL_EARLIER_Q, [1, '["2026-06-30"]', "consolidated", '["revenue","pat"]'], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
   ["filings: relabel a proven quarter (C62, per half-year file)", SQL_RELABEL_Q, [1, "2026-09-30", "consolidated", 50], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
@@ -81,6 +83,9 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: the 250's insider trades per year (owner #365, read-only)", SQL_INSIDER_YEARS, ['["INFY"]'], /ix_insider_symbol \(symbol=\? AND from_d>\?\)/],
   ["filings: new-system insider rows, all companies (owner #365, read-only)", SQL_PITX_SYMBOLS, [], /SEARCH insider_trade USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_insider_trade_1) \(key>\? AND key<\?\)/],
   ["filings: named promoter holders of the 250, latest filing (D40, read-only)", SQL_PROMOTER_HOLDERS, ['[1,2]'], /ix_shareholding_sec \(security_id=\?/],
+  ["filings: latest shareholding filing of one company (D40 one-off)", SQL_LATEST_SHP, [1], /ix_filing_sec \(security_id=\? AND kind=\?\)/],
+  ["filings: download of one file by URL (D40 one-off)", SQL_JOB_BY_URL, ["u"], /sqlite_autoindex_fetch_job_1 \(url=\?\)/],
+  ["filings: promoter flag of one named holder (D40 one-off)", SQL_SET_PROMOTER, [1, 1, "holder:x", "y"], /USING (PRIMARY KEY|INDEX sqlite_autoindex_shareholding_1) \(filing_id=\? AND category=\? AND holder_name=\?\)/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 
@@ -111,6 +116,13 @@ describe("market: price features of the focus companies (field catalogue §3, on
     ["delivery of one security in a date range", t.SQL_DELIVERY, [1, 20250101, 20260101], /SEARCH delivery_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
     ["Nifty 50 closes in a date range", t.SQL_NIFTY, [20250101, 20260101], /SEARCH index_daily USING PRIMARY KEY \(index_name=\? AND d>\? AND d<\?\)/],
     ["focus symbols to securities", t.SQL_FOCUS_SIDS, ['["INFY"]'], /ix_sid_lookup \(id_type=\? AND value=\?\)/],
+    ["structure ledger of the as-of session", t.SQL_LEDGER_DAY, [20261105], /SEARCH ms_day USING PRIMARY KEY \(source=\? AND d=\?\)/],
+    ["deal ledger over the 90-day window", t.SQL_LEDGER_DEALS, [20260808, 20261105], /SEARCH ms_day USING PRIMARY KEY \(source=\? AND d>\? AND d<\?\)/],
+    ["F&O ban list of the as-of session", t.SQL_FO_BAN_DAY, [20261105], /SEARCH fo_ban USING (COVERING INDEX|PRIMARY KEY) .*\(d=\?\)/],
+    ["NSE symbols of one security", t.SQL_SYMBOLS_OF, [1], /ix_sid_security \(security_id=\?\)/],
+    ["surveillance lists of one symbol", t.SQL_SURVEILLANCE_OF, ["INFY", 20261105], /SEARCH surveillance USING PRIMARY KEY \(list=\? AND symbol=\? AND valid_from<\?\)/],
+    ["price bands of one symbol", t.SQL_BAND_OF, ["INFY", 20261105], /SEARCH price_band USING PRIMARY KEY \(symbol=\?/],
+    ["deals of one security's symbols over 90 days", t.SQL_DEALS_OF, ['["INFY"]', 20260808, 20261105], /SEARCH deal USING (COVERING )?INDEX ix_deal_symbol \(symbol=\? AND d>\? AND d<\?\)/],
   ] as [string, string, unknown[], RegExp][])("%s", (_n, sql, params, want) => {
     const p = plan(M, sql, params);
     expect(p.filter(bad), p.join("\n")).toEqual([]);

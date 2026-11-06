@@ -1,7 +1,7 @@
 // Work list 2.8 (item 4): shareholding coverage of the 250 vs NSE's own lists. Read-only. Per company: the stored
 // per-company shareholding lists (kind 'shareholding') → every listed XBRL with its as-of quarter end; from the
 // D168 floor, each is matched to its download (fetch_job), load outcome (fin_load) and stored filing.
-import type { Sql } from "@disclo/core";
+import { type Sql, parseShareholding, parseXbrl } from "@disclo/core";
 
 const ARCHIVE = /https:\/\/nsearchives\.nseindia\.com\/corporate\/[^"\s\\]+?\.xml/gi;
 const MON: Record<string, string> = { JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06", JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12" };
@@ -57,7 +57,7 @@ export async function shpCoverage(db: Sql, getText: (k: string) => Promise<strin
 }
 
 /** D40 (read-only /promoter-groups): the named promoter holders of each of the 250 in its latest shareholding filing. */
-export const SQL_PROMOTER_HOLDERS = `SELECT s.security_id, s.category, s.holder_name, s.pct_all_shares AS pct FROM shareholding s
+export const SQL_PROMOTER_HOLDERS = `SELECT s.security_id, s.category, s.holder_name, s.pct_all_shares AS pct, s.promoter FROM shareholding s
    WHERE s.security_id IN (SELECT value FROM json_each(?1)) AND s.category LIKE 'holder:%'
      AND s.as_of = (SELECT max(m.as_of) FROM shareholding m WHERE m.security_id = s.security_id)`;
 
@@ -74,16 +74,19 @@ const INSTITUTIONAL = /MutualFund|Insurance|ForeignPortfolio|InstitutionsForeign
 export const MIN_STAKE = 0.05;
 /** D40: promoter groups = companies whose latest shareholding names the same promoter entity (union of shared
  *  entities). Pure: input rows of SQL_PROMOTER_HOLDERS, symbol per security. */
-export function promoterGroups(rows: { security_id: number; category: string; holder_name: string; pct: string | null }[], symbol: Map<number, string>) {
+export function promoterGroups(rows: { security_id: number; category: string; holder_name: string; pct: string | null; promoter?: number | null }[], symbol: Map<number, string>, names?: Map<number, string>) {
   const byEntity = new Map<string, Set<number>>();
   for (const r of rows) {
-    // the stored holder category does not say promoter or public (the parser keeps one axis); a large stake held by a
-    // company or trust, outside funds, banks, insurers and government, stands in for "promoter entity" (D40, probable)
-    if (INSTITUTIONAL.test(r.category) || !(Number(r.pct ?? 0) >= MIN_STAKE)) continue;
+    // exact (owner yes, 6 Nov): the promoter flag read from the file; rows not re-read yet (NULL) fall back to the
+    // probable rule — a ≥ 5 % stake held by a company or trust outside funds, banks, insurers and government
+    if (r.promoter === 0) continue;
+    if (r.promoter == null && (INSTITUTIONAL.test(r.category) || !(Number(r.pct ?? 0) >= MIN_STAKE))) continue;
     const k = holderKey(r.holder_name);
     if (!k || !isEntity(k)) continue;
     (byEntity.get(k) ?? byEntity.set(k, new Set()).get(k)!).add(r.security_id);
   }
+  // a promoter entity that is itself one of the companies (L&T in LTIM, M&M in Tech Mahindra) joins its own group
+  if (names) for (const [sid, name] of names) { const k = holderKey(name); const sids = byEntity.get(k); if (sids) sids.add(sid); }
   // union-find over companies that share an entity
   const parent = new Map<number, number>();
   const find = (x: number): number => { let p = parent.get(x) ?? x; if (p !== x) { p = find(p); parent.set(x, p); } return p; };
@@ -98,4 +101,35 @@ export function promoterGroups(rows: { security_id: number; category: string; ho
   }
   return [...groups.values()].map((g) => ({ companies: [...g.companies].map((s) => symbol.get(s) ?? String(s)).sort(), shared_entities: [...g.entities].sort().slice(0, 8) }))
     .sort((a, b) => b.companies.length - a.companies.length);
+}
+
+/** D40 one-off (owner yes, 6 Nov): fill shareholding.promoter for each focus company's latest shareholding filing from
+ *  its stored file (R2). Updates only named-holder rows whose flag differs; nothing deleted. Cursor: daily_refresh. */
+export const SQL_LATEST_SHP = "SELECT filing_id, source_url FROM filing WHERE security_id = ?1 AND kind = 'shareholding' ORDER BY period_end DESC LIMIT 1";
+export const SQL_JOB_BY_URL = "SELECT r2_key FROM fetch_job WHERE url = ?1";
+export const SQL_SET_PROMOTER = "UPDATE shareholding SET promoter = ?1 WHERE filing_id = ?2 AND category = ?3 AND holder_name = ?4 AND promoter IS NOT ?1";
+export async function shpPromoterPass(db: Sql, getText: (k: string) => Promise<string | null>, sids: number[], now: Date, limit = 25, restart = false) {
+  const [st] = restart ? [] : await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='shp_promoter'");
+  const cur = st ? JSON.parse(st.detail) as { after: number; files: number; promoters: number; missing: number } : { after: 0, files: 0, promoters: 0, missing: 0 };
+  const todo = [...sids].sort((a, b) => a - b).filter((x) => x > cur.after).slice(0, limit);
+  for (const sid of todo) {
+    cur.after = sid;
+    const [f] = await db.all<{ filing_id: number; source_url: string }>(SQL_LATEST_SHP, [sid]);
+    const [j] = f ? await db.all<{ r2_key: string }>(SQL_JOB_BY_URL, [f.source_url]) : [];
+    const xml = j ? await getText(j.r2_key) : null;
+    if (!f || !xml) { cur.missing++; continue; }
+    let holders;
+    try { holders = parseShareholding(parseXbrl(xml), { totalOverride: 1 }).namedHolders; } catch { cur.missing++; continue; }
+    const seen = new Set<string>(), stmts = [];
+    for (const h of holders) {
+      const k = `${h.group}|${h.name}`; if (seen.has(k)) continue; seen.add(k);
+      stmts.push({ sql: SQL_SET_PROMOTER, params: [h.promoter ? 1 : 0, f.filing_id, `holder:${h.group}`, h.name] });
+      if (h.promoter) cur.promoters++;
+    }
+    for (let i = 0; i < stmts.length; i += 50) await db.batch(stmts.slice(i, i + 50));
+    cur.files++;
+  }
+  const done = todo.length < limit;
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','shp_promoter',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [now.toISOString(), JSON.stringify(cur)]);
+  return { ...cur, done };
 }

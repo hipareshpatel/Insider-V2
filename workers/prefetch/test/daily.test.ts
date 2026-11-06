@@ -134,3 +134,26 @@ describe("item 7: insider-trade lists by calendar quarter (NSE's dated PIT list 
     expect(urls[0]!.url).toContain("symbol=M%26M&from_date=01-01-2022&to_date=31-03-2022");
   });
 });
+
+describe("MCX / ABBOTINDIA: re-queue a focus company's per-company lists (lost at the one-time seed)", async () => {
+  const { requeueCompanyLists } = await import("../src/daily.js");
+  const { companyJobs, PER_COMPANY } = await import("../src/jobs.js");
+  it("queues lists never seeded, puts empty / failed ones back, leaves fetched lists and other companies alone", async () => {
+    const db = sqlite("filings");
+    const [res, shp, ifin] = ["results_quarterly", "shareholding", "integrated_financials"].map((k) => companyJobs(["MCX"], "2026-10-30").find((j) => j.kind === k)!);
+    await db.run("INSERT INTO fetch_job (kind, symbol, url, r2_key, status, attempts, bytes) VALUES (?,?,?,?, 'empty', 1, 2)", [res!.kind, "MCX", res!.url, res!.key]);
+    await db.run("INSERT INTO fetch_job (kind, symbol, url, r2_key, status, attempts, http_status, error) VALUES (?,?,?,?, 'failed', 4, 403, 'refused 403')", [shp!.kind, "MCX", shp!.url, shp!.key]);
+    await db.run("INSERT INTO fetch_job (kind, symbol, url, r2_key, status, attempts, discovered) VALUES (?,?,?,?, 'done', 1, 1)", [ifin!.kind, "MCX", ifin!.url, ifin!.key]);
+    const r = await requeueCompanyLists(db, new Date("2026-11-06T10:00:00Z"), ["MCX", " ", "INFY", "MCX"], ["MCX", "ABBOTINDIA"]);
+    expect(r).toMatchObject({ symbols: ["MCX"], skipped: ["INFY"], requeued: 2 });
+    expect(r.queued).toBe(Object.keys(PER_COMPANY).length - 3);
+    const rows = await db.all<{ kind: string; status: string; attempts: number; discovered: number; r2_key: string }>("SELECT kind, status, attempts, discovered, r2_key FROM fetch_job WHERE symbol='MCX' ORDER BY job_id");
+    expect(rows.find((x) => x.kind === "results_quarterly")).toMatchObject({ status: "todo", attempts: 0, discovered: 0, r2_key: res!.key });
+    expect(rows.find((x) => x.kind === "shareholding")).toMatchObject({ status: "todo", attempts: 0 });
+    expect(rows.find((x) => x.kind === "integrated_financials")).toMatchObject({ status: "done", discovered: 1 });
+    expect(rows.filter((x) => x.status === "todo")).toHaveLength(rows.length - 1);
+    expect((await db.all("SELECT 1 FROM fetch_job WHERE symbol='INFY'")).length).toBe(0);
+    // again: nothing new, nothing re-queued (all already waiting)
+    expect(await requeueCompanyLists(db, new Date("2026-11-06T11:00:00Z"), ["MCX"], ["MCX"])).toMatchObject({ queued: 0, requeued: 0 });
+  });
+});

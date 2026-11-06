@@ -7,3 +7,4 @@ dist/
 workers/*/wrangler.json
 wrangler.migrate.json
 workers/web/site/
+.claude/worktrees/
