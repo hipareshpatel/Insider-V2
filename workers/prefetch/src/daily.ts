@@ -112,6 +112,30 @@ export async function seedPitWindows(db: Sql, now: Date, focus: string[]): Promi
   return rows.length;
 }
 
+/** Insider gap (6 Nov): NSE's per-company PIT list for HDFCBANK has 35-375 filings every quarter to 26 Mar 2025 and an
+ *  empty answer (28 bytes) for every quarter from 1 Apr 2025; 191 of the 250 have no 2026 trade. The all-company list
+ *  (no symbol), the reference repo's method, is asked one calendar month per call from 1 Apr 2025 to 2 May 2026 (the
+ *  old system's end; C53), 14 calls, queued once. Same kind ('pit'): the event loader keeps the focus companies' rows,
+ *  keyed (INSERT OR IGNORE), so a trade already stored is not added twice and nothing stored is changed. */
+export const PIT_ALL_FROM = "2025-04-01";
+export function pitMonths(from = PIT_ALL_FROM, to = PIT_WINDOW_TO): [string, string][] {
+  const out: [string, string][] = [];
+  for (let y = Number(from.slice(0, 4)), m = Number(from.slice(5, 7)); ; m === 12 ? (y++, (m = 1)) : m++) {
+    const mm = String(m).padStart(2, "0"), a = `${y}-${mm}-01`;
+    if (a > to) break;
+    const b = `${y}-${mm}-${new Date(Date.UTC(y, m, 0)).getUTCDate()}`;
+    out.push([a, b > to ? to : b]);
+  }
+  return out;
+}
+export async function seedPitAllMonths(db: Sql, now: Date): Promise<number> {
+  if ((await db.all("SELECT 1 FROM daily_refresh WHERE day='once' AND slot='pit_all_months'")).length) return 0;
+  const rows = pitMonths().map(([a, b]) => ["pit", null, `${API}corporates-pit?index=equities&from_date=${dmy(a)}&to_date=${dmy(b)}`, `api/pit/all/${a}_${b}.json`]);
+  await batchAll(db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key)", 4, rows));
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once', 'pit_all_months', ?, ?)", [now.toISOString(), JSON.stringify({ queued: rows.length })]);
+  return rows.length;
+}
+
 /** MCX / ABBOTINDIA (data-readiness map, 5 Nov: nothing stored at all). The per-company lists are queued once, from
  *  EQUITY_L at the very first run (seed), and their outcome is final: 'empty' is never fetched again, 'failed' only
  *  while attempts < 4, and a symbol missing from that first EQUITY_L copy was never queued. The seed queues a company's
