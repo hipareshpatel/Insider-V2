@@ -114,3 +114,75 @@ export function priceFeatures(sessions: readonly Session[], factors: readonly { 
   }
   return { asOf, rows: out };
 }
+
+// ---- §3 surveillance, F&O ban, price band, bulk/block deals, sector-relative return (D67, D76) ----------------------
+// Read from the stored market-structure tables (ms_day ledger, surveillance, fo_ban, price_band, deal), never downloaded
+// here. A flag is "0" only when that source is loaded for the as-of session; otherwise null with the reason.
+
+/** One market-structure ledger row (ms_day): rows = -1 means the file was missing in R2. */
+export interface LedgerDay { source: string; d: number; rows: number; note: string | null }
+export interface DealRow { kind: "bulk" | "block"; side: "B" | "S"; qty: number; pricePaise: number }
+export interface StructureInput {
+  asOf: string;                                   // ISO, the last loaded session
+  symbol: string | null;                          // NSE symbol valid on asOf
+  ledger: readonly LedgerDay[];                   // ms_day: fo_ban / price_band / surveillance on asOf, bulk / block over the deal window
+  surveillance: readonly { list: string; stage: string }[]; // lists the symbol is on as of asOf (asm_lt, asm_st, gsm)
+  banned: boolean;                                // symbol in fo_ban on asOf
+  bands: readonly { series: string; band: string; validFrom: number }[]; // price-band intervals covering asOf
+  deals: readonly DealRow[];                      // the security's bulk / block deals in the window
+}
+export const DEALS_WINDOW_DAYS = 90;
+const BAND_SERIES = ["EQ", "BE", "BZ", "SM", "ST"];
+const isoOf = (d: number) => `${String(d).slice(0, 4)}-${String(d).slice(4, 6)}-${String(d).slice(6, 8)}`;
+const numOf = (iso: string) => Number(iso.replace(/-/g, ""));
+
+/** First day of the deal window: the 90 calendar days ending on (and including) `asOf`. */
+export function dealsWindowFrom(asOf: string): string { return shift(asOf, -(DEALS_WINDOW_DAYS - 1)); }
+
+/** Why the ledger does not cover `source` on `asOf` (null = loaded). */
+function notLoaded(ledger: readonly LedgerDay[], source: string, asOf: string, what: string): string | null {
+  const r = ledger.find((x) => x.source === source && x.d === numOf(asOf));
+  if (!r) return `${what} not loaded for ${asOf}`;
+  if (r.rows < 0) return `${what} file missing for ${asOf}`;
+  return null;
+}
+
+/** Why the bulk / block deal ledger does not cover the window (null = complete). */
+export function dealsCoverage(ledger: readonly LedgerDay[], asOf: string): string | null {
+  const from = numOf(dealsWindowFrom(asOf)), to = numOf(asOf);
+  for (const kind of ["bulk", "block"] as const) {
+    const days = ledger.filter((x) => x.source === kind && x.d >= from && x.d <= to);
+    const gap = notLoaded(days, kind, asOf, `${kind} deals`);
+    if (gap) return gap;
+    const missing = days.filter((x) => x.rows < 0);
+    if (missing.length) return `${kind} deals file missing for ${missing.length} session(s) in the 90 days (first ${isoOf(missing[0]!.d)})`;
+    const cut = days.filter((x) => x.note?.startsWith("possibly truncated"));
+    if (cut.length) return `${kind} deals possibly truncated (API cap) on ${cut.length} session(s) in the 90 days (first ${isoOf(cut[0]!.d)})`;
+  }
+  return null;
+}
+
+/** in_asm, in_gsm, in_fo_ban, price_band, bulk_block_deals_90d, bulk_block_net_90d_cr, ret_vs_sector_3m. */
+export function structureFeatures(x: StructureInput): PriceFeature[] {
+  const out: PriceFeature[] = [];
+  const put = (field: string, value: string | null, reason: string | null = null) => out.push({ field, value, reason: value === null ? reason : null });
+  const noSym = x.symbol ? null : `no NSE symbol valid on ${x.asOf}`;
+  const surv = noSym ?? notLoaded(x.ledger, "surveillance", x.asOf, "ASM / GSM lists");
+  put("in_asm", surv ? null : x.surveillance.some((s) => s.list.startsWith("asm")) ? "1" : "0", surv);
+  put("in_gsm", surv ? null : x.surveillance.some((s) => s.list === "gsm") ? "1" : "0", surv);
+  const ban = noSym ?? notLoaded(x.ledger, "fo_ban", x.asOf, "F&O ban list");
+  put("in_fo_ban", ban ? null : x.banned ? "1" : "0", ban);
+  const bandGap = noSym ?? notLoaded(x.ledger, "price_band", x.asOf, "price band list");
+  // the preferred series' band; when an interval was closed and reopened on the same day, the later one
+  const band = [...x.bands].filter((b) => BAND_SERIES.includes(b.series))
+    .sort((a, b) => BAND_SERIES.indexOf(a.series) - BAND_SERIES.indexOf(b.series) || b.validFrom - a.validFrom)[0];
+  put("price_band", bandGap ? null : band?.band ?? null, bandGap ?? `no price band listed for ${x.symbol} (${BAND_SERIES.join("/")}) on ${x.asOf}`);
+  // deals: count and net value (buy − sell, ₹ crore) over the 90 calendar days to the as-of session
+  const dealGap = noSym ?? dealsCoverage(x.ledger, x.asOf);
+  const net = x.deals.reduce((a, d) => a + (d.side === "B" ? 1 : -1) * d.qty * d.pricePaise, 0) / 100 / 1e7;
+  put("bulk_block_deals_90d", dealGap ? null : String(x.deals.length), dealGap);
+  put("bulk_block_net_90d_cr", dealGap ? null : r2(net) === "-0.00" ? "0.00" : r2(net), dealGap);
+  // no stored data maps a company to a sector index (classification holds NSE's broad sector only)
+  put("ret_vs_sector_3m", null, "no sector index mapped for this company (stored classification has the broad sector only)");
+  return out;
+}

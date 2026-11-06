@@ -114,6 +114,13 @@ describe("market: price features of the focus companies (field catalogue §3, on
     ["delivery of one security in a date range", t.SQL_DELIVERY, [1, 20250101, 20260101], /SEARCH delivery_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
     ["Nifty 50 closes in a date range", t.SQL_NIFTY, [20250101, 20260101], /SEARCH index_daily USING PRIMARY KEY \(index_name=\? AND d>\? AND d<\?\)/],
     ["focus symbols to securities", t.SQL_FOCUS_SIDS, ['["INFY"]'], /ix_sid_lookup \(id_type=\? AND value=\?\)/],
+    ["structure ledger of the as-of session", t.SQL_LEDGER_DAY, [20261105], /SEARCH ms_day USING PRIMARY KEY \(source=\? AND d=\?\)/],
+    ["deal ledger over the 90-day window", t.SQL_LEDGER_DEALS, [20260808, 20261105], /SEARCH ms_day USING PRIMARY KEY \(source=\? AND d>\? AND d<\?\)/],
+    ["F&O ban list of the as-of session", t.SQL_FO_BAN_DAY, [20261105], /SEARCH fo_ban USING (COVERING INDEX|PRIMARY KEY) .*\(d=\?\)/],
+    ["NSE symbols of one security", t.SQL_SYMBOLS_OF, [1], /ix_sid_security \(security_id=\?\)/],
+    ["surveillance lists of one symbol", t.SQL_SURVEILLANCE_OF, ["INFY", 20261105], /SEARCH surveillance USING PRIMARY KEY \(list=\? AND symbol=\? AND valid_from<\?\)/],
+    ["price bands of one symbol", t.SQL_BAND_OF, ["INFY", 20261105], /SEARCH price_band USING PRIMARY KEY \(symbol=\?/],
+    ["deals of one security's symbols over 90 days", t.SQL_DEALS_OF, ['["INFY"]', 20260808, 20261105], /SEARCH deal USING (COVERING )?INDEX ix_deal_symbol \(symbol=\? AND d>\? AND d<\?\)/],
   ] as [string, string, unknown[], RegExp][])("%s", (_n, sql, params, want) => {
     const p = plan(M, sql, params);
     expect(p.filter(bad), p.join("\n")).toEqual([]);
