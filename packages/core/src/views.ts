@@ -168,16 +168,31 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
   const zeroOwners = (p: FiledPeriod) => p.lines.pat_owners != null && dec(p.lines.pat_owners).units === 0n && nz(p.lines.pat) && !nz(p.lines.pat_nci);
   periods = periods.map((p) => (p.basis === basis && zeroOwners(p) ? { ...p, lines: { ...p.lines, pat_owners: undefined } } : p));
   const mine = periods.filter((p) => p.basis === basis);
-  const noMinority = basis !== "standalone" && ownersKey === "pat_owners"
-    // no period with a non-zero profit to NCI, and every filed owners' line equal to net profit
-    && !mine.some((p) => nz(p.lines.pat_nci))
-    // within ₹1 lakh or 0.1 % (filings round to lakhs / crores; a period's lines can come from the original and a revision)
-    && mine.every((p) => { if (p.lines.pat_owners == null || p.lines.pat == null) return true; const a = Number(p.lines.pat_owners), b = Number(p.lines.pat); return Math.abs(a - b) <= Math.max(1e5, Math.abs(b) * 0.001); })
-    // positive evidence: at least one balance sheet with its equity filed, and no non-zero NCI in any
-    && [...balanceSheets.values()].some((b) => (b["x:Equity"] ?? b.total_equity) != null)
-    && ![...balanceSheets.values()].some((b) => nz(b["x:NonControllingInterest"]) || nz(b.minority_interest));
+  // Per quarter, local evidence (live checks 6 Nov: OBEROIRLTY files owners 0 and NCI 0, its balance sheet has equity =
+  // equity to owners and its EPS matches all of net profit; HDFCLIFE / LICI / GICRE file no owners or NCI line at all): a
+  // quarter with no owners' figure and no non-zero NCI profit takes net profit as profit to owners when the balance sheet
+  // at that date (or the latest one up to ~6 months before) shows no minority — an NCI line of zero, total equity equal to
+  // equity to owners (₹1 lakh / 0.1 %), or, for an insurer's IRDAI format, shareholders' funds with no minority line.
+  const tol = (a: string, b: string) => Math.abs(Number(a) - Number(b)) <= Math.max(1e5, Math.abs(Number(b)) * 0.001);
+  const bsDates = [...balanceSheets.keys()].sort();
+  const bsAt = (e: string) => { const d = bsDates.filter((x) => x <= e).pop(); return d && (Date.parse(e) - Date.parse(d)) / 864e5 <= 200 ? balanceSheets.get(d) : undefined; };
+  const noMinorityAt = (e: string) => {
+    const b = bsAt(e);
+    if (!b) return false;
+    const nciLine = b["x:NonControllingInterest"] ?? b.minority_interest ?? b["x:MinorityInterest"];
+    if (nciLine != null) return !nz(nciLine);
+    const tot = b["x:Equity"] ?? b.total_equity, own = b["x:EquityAttributableToOwnersOfParent"] ?? b.equity_owners;
+    if (tot != null && own != null) return tol(own, tot);
+    return (layout === "life_insurance" || layout === "general_insurance") && b["x:ShareholdersFunds"] != null;
+  };
+  let filledFromPat = 0;
   const qs = periods.filter((p) => p.periodKind === QUARTER_KIND && p.basis === basis).sort((a, b) => a.periodEnd.localeCompare(b.periodEnd))
-    .map((p) => (noMinority && p.lines.pat != null && p.lines.pat_owners == null ? { ...p, lines: { ...p.lines, pat_owners: p.lines.pat } } : p));
+    .map((p) => {
+      if (basis === "standalone" || ownersKey !== "pat_owners" || p.lines.pat == null || p.lines.pat_owners != null || nz(p.lines.pat_nci) || !noMinorityAt(p.periodEnd)) return p;
+      filledFromPat++;
+      return { ...p, lines: { ...p.lines, pat_owners: p.lines.pat } };
+    });
+  const noMinority = filledFromPat > 0;
   const by = new Map(qs.map((q) => [q.periodEnd, q]));
   const out: FeatureRow[] = [];
   const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
@@ -288,7 +303,7 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       : ok(div(dec(cfo), dec(fyPat), 2), [`cash flow FY to ${end}`, `P&L FY to ${end}`]));
   }
   if (layout === "bank") out.push(...bankFeatures(qs, balanceSheets, basis));
-  if (noMinority && qs.length) put("owners_profit_source", "latest", { value: "net profit", from: [], note: "no minority interest filed in any period: profit to owners = net profit" });
+  if (noMinority && qs.length) put("owners_profit_source", "latest", { value: "net profit", from: [], note: `${filledFromPat} quarter(s) with no owners' figure and no minority on the balance sheet: profit to owners = net profit` });
   if (qs.length) put("layout", "latest", { value: layout, from: [] });
   return out;
 }
