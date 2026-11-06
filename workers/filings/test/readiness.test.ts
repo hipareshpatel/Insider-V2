@@ -116,4 +116,27 @@ describe("G19: /if-list ?since= filters by the row's own period end", () => {
     expect(d.rows.map((x) => x.qe_Date ?? x.toDate)).toEqual(["31-MAR-2025", "30-JUN-2026"]);
     expect((await get("&since=x")).status).toBe(400);
   });
+  it("G19: rows of the all-company monthly results lists, this company's only", async () => {
+    const market = d1("market"), filings = d1("filings");
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,symbol,url,r2_key,status,fetched_at) VALUES (1,'integrated_financials','SBILIFE','l1','k/1','done','2026-11-02T00:00:00Z'),
+      (2,'results_quarterly',NULL,'l2','api/results_quarterly/all/2025-01-01_2025-01-31.json','done','2026-11-07T00:00:00Z'),
+      (3,'results_quarterly',NULL,'l3','api/results_quarterly/all/2025-02-01_2025-02-28.json','todo',NULL),
+      (4,'pit',NULL,'l4','api/pit/all/2025-04-01_2025-04-30.json','done','2026-11-06T00:00:00Z')`);
+    const x = (n: string) => `https://nsearchives.nseindia.com/corporate/xbrl/${n}.xml`;
+    const lists: Record<string, string> = {
+      "k/1": JSON.stringify({ data: [{ qe_Date: "31-MAR-2025", broadcast_Date: "25-APR-2025" }] }),
+      "api/results_quarterly/all/2025-01-01_2025-01-31.json": JSON.stringify([{ symbol: "SBILIFE", toDate: "31-Dec-2024", consolidated: "Non-Consolidated", xbrl: x("SBI") }, { symbol: "INFY", toDate: "31-Dec-2024", xbrl: x("INFY") }]),
+      "api/results_quarterly/all/2025-02-01_2025-02-28.json": JSON.stringify([{ symbol: "SBILIFE", toDate: "31-Dec-2024" }]),
+      "api/pit/all/2025-04-01_2025-04-30.json": JSON.stringify([{ symbol: "SBILIFE", date: "01-Apr-2025" }]),
+    };
+    const raw = { get: async (k: string) => (lists[k] ? { text: async () => lists[k], customMetadata: {} } : null) } as unknown as R2Bucket;
+    const env = { DB_MARKET: market, DB_FILINGS: filings, RAW: raw, ENVIRONMENT: "test", STATUS_TOKEN: "tok", FOCUS_INDICES: "NIFTY 50" } as Env;
+    const get = async (q: string) => (await worker.fetch(new Request(`https://x/if-list?symbol=SBILIFE${q}`, { headers: { authorization: "Bearer tok" } }), env)).json() as Promise<{ lists: number; rows: Record<string, unknown>[] }>;
+    const all = await get("");
+    expect(all.lists).toBe(2); // own integrated list + the fetched all-company month (not the waiting one, not PIT)
+    expect(all.rows.map((r) => r.list)).toEqual(["integrated_financials", "results_quarterly (all companies, 2025-01-01_2025-01-31)"]);
+    expect(all.rows[1]).toMatchObject({ toDate: "31-Dec-2024", consolidated: "Non-Consolidated", xbrl: x("SBI") });
+    expect((await get("&kind=results_quarterly")).rows).toHaveLength(1);
+    expect((await get("&since=2025")).rows.map((r) => r.qe_Date ?? r.toDate)).toEqual(["31-MAR-2025"]);
+  });
 });

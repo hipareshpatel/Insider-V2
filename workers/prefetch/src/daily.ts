@@ -136,6 +136,48 @@ export async function seedPitAllMonths(db: Sql, now: Date): Promise<number> {
   return rows.length;
 }
 
+/** G19 (log #400–#401): NSE's per-company results lists (`corporates-financial-results?symbol=X&period=…`) answer `[]`
+ *  for the 6 insurers (SBILIFE, HDFCLIFE, LICI, ICICILIFE, ICICIGI, GICRE), so no result before the integrated-filing
+ *  list (Mar 2025) was ever fetched. As for the insider gap (F3), the all-company list (no symbol) is asked one calendar
+ *  month per call. Same kinds as the per-company lists ('results_quarterly' / 'results_annual', symbol NULL, like the
+ *  all-company 'pit' months), so discover() reads them with the results row filter and queues the XBRL under the same
+ *  kinds (xbrl_results_*) the loader already reads; for these lists discover() takes the symbol of each row and keeps
+ *  the focus companies only. Started explicitly, bounded: months from RESULTS_ALL_FLOOR (the D168 coverage floor) to the
+ *  current IST month, at most RESULTS_ALL_MAX per call; the current month ends today (a later call asks a new URL).
+ *  Unique URLs: a month already in the ledger is never queued again. */
+export const RESULTS_ALL_FLOOR = "2024-01", RESULTS_ALL_MAX = 15;
+export const RESULTS_ALL_KIND = { Quarterly: "results_quarterly", Annual: "results_annual" } as const;
+export type ResultsPeriod = keyof typeof RESULTS_ALL_KIND;
+/** Which of these URLs the ledger already holds (one unique-index lookup each). */
+export const SQL_URLS_HELD = "SELECT url FROM fetch_job WHERE url IN (SELECT value FROM json_each(?1))";
+export function resultsAllMonths(from: string, to: string, now: Date): [string, string][] | string {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(from) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(to)) return "from / to: YYYY-MM";
+  const today = istDay(now), cur = today.slice(0, 7);
+  if (from < RESULTS_ALL_FLOOR) return `from: ${RESULTS_ALL_FLOOR} or later (coverage floor)`;
+  if (to > cur) return `to: ${cur} or earlier (current month)`;
+  if (from > to) return "from after to";
+  const m = pitMonths(`${from}-01`, today).filter(([a]) => a.slice(0, 7) <= to);
+  return m.length > RESULTS_ALL_MAX ? `at most ${RESULTS_ALL_MAX} months per call` : m;
+}
+export function resultsAllJob(period: ResultsPeriod, a: string, b: string): { kind: string; url: string; key: string } {
+  const kind = RESULTS_ALL_KIND[period];
+  return { kind, url: `${API}corporates-financial-results?index=equities&period=${period}&from_date=${dmy(a)}&to_date=${dmy(b)}`, key: `api/${kind}/all/${a}_${b}.json` };
+}
+export async function seedResultsAllMonths(db: Sql, now: Date, from: string, to: string, period: string): Promise<{ months: number; queued: number; held: number } | { error: string }> {
+  if (period !== "Quarterly" && period !== "Annual") return { error: "period: Quarterly or Annual" };
+  const m = resultsAllMonths(from, to, now);
+  if (typeof m === "string") return { error: m };
+  const jobs = m.map(([a, b]) => resultsAllJob(period, a, b));
+  const held = new Set((await db.all<{ url: string }>(SQL_URLS_HELD, [JSON.stringify(jobs.map((j) => j.url))])).map((r) => r.url));
+  const add = jobs.filter((j) => !held.has(j.url));
+  await batchAll(db, insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key)", 4, add.map((j) => [j.kind, null, j.url, j.key])));
+  const out = { months: jobs.length, queued: add.length, held: held.size };
+  // one marker per call (listed in /status once_jobs); a repeated call only refreshes it
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once', ?, ?, ?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail",
+    [`results_all_months:${period}:${from}_${to}`, now.toISOString(), JSON.stringify(out)]);
+  return out;
+}
+
 /** MCX / ABBOTINDIA (data-readiness map, 5 Nov: nothing stored at all). The per-company lists are queued once, from
  *  EQUITY_L at the very first run (seed), and their outcome is final: 'empty' is never fetched again, 'failed' only
  *  while attempts < 4, and a symbol missing from that first EQUITY_L copy was never queued. The seed queues a company's

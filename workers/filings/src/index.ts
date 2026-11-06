@@ -11,7 +11,7 @@ import { ownershipStep } from "./ownership.js";
 import { eventStep } from "./eventfeatures.js";
 import { parseSymbolsParam, ratingCoverage, ratingsOfSymbols } from "./ratingcov.js";
 import { fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
-import { SQL_BASIS_LISTS, basisLists, classifyGaps, ifListKeeps, ifListSince, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
+import { SQL_BASIS_LISTS, SQL_IF_LIST_ALL, SQL_IF_LIST_OWN, basisLists, classifyGaps, ifListKeeps, ifListSince, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
 import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
@@ -240,8 +240,11 @@ export default {
       // keep any row carrying a year that late anywhere, and every row's list_fetched date did)
       const onlyKind = q.get("kind"), since = ifListSince(q.get("since"));
       if (since === "bad") return new Response("since: a year (2026) or a date (2025-03-31)", { status: 400 });
-      const lists = (await env.DB_FILINGS.prepare("SELECT job_id, kind, url, r2_key, fetched_at FROM fetch_job WHERE symbol=?1 AND kind IN ('integrated_financials','results_quarterly','results_annual') AND status='done' ORDER BY job_id").bind(sym).all<{ job_id: number; kind: string; url: string; r2_key: string; fetched_at: string }>()).results
-        .filter((l) => !onlyKind || l.kind === onlyKind);
+      type L = { job_id: number; kind: string; url: string; r2_key: string; fetched_at: string; all?: boolean };
+      // G19: also the all-company monthly results lists (symbol NULL, /maint/results_all_months), this company's rows only
+      const own = (await env.DB_FILINGS.prepare(SQL_IF_LIST_OWN).bind(sym).all<L>()).results;
+      const all = (await env.DB_FILINGS.prepare(SQL_IF_LIST_ALL).all<L>()).results.map((l) => ({ ...l, all: true }));
+      const lists = [...own, ...all].filter((l) => !onlyKind || l.kind === onlyKind);
       const rows: Record<string, unknown>[] = [];
       for (const l of lists) {
         const text = await getText(env.RAW, l.r2_key);
@@ -249,7 +252,8 @@ export default {
         let o: unknown; try { o = JSON.parse(text); } catch { continue; }
         const arr = (Array.isArray(o) ? o : ((o as Record<string, unknown>).data ?? [])) as Record<string, unknown>[];
         for (const r of arr) {
-          const pick: Record<string, unknown> = { list: l.kind, list_fetched: l.fetched_at?.slice(0, 10) };
+          if (l.all && String(r.symbol ?? "").trim() !== sym) continue;
+          const pick: Record<string, unknown> = { list: l.all ? `${l.kind} (all companies, ${l.r2_key.split("/").pop()?.replace(/\.json$/, "")})` : l.kind, list_fetched: l.fetched_at?.slice(0, 10) };
           for (const [k, v] of Object.entries(r)) if (v !== null && v !== "" && /period|qe_?date|todate|fromdate|audited|consol|cumulative|type|revis|remark|broadcast|filingdate|xbrl|date|nature|seq|relating/i.test(k)) pick[k] = typeof v === "string" ? v.slice(0, 140) : v;
           if (!ifListKeeps(r, since)) continue;
           rows.push(pick);
