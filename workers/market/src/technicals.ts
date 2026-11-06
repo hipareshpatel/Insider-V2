@@ -13,6 +13,7 @@ export const SQL_DELIVERY = "SELECT d, series, deliverable_qty FROM delivery_dai
 export const SQL_NIFTY = "SELECT d, close FROM index_daily WHERE index_name IN ('Nifty 50', 'NIFTY 50') AND d >= ?1 AND d <= ?2 ORDER BY d";
 export const SQL_APPLIED_FACTORS = "SELECT ex_date, factor FROM adj_factor WHERE security_id = ?1 AND status IN ('auto','confirmed')";
 // §4 dividend yield: dividends of one security over a window (amount set also on combined actions, e.g. bonus + dividend)
+export const SQL_LAST_SPLIT_BONUS = "SELECT max(ex_date) AS d FROM corp_action WHERE security_id = ?1 AND type IN ('split','bonus','consolidation') AND status <> 'rejected'";
 export const SQL_DIVIDENDS = "SELECT ex_date, amount FROM corp_action WHERE security_id = ?1 AND ex_date > ?2 AND ex_date <= ?3 AND amount IS NOT NULL AND status <> 'rejected'";
 // market structure: once per step (the as-of session's ledger and ban list), then per security (its symbols' rows)
 export const SQL_LEDGER_DAY = "SELECT source, d, rows, note FROM ms_day WHERE source IN ('fo_ban','price_band','surveillance') AND d = ?1";
@@ -69,6 +70,10 @@ export async function securityPriceFeatures(m: Sql, sid: number, day: string, no
   const divs = (await m.all<{ ex_date: string; amount: string }>(SQL_DIVIDENDS, [sid, shiftYear(asOf), asOf])).map((x) => ({ exDate: x.ex_date, amount: x.amount }));
   const dy = dividendYieldTtm(asOf, sessions[sessions.length - 1]!.close, divs, factors);
   out.push({ field: "dividend_yield_ttm", value: dy.value, reason: dy.reason });
+  // §13: dividends per share over the same 12 months (₹, on today's share basis) and the last split / bonus
+  out.push({ field: "dividend_ttm", value: dy.value === null ? null : (Math.round(dy.dps * 100) / 100).toFixed(2), reason: dy.reason });
+  const [sb] = await m.all<{ d: string | null }>(SQL_LAST_SPLIT_BONUS, [sid]);
+  out.push({ field: "last_split_bonus_date", value: sb?.d ?? null, reason: sb?.d ? null : "no split, bonus or consolidation stored (corporate actions are stored from 2024-01-01)" });
   const at = now.toISOString();
   // structure flags are as of the last loaded session (`day`), which may be after a suspended stock's last close
   const st = structure ? await securityStructure(m, sid, day, structure) : [];
