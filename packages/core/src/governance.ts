@@ -8,8 +8,8 @@
 //   …:DeclarationOfUnmodifiedOpinionOrStatementOnImpactOfAuditQualification   OneD (also in the older in-bse-fin files)
 //   …:WhetherResultsAreAuditedOrUnaudited, NatureOfReportStandaloneConsolidated, DateOfStartOfReportingPeriod,
 //   DateOfEndOfReportingPeriod, DateOfBoardMeetingWhenFinancialResultsWereApproved, Symbol   OneD
-// Director / KMP changes are not read here: no structured sample of them (governance XBRL, announcement rows with those
-// subjects) is stored in the repo, so no format is assumed.
+// G8 phase 2 adds boardSnapshot (end of file): board composition from the governance XBRL (in-bse-cg, CG_*.xml) and the
+// Integrated Filing – Governance XBRL (in-capmkt), by the field names reported from the stored files (log #405).
 import type { XbrlInstance } from "./xbrl.js";
 
 export interface AuditorFirm { firm: string; key: string; peerReview: boolean | null; certValidTo: string | null; source: string }
@@ -120,3 +120,90 @@ export function auditorEvents(snaps: (AuditorSnapshot & { ref?: string })[]): (A
   }
   return out.sort((a, b) => a.periodEnd.localeCompare(b.periodEnd) || a.type.localeCompare(b.type));
 }
+
+// ── G8 phase 2: board composition from the governance XBRL ──────────────────────────────────────────────────────────
+// HARD RULE (owner): a director's PAN, DIN and date of birth are never read, stored, logged or returned. The reader takes
+// facts by an allow-list of local names only (name, category / position, status, appointment and cessation dates);
+// identifier tags are dropped before anything else looks at the file, and identifier-shaped text is scrubbed out of
+// the free-text fields kept. A director is identified within a company by the normalised name only.
+// Field names (log #405, census of stored INFY / SUNPHARMA / HDFCBANK files): per CompositionOfBoardOfDirectorsAxis
+// member NameOftheDirector, Title, PositionOfDirectorInBoardOne/Two/Three (category), DateOfAppointmentOfDirector,
+// DateOfCessation, CurrentStatusDirector, TenureOfDirector; NoOfInvestorComplaints* in the filing's own context. The
+// patterns below accept the spelling variants (NameOfTheDirector, CategoryOfDirector…, DateOfCessationOfDirector …).
+
+/** Tags that are never read (PAN, DIN, date of birth and any other personal identifier). */
+export const GOV_DENY = /PermanentAccountNumber|IdentificationNumber|DateOfBirth|Birth|Aadhaar|Passport|(^|[a-z])PAN([A-Z]|$)|(^|[a-z])DIN([A-Z]|$)/;
+const NAME_TAG = /^NameOf(The)?Director$/i;
+const CATEGORY_TAG = /^(CategoryOfDirector\w*|Category\w*OfDirectors?|PositionOfDirectorInBoard\w*)$/i;
+const STATUS_TAG = /^(CurrentStatus(Of)?(The)?Director|StatusOfDirector)$/i;
+const APPOINTED_TAGS = [/^(InitialDateOfAppointment(OfDirector)?|DateOfInitialAppointment(OfDirector)?)$/i, /^DateOfAppointment(OfDirector)?$/i];
+const CEASED_TAG = /^DateOfCessation(OfDirector)?$/i;
+const PENDING_TAG = /InvestorComplaints?\w*(Pending|Unresolved|Remaining|Outstanding)|(Pending|Unresolved|Remaining|Outstanding)\w*InvestorComplaints?/i;
+const PERIOD_END_TAGS = /^(DateOfEndOfReportingPeriod|DateOfEndOfReportingQuarter|QuarterEndDate|DateOfEndOfQuarter|ReportingPeriodEndDate)$/i;
+
+/** Personal-identifier-shaped text (PAN: 5 letters, 4 digits, 1 letter; DIN: 8 digits) removed from free text. */
+export function scrubIds(s: string): string {
+  return s.replace(/\b[A-Z]{5}[0-9]{4}[A-Z]\b/gi, " ").replace(/\b\d{8}\b/g, " ").replace(/\(\s*\)|\[\s*\]/g, " ").replace(/\s+/g, " ").trim();
+}
+/** A director's name → key within a company: case, honorifics, punctuation and spacing ignored. */
+export function directorKey(name: string): string {
+  return scrubIds(name).normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z]+/g, " ").trim()
+    .replace(/^((mr|mrs|ms|miss|dr|shri|shree|sri|smt|kum|prof|capt|justice|adv)\s+)+/, "").replace(/\s+/g, " ").trim();
+}
+
+export interface Director { name: string; key: string; category: string | null; status: string | null; appointedOn: string | null; ceasedOn: string | null; source: string }
+export interface BoardSnapshot {
+  schema: "in-bse-cg" | "in-capmkt" | "other";
+  symbol: string | null;
+  periodEnd: string | null;
+  directors: Director[]; // empty: the file names no director (not "no board")
+  complaintsPending: number | null;
+  complaintsSource: string | null;
+}
+
+const isoDate = (v: string | null | undefined) => { const m = /^(\d{4}-\d{2}-\d{2})/.exec((v ?? "").trim()); return m ? m[1]! : null; };
+const clean = (v: string) => scrubIds(v.replace(/\s+/g, " ").trim());
+
+export function boardSnapshot(inst: XbrlInstance): BoardSnapshot {
+  // identifier tags are dropped first: nothing below can see them
+  const facts = inst.facts.filter((f) => !GOV_DENY.test(local(f.tag)));
+  const plain = (f: { contextRef: string }) => { const c = inst.contexts.get(f.contextRef); return !c || Object.keys(c.dims).length === 0; };
+  const meta = (re: RegExp) => { const fs = facts.filter((f) => re.test(local(f.tag)) && f.value && plain(f)); return fs.find((f) => f.contextRef === "OneD") ?? fs[0] ?? null; };
+  const ns = new Set(facts.map((f) => f.tag.slice(0, f.tag.indexOf(":"))));
+  const schema = ns.has("in-bse-cg") ? "in-bse-cg" : ns.has("in-capmkt") ? "in-capmkt" : "other";
+  let periodEnd = isoDate(meta(PERIOD_END_TAGS)?.value);
+  if (!periodEnd) { // else the latest end of a dimension-free context (the filing's own period)
+    for (const c of inst.contexts.values()) if (!Object.keys(c.dims).length) { const e = isoDate(c.end ?? c.instant); if (e && (!periodEnd || e > periodEnd)) periodEnd = e; }
+  }
+  const byCtx = new Map<string, typeof facts>();
+  for (const f of facts) { const l = byCtx.get(f.contextRef); if (l) l.push(f); else byCtx.set(f.contextRef, [f]); }
+  const order = (id: string) => Object.values(inst.contexts.get(id)?.dims ?? {}).join("|") || id;
+  const seen = new Set<string>(), directors: Director[] = [];
+  for (const [ctx, fs] of [...byCtx].sort(([a], [b]) => order(a).localeCompare(order(b), "en", { numeric: true }))) {
+    const nf = fs.find((f) => NAME_TAG.test(local(f.tag)) && f.value);
+    if (!nf) continue;
+    const name = clean(nf.value!), key = directorKey(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const val = (re: RegExp) => { const v = fs.find((f) => re.test(local(f.tag)) && f.value)?.value; return v ? clean(v) : null; };
+    const rank = (t: string) => local(t).replace(/One$/, "1").replace(/Two$/, "2").replace(/Three$/, "3").replace(/Four$/, "4"); // …BoardOne, …Two, …Three in that order
+    const cats = [...new Set(fs.filter((f) => CATEGORY_TAG.test(local(f.tag)) && f.value).sort((a, b) => rank(a.tag).localeCompare(rank(b.tag))).map((f) => clean(f.value!)))]
+      .filter((v) => v && !/^(not applicable|na|n\.a\.?|none|-)$/i.test(v));
+    let appointed: string | null = null;
+    for (const re of APPOINTED_TAGS) appointed ??= isoDate(val(re));
+    directors.push({ name, key, category: cats.length ? cats.join(" / ") : null, status: val(STATUS_TAG), appointedOn: appointed, ceasedOn: isoDate(val(CEASED_TAG)), source: `${nf.tag}@${ctx}` });
+  }
+  // pending at the end of the period (never the opening count: "…PendingAtTheBeginning…" is skipped)
+  const pfs = facts.filter((f) => PENDING_TAG.test(local(f.tag)) && !/Beginning|Opening|Start/i.test(local(f.tag)) && f.value && plain(f));
+  const pf = pfs.find((f) => /End|Clos/i.test(local(f.tag))) ?? pfs[0] ?? null;
+  const pending = pf?.value != null && /^\d+(\.0+)?$/.test(pf.value.trim()) ? Number(pf.value) : null;
+  return { schema, symbol: meta(/^Symbol$/)?.value ?? null, periodEnd, directors, complaintsPending: pending, complaintsSource: pending === null ? null : `${pf!.tag}@${pf!.contextRef}` };
+}
+
+/** On the board at the period end: not ceased by then, and the filed status (if any) not a cessation. */
+export function activeAt(d: { status: string | null; ceasedOn: string | null }, periodEnd: string): boolean {
+  if (d.ceasedOn && d.ceasedOn <= periodEnd) return false;
+  return !/ceas|resign|retir|inactive|vacat|removed|demise|deceased/i.test(d.status ?? "");
+}
+/** Independent director by the filed category ("Non-Executive - Independent Director"; not "Non-Independent"). */
+export const isIndependent = (category: string | null) => !!category && /independent/i.test(category.replace(/non[\s-]*independent/gi, ""));

@@ -292,6 +292,34 @@ describe("market: /maint/listed_on (log #402, one-off): security.listed_on from 
     expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
   });
 });
+describe("G8 phase 2: auditor and board passes and event fields (index-backed, no scan)", async () => {
+  const g = await import("../../workers/filings/src/governance.js");
+  const e = await import("../../workers/filings/src/eventfeatures.js");
+  it.each([
+    ["governance XBRL after the board cursor, per kind (board_backfill / cron board step)", g.SQL_GOV_NEXT, ["xbrl_governance", 0, 400], /SEARCH fetch_job USING INDEX ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
+    ["one company's stored auditors with their filing's disclosure (event fields, daily)", e.SQL_AUDITORS_OF, [1, "2000-01-01"], /SEARCH a USING INDEX ix_auditor_filing_sec \(security_id=\? AND period_end>\?\)/],
+    ["... the filing of each auditor row by primary key", e.SQL_AUDITORS_OF, [1, "2000-01-01"], /SEARCH f USING INTEGER PRIMARY KEY \(rowid=\?\)/],
+    ["one company's stored audit opinions (event fields, daily)", e.SQL_OPINIONS_OF, [1, "2024-09-01"], /SEARCH f USING (COVERING )?INDEX ix_filing_sec \(security_id=\? AND kind=\? AND period_end>\?\)/],
+    ["... the opinion fact of each filing by primary key", e.SQL_OPINIONS_OF, [1, "2024-09-01"], /SEARCH g USING INDEX sqlite_autoindex_governance_fact_1 \(filing_id=\? AND key=\?\)/],
+    ["one company's board rows from a period end (event fields, daily)", e.SQL_BOARD_OF, [1, "2025-06-01"], /SEARCH board_member USING PRIMARY KEY \(security_id=\? AND period_end>\?\)/],
+    ["one company's governance files read (event fields, daily)", e.SQL_GOV_FILINGS_OF, [1, "2025-06-01"], /SEARCH governance_filing USING PRIMARY KEY \(security_id=\? AND period_end>\?\)/],
+  ] as [string, string, unknown[], RegExp][])("filings: %s", (_n, sql, params, want) => {
+    const p = plan(F, sql, params);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
+  });
+  it("market: the batch's symbols to securities by ix_sid_lookup (board pass)", async () => {
+    const { SQL_SIDS_OF_SYMBOLS } = await import("../../workers/filings/src/ratingcov.js");
+    const p = plan(M, SQL_SIDS_OF_SYMBOLS, ['["INFY"]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_sid_lookup \(id_type=\? AND value=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+  it("filings: auditors_backfill reads one company's results filings from 2024 (rereadPass, SQL_NBFC_FILINGS with period_end)", () => {
+    const p = plan(F, SQL_NBFC_FILINGS, [1, 0, 40]);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_filing_sec \(security_id=\? AND kind=\? AND period_end>\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
 describe("/governance-census (G8 phase 1, read-only, ≤ 5 companies per call)", () => {
   it("filings: stored governance / results jobs of named companies by ix_fetch_symbol_kind (counts and files)", async () => {
     const { SQL_GOV_COUNTS, SQL_GOV_FILES } = await import("../../workers/filings/src/governance.js");

@@ -1,7 +1,8 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, CF_UNTAGGED_OK, segmentResults, NBFC_REVENUE_NEW, INSURER_LINES_NEW, statementDetail, type Sql, type XbrlInstance, add, balanceAndCash, batchAll, cmp, sub, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, CF_UNTAGGED_OK, segmentResults, NBFC_REVENUE_NEW, INSURER_LINES_NEW, statementDetail, type Sql, type XbrlInstance, add, balanceAndCash, batchAll, cmp, sub, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText, auditorSnapshot } from "@disclo/core";
+import { storeAuditors } from "./governance.js";
 
 export interface Deps {
   filings: Sql;
@@ -259,7 +260,9 @@ export async function loadOne(job: { job_id: number; kind: string; symbol: strin
   const extra = deps.bscf ? await loadBsCf(inst!, sec.security_id, TEMPLATE[r.template], r.basis, disclosedAt, f!.filing_id, deps) : { rows: 0, note: "" };
   const fyx = await loadFy(inst!, r, sec.security_id, disclosedAt, f!.filing_id, deps);
   const qh = await loadQuarterOfHalf(inst!, r, sec.security_id, disclosedAt, f!.filing_id, deps);
-  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}${extra.note}${fyx.note}${qh.note}`, rows: rows.length + extra.rows + fyx.rows + qh.rows, counts: { "filing:results": ins.changes ? 1 : 0, pl: rows.length + fyx.rows + qh.rows, bs: extra.by?.bs ?? 0, cf: extra.by?.cf ?? 0 }, newest: disclosedAt };
+  // G8 phase 2: the auditor firm(s) and audit opinion the file names (inserts only; a failure never fails the load)
+  const au = await storeAuditors(deps.filings, auditorSnapshot(inst!), sec.security_id, { filing_id: f!.filing_id, basis: r.basis, period_end: r.periodEnd }).catch(() => 0);
+  return { jobId: job.job_id, status: "loaded", detail: `${r.label} ${r.basis} ${r.template}${onlyBreakdown ? " (expense breakdown not in filing)" : ""}${extra.note}${fyx.note}${qh.note}`, rows: rows.length + extra.rows + fyx.rows + qh.rows + au, counts: { "filing:results": ins.changes ? 1 : 0, pl: rows.length + fyx.rows + qh.rows, bs: extra.by?.bs ?? 0, cf: extra.by?.cf ?? 0 }, newest: disclosedAt };
 }
 
 /** D48: for one company, period and basis, the earliest disclosure is 'original' and every later one 'restated'
@@ -606,7 +609,7 @@ export async function backfillBsCf(deps: Deps, limit = 200, budgetMs = 45_000): 
  *  (inserts only, ON CONFLICT DO NOTHING: existing rows untouched; the Division III lines are added when every group
  *  adds up to its filed total). Cursor by (security_id, filing_id). */
 export const SQL_NBFC_SIDS = "SELECT DISTINCT security_id FROM filing WHERE kind='integrated_financials' AND source_url LIKE '%INTEGRATED_FILING_NBFC_%'";
-export const SQL_NBFC_FILINGS = `SELECT filing_id, security_id, kind, basis, disclosed_at, source_url FROM filing INDEXED BY ix_filing_sec
+export const SQL_NBFC_FILINGS = `SELECT filing_id, security_id, kind, period_end, basis, disclosed_at, source_url FROM filing INDEXED BY ix_filing_sec
    WHERE security_id = ? AND kind IN ('results_quarterly','results_annual','integrated_financials') AND period_end >= '2024-01-01' AND filing_id > ? ORDER BY filing_id LIMIT ?`;
 export async function nbfcBalanceSheets(deps: Deps, limit = 40, budgetMs = 20_000) {
   return rereadPass(deps, "nbfc_bs", async () => (await deps.filings.all<{ security_id: number }>(SQL_NBFC_SIDS)).map((r) => r.security_id), limit, budgetMs);
@@ -790,9 +793,9 @@ export async function insurerBalanceSheets(deps: Deps, limit = 40, budgetMs = 20
 
 /** One-off re-read of stored results files (2024 on) for a set of focus companies: balance sheet + cash flow offered
  *  again (inserts only, ON CONFLICT DO NOTHING: existing rows untouched). Cursor by (company, filing_id) in `slot`. */
-type RereadFile = { filing_id: number; kind: string; basis: string; disclosed_at: string; source_url: string };
-type RereadAct = (inst: XbrlInstance, f: RereadFile, sid: number) => Promise<{ rows: number; note: string }>;
-async function rereadPass(deps: Deps, slot: string, pick: (focus: number[] | null) => Promise<number[]>, limit: number, budgetMs: number,
+export type RereadFile = { filing_id: number; kind: string; period_end: string | null; basis: string; disclosed_at: string; source_url: string };
+export type RereadAct = (inst: XbrlInstance, f: RereadFile, sid: number) => Promise<{ rows: number; note: string }>;
+export async function rereadPass(deps: Deps, slot: string, pick: (focus: number[] | null) => Promise<number[]>, limit: number, budgetMs: number,
   act?: RereadAct): Promise<{ done: boolean; companies: number; files: number; rows: number; notes: string[] }> {
   const [st] = await deps.filings.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot=?", [slot]);
   const cur = st ? JSON.parse(st.detail) as { sids: number[]; i: number; after: number; files: number; rows: number; done: boolean }
@@ -809,7 +812,7 @@ async function rereadPass(deps: Deps, slot: string, pick: (focus: number[] | nul
   let n = 0;
   while (cur.i < cur.sids.length && n < limit && Date.now() - t0 < budgetMs) {
     const sid = cur.sids[cur.i]!;
-    const fs = await deps.filings.all<{ filing_id: number; kind: string; basis: string; disclosed_at: string; source_url: string }>(SQL_NBFC_FILINGS, [sid, cur.after, limit - n]);
+    const fs = await deps.filings.all<RereadFile>(SQL_NBFC_FILINGS, [sid, cur.after, limit - n]);
     if (!fs.length) { cur.i++; cur.after = 0; continue; }
     for (const f of fs) {
       if (Date.now() - t0 > budgetMs) break;
@@ -848,7 +851,7 @@ export const MAX_TRIES = 8;
 export const SQL_RETRY_OFF = "UPDATE fin_load SET retry_after=NULL WHERE job_id IN (SELECT value FROM json_each(?))";
 const retryable = (o: LoadOutcome) => o.status === "skipped" || (o.status === "review" && o.detail.startsWith("scale guard:")) || (o.status === "failed" && o.detail.startsWith("Error: "));
 /** A download in a final state: done, empty, or failed with no more GitHub retries (attempts >= 3 or a 404). */
-const settled = (j: { status: string; attempts: number; http_status: number | null }) => j.status === "done" || j.status === "empty" || (j.status === "failed" && (j.attempts >= 3 || j.http_status === 404));
+export const settled = (j: { status: string; attempts: number; http_status: number | null }) => j.status === "done" || j.status === "empty" || (j.status === "failed" && (j.attempts >= 3 || j.http_status === 404));
 
 /** Short fingerprint of a focus list (order-free): count + FNV-1a of the sorted symbols; "all" when unrestricted. */
 export function focusPrint(focus?: string[]): string {
