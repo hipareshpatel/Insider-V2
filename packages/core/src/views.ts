@@ -278,6 +278,7 @@ export function epsYoy(now: FiledPeriod, ago: FiledPeriod | undefined, ownersLin
   const p1 = v(now, ownersLineKey), p0 = v(ago, ownersLineKey);
   if (!p1 || !p0 || e1.units === 0n) return no(`profit to owners and EPS must be filed in both quarters (share-count check)`);
   const s1 = Number(toText(p1)) / Number(toText(e1)), s0 = Number(toText(p0)) / Number(toText(e0)), r = s1 / s0;
+  if (!Number.isFinite(r) || r <= 0) return no(`share-count check not possible for ${agoEnd} → ${end}: profit to owners is zero or of the opposite sign to EPS (readiness map, 6 Nov)`);
   if (!(r > 0.8 && r < 1.25)) return no(`implied share count changed ×${r.toFixed(2)} between ${agoEnd} and ${end} (split, bonus or consolidation likely; the earlier EPS is not restated)`);
   return growth(ok(e1, [end]), ok(e0, [agoEnd]), "EPS YoY");
 }
