@@ -1,8 +1,9 @@
 // D171 (owner #358): the feature table — computed values (TTM, EBITDA, adjusted figures, growth, ROE/ROCE) stored in
 // feature_value, never in fin_value. Built company by company from the filed figures; a rebuild writes only values that
 // changed (the upsert's WHERE), so a nightly run over the 250 writes little once the table is filled.
-import { batchAll, chooseLayout, companyFeatures, dec, div, insertRows, peVsSectorMedian, toText, valuationFeatures, type FiledPeriod, type View } from "@disclo/core";
+import { batchAll, chooseLayout, companyFeatures, dec, div, insertRows, nbfcSubtype, peVsSectorMedian, toText, valuationFeatures, type FiledPeriod, type View } from "@disclo/core";
 import type { Deps } from "./load.js";
+import { SQL_SYMBOLS_OF_SID } from "./eventfeatures.js";
 
 /** Rows read reach back far enough for the growth-vs-trend fields of the first stored quarter (2024-03: its YoY and the
  *  8 quarters' YoY before it need quarters from 2021-03 on); values are stored from the D168 floor on. */
@@ -49,12 +50,17 @@ export async function buildCompanyFeatures(deps: Deps, sid: number): Promise<{ r
   }
   const periods = [...pl.values()];
   const out: unknown[][] = [], now = deps.now().toISOString(), layouts: string[] = [];
-  for (const basis of ["consolidated", "standalone"]) {
+  const chosen = ["consolidated", "standalone"].flatMap((basis) => {
     const mine = periods.filter((p) => p.basis === basis && p.periodKind === "Q");
-    if (!mine.length) continue;
-    const layout = chooseLayout(template, Object.assign({}, ...mine.map((p) => p.lines))).name;
+    return mine.length ? [{ basis, layout: chooseLayout(template, Object.assign({}, ...mine.map((p) => p.lines))).name }] : [];
+  });
+  // G18: a Division III filer's sub-type (lender / holding / AMC / lessor) from its NSE symbols (NBFC_SUBTYPE_OVERRIDES):
+  // one read by ix_sid_security, only for the NBFC layout (≈ 30 companies)
+  const subtype = chosen.some((c) => c.layout === "nbfc")
+    ? nbfcSubtype((await deps.market.all<{ value: string }>(SQL_SYMBOLS_OF_SID, [sid])).map((r) => r.value)) : "lender";
+  for (const { basis, layout } of chosen) {
     layouts.push(`${basis}:${layout}`);
-    for (const f of companyFeatures(periods, bs.get(basis) ?? new Map(), basis, layout, cfy.get(basis) ?? new Map()))
+    for (const f of companyFeatures(periods, bs.get(basis) ?? new Map(), basis, layout, cfy.get(basis) ?? new Map(), subtype))
       if (f.periodEnd >= FEATURE_STORE_FROM) out.push([sid, f.basis, f.field, f.periodEnd, f.value, f.reason, JSON.stringify(f.inputs), now]);
   }
   if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 8, out, SQL_FEATURE_UPSERT_TAIL));

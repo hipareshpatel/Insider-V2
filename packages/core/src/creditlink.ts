@@ -34,11 +34,19 @@ const NAME_MIN = 4;
 /** From the focus companies' (symbol, ISIN, listed name) rows (SQL_FOCUS_ISSUERS). */
 export function buildFocusIssuers(rows: { symbol: string; isin: string | null; name: string | null }[]): FocusIssuers {
   const fi: FocusIssuers = { issuer: new Map(), names: new Map(), symbols: new Set() };
-  const add = (m: Map<string, Set<string>>, k: string, s: string) => { const x = m.get(k) ?? new Set<string>(); x.add(s); m.set(k, x); };
+  // One symbol per security (ISIN): an old and a new symbol of the same security (a rename, e.g. L&TFH → LTF,
+  // ICICIPRULI → ICICILIFE, TATAMOTORS → TMPV) are one company, not an ambiguity; the first symbol read is kept, as
+  // before. Only two different securities under one key are ambiguous (log #398).
+  const seen = new Set<string>();
+  const add = (m: Map<string, Set<string>>, k: string, s: string, sec: string) => {
+    const id = `${k}\u0000${sec}`; if (seen.has(id)) return; seen.add(id);
+    const x = m.get(k) ?? new Set<string>(); x.add(s); m.set(k, x);
+  };
   for (const r of rows) {
     fi.symbols.add(r.symbol);
-    const k = issuerOf(r.isin); if (k) add(fi.issuer, k, r.symbol);
-    const nk = nameKey(r.name); if (nk.length >= NAME_MIN) add(fi.names, nk, r.symbol);
+    const sec = r.isin ?? `symbol:${r.symbol}`;
+    const k = issuerOf(r.isin); if (k) add(fi.issuer, k, r.symbol, `i:${sec}`);
+    const nk = nameKey(r.name); if (nk.length >= NAME_MIN) add(fi.names, nk, r.symbol, `n:${sec}`);
   }
   return fi;
 }

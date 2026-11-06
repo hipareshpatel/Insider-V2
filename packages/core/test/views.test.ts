@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, insurerFeatures, insurerInvestments, marginFlags, peVsSectorMedian, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
+import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, nbfcSubtype, insurerFeatures, insurerInvestments, marginFlags, peVsSectorMedian, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
 
 const q = (periodEnd: string, lines: Record<string, string>, basis = "consolidated"): FiledPeriod => ({ periodEnd, periodKind: "Q", basis, lines });
 const four = [q("2025-12-31", { revenue: "100" }), q("2026-03-31", { revenue: "110" }), q("2026-06-30", { revenue: "120" }), q("2026-09-30", { revenue: "130" })];
@@ -317,6 +317,37 @@ describe("NBFC pack (owner #389, Division III lines as filed)", () => {
     expect(g("borrowings_yoy").reason).toMatch(/2025-09-30: Division III financial liabilities not filed/);
     expect(g("debt_to_equity").value).toBe("3.6");
     expect(g("nim_computed_ttm").reason).toMatch(/loans and investments must be filed/);
+  });
+  it("G18: sub-type by NSE symbol — the named holding companies, AMCs and the lessor; every other filer a lender", () => {
+    for (const s of ["BAJAJHLDNG", "BAJAJFINSV", "TATAINVEST", "MFSL"]) expect(nbfcSubtype([s])).toBe("holding");
+    for (const s of ["HDFCAMC", "NAM-INDIA", "ICICIAMC"]) expect(nbfcSubtype([s])).toBe("amc");
+    expect(nbfcSubtype(["IRFC"])).toBe("lessor");
+    for (const s of ["BAJFINANCE", "CHOLAFIN", "SHRIRAMFIN", "LICHSGFIN", "PFC", "RECLTD", "MUTHOOTFIN"]) expect(nbfcSubtype([s])).toBe("lender");
+    expect(nbfcSubtype([])).toBe("lender");
+    expect(nbfcSubtype(["OLDSYM", "nam-india"])).toBe("amc"); // any symbol it traded under
+  });
+  const lending = ["nii_q", "nii_yoy_q", "nii_ttm", "credit_cost_ttm", "nim_computed_ttm", "loans_yoy", "borrowings_yoy"];
+  for (const [subtype, label] of [["holding", "holding company"], ["amc", "asset manager"], ["lessor", "lessor"]] as const) {
+    it(`G18: a ${label} gets the lending fields as a reason, keeps net total income, opex and the debt ratios`, () => {
+      const r = companyFeatures(qs, bs, "standalone", "nbfc", new Map(), subtype);
+      const g = (f: string) => r.find((x) => x.field === f && x.periodEnd === "2026-09-30")!;
+      for (const f of lending) expect(g(f), f).toMatchObject({ value: null, reason: `not used for ${label} (Division III filer, not a lender)`, inputs: [] });
+      for (const f of lending) expect(r.filter((x) => x.field === f).every((x) => x.value === null), f).toBe(true);
+      expect(g("net_total_income_ttm").value).toBe("480");
+      expect(g("opex_ttm").value).toBe("136");
+      expect(g("cost_to_income_ttm").value).toBe("28.33"); // kept: opex ÷ net total income is meaningful for non-lenders too
+      expect(g("debt_to_equity").value).toBe("3.6");
+      expect(g("debt_equity_filed_q").value).toBe("4.1");
+      expect(r.find((x) => x.field === "nbfc_subtype")).toMatchObject({ periodEnd: "latest", value: subtype });
+    });
+  }
+  it("G18: a lender is unchanged (default and explicit) and labelled lender", () => {
+    const strip = (rs: ReturnType<typeof companyFeatures>) => rs.filter((x) => x.field !== "nbfc_subtype");
+    const d = companyFeatures(qs, bs, "standalone", "nbfc"), l = companyFeatures(qs, bs, "standalone", "nbfc", new Map(), "lender");
+    expect(l).toEqual(d);
+    expect(strip(d).find((x) => x.field === "nii_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("340");
+    expect(d.find((x) => x.field === "nbfc_subtype")).toMatchObject({ periodEnd: "latest", value: "lender" });
+    expect(companyFeatures(qs, bs, "standalone", "industrial", new Map(), "holding").some((x) => x.field === "nbfc_subtype")).toBe(false);
   });
 });
 

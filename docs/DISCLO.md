@@ -436,13 +436,14 @@ Every company-specific item that is not available today, with why and what it ne
 | G8 | Auditor change, KMP / director churn, governance-filing fields | all | Not loaded (governance XBRL / announcements) | Reader for Integrated Filing – Governance + announcements |
 | G9 | Filing delay in minutes | all | Board meeting end time not stored | Outcome-announcement time capture |
 | G10 | Buyback (12 m), concall fields, segment growth, BRSR fields | all | Not built / later milestones (M6, M9) | As in Part 2 B |
-| G11 | Credit ratings for issuers under another code or placeholder ISINs (SBI bonds, Hindustan Zinc, TVS Motor) | few | Exact reduced-name fallback **built 5 Nov** (`events.ts` `nameKey`, commit c5d36be, `/maint/ratings_relink`); not yet confirmed that SBI, Hindustan Zinc and TVS link; a name shared by two companies currently goes to the first one read (audit 6 Nov, log #398) | Ambiguous names → no link; record how each rating was linked; check the three after a relink |
+| G11 | Credit ratings for issuers under another code or placeholder ISINs (SBI bonds, Hindustan Zinc, TVS Motor) | few | Exact reduced-name fallback **built 5 Nov** (`events.ts` `nameKey`, commit c5d36be, `/maint/ratings_relink`); not yet confirmed that SBI, Hindustan Zinc and TVS link (`/ratings-coverage` has no per-company list, log #399); a name shared by two companies currently goes to the first one read (audit 6 Nov, log #398) | Ambiguous names → no link; record how each rating was linked; check the three after a relink |
 | G12 | ~~Promoter holding 13, owners' profit 12, NCI 38~~ | — | **Resolved 6 Nov (`/gap-census`, log #390):** the 13 have no promoter group (HDFCBANK, ICICIBANK, ITC, LT, ETERNAL, SWIGGY, POLICYBZR, PAYTM, BSE, YESBANK, IDFCFIRSTB, FEDERALBNK, COFORGE) → 0 %, pledge not applicable; the 12 file no minority anywhere → owners' profit = net profit (labelled); NCI = total equity − equity to owners for the 18 non-banks (17 banks have no NCI line in the Third Schedule — EV/EBITDA not used for banks) | Stored after the next feature and ownership rebuilds |
 | G14 | Bank PCR where gross NPA is stored as zero | 7 banks (some quarters) | `pcr_q` gives "gross NPA is zero" — a filed nil or a reader default; not checked | Census of the 7 banks' NPA facts |
 | G15 | Credit-rating rows with placeholder symbols (NOTLISTED, blank, NA, 222333 …) | — (7,862 rows) | Bond issuers' rows NSE files without an equity symbol; the 250's own ratings are linked by ISIN issuer code (2.10) | At widening: link by ISIN issuer code for the new companies too |
 | G16 | Consolidated owners' profit for Sep 2026 | 5 (GLENMARK, SAIL, MEDANTA, MAZDOCK, AIIL) + one-quarter gaps (COROMANDEL, HINDCOPPER, MRF, BAJAJHLDNG, MANKIND, GLAXO, NLCINDIA) | No owners' figure filed and the balance sheet shows a minority (or no NCI profit filed) — cannot be derived unless NCI profit is filed (then owners = net profit − NCI, PR after #102) | Per-company check of the quarter files after the identity rebuild |
 | G17 | ROE where equity to owners is missing at the start of the 12 months | 6 (ABB, NMDC, PIRAMALFIN, MEESHO, ICICIAMC, VAML) | Recent listing / demerger or no balance sheet stored a year earlier | Fills itself as balance sheets accumulate; check NMDC / ABB files |
-| G18 | NBFC sub-types: lending fields shown for non-lenders | 7 (BAJAJHLDNG, BAJAJFINSV, TATAINVEST, MFSL — holding; HDFCAMC, NAM-INDIA — AMCs; IRFC — lessor) | They file Division III, so they get the NBFC layout; NII, credit cost, loan growth are meaningless or "base is a loss" for them (log #398) | A sub-type per company (lender / holding / AMC / lessor, from the sector map or an owner list) so the site shows "not used for …", and an AMC pack (AUM, fee yield — not in the results files) under G13 |
+| G18 | NBFC sub-types: lending fields shown for non-lenders | 8 (BAJAJHLDNG, BAJAJFINSV, TATAINVEST, MFSL — holding; HDFCAMC, NAM-INDIA, ICICIAMC — AMCs; IRFC — lessor) | **Built (log #398):** stored sectors cannot tell them apart (`sector_map` has one "Finance" for lenders, holding companies and AMCs; NSE basic industry not stored), so a short override list in code (`NBFC_SUBTYPE_OVERRIDES`, default lender). For them NII, credit cost, computed NIM, loan and borrowing growth are stored as "not used for <sub-type>"; net total income, opex, cost to income and the debt ratios stay; an `nbfc_subtype` row labels every NBFC | Store NSE basic industry so the list is derived, not kept by hand; check the 30 for other non-lenders; an AMC pack (AUM, fee yield — not in the results files) under G13 |
+| G19 | Insurers' Dec 2024 quarter | 6 insurers | No 2024-12-31 quarter stored for any of them, so TTM premium growth (needs four quarters a year earlier) is empty (log #399) | Check the Q3 FY25 files: loaded, in review, or the 3-month column not read from a 9-month file |
 | G13 | **Sector packs for every other format / industry** (owner #391) | future universe | The 250 have four statement formats (industrial, bank, NBFC, insurer); widening (Nifty 500 → all) adds other sectors whose key figures are not industrial ones (e.g. power utilities, real estate, REITs / InvITs, telecom, metals, pharma R&D, IT deal wins) and more financial formats (housing finance, AMCs, brokers, exchanges) | **Review at each universe expansion** (widening checklist, D155): list the sectors and formats the new companies bring, census what their filings carry, build a pack per sector from filed lines, send the rest here |
 
 ### Added 2026-11-04 (owner #340: audit P0/P1)
@@ -686,8 +687,15 @@ corp_action      type, raw_purpose, ratios, rights_price, amount, status
 adj_factor       factor, method[share_ratio|bc_ratio|terp|price_ratio|manual]
 index_daily      OHLC, P/E, P/B, yield per index
 index_snapshot / index_membership (valid_from/to)
-market_structure F&O OI by participant, ban list, ASM/GSM, short selling, price bands, bulk/block deals, FII/DII
+ms_day, fo_oi_participant, fo_ban, surveillance, short_sell, price_band, deal, fii_dii
+                 market structure (D76, D144): per-source day ledger, F&O OI by participant, ban list, ASM/GSM,
+                 short selling, price bands, bulk/block deals, FII/DII (the 0001 `market_structure` table is unused)
+corp_action_extra second-source corporate actions (D138)
+sector_map, industry_seen, sector_file   sector job (D121)
 latest_snapshot  precomputed for the site
+price_feature    computed §3 fields + dividend yield / dividend TTM / last split-bonus: one row per (security, field), as_of = last session used
+kv_state         small key/value cursors (e.g. the sector job's ledger position)
+job_lock, write_budget, read_budget   run lock, D136 write counter, daily rows-read breaker
 ```
 - **Storage discipline (D131):** R2 text objects gzip-compressed; site pages read precomputed snapshots, not history tables. **Write cap (D136):** no daily limit; bulk work stops when the month's billed D1 writes reach 45M (included: 50M); the daily price job (last 7 days) always runs. **Spending ceiling (D137):** at most $10/month for all Cloudflare ($5 plan + up to $5 usage); a daily cost-guard check fails above $4.
 - **Storage (D130):** compact — integer dates (`YYYYMMDD`), prices and money in integer paise, `WITHOUT ROWID` tables keyed by (date, security, series); no per-row ISIN (identifier history holds it). Raw files in R2 are the lossless copy.
@@ -706,17 +714,25 @@ latest_snapshot  precomputed for the site
 - **Market cap display:** ₹ crore, no decimals; stored exact in ₹ (D5).
 
 #### 5.3 `filings` (financial statements & structured disclosures)
+- **Coverage floor (D168):** financial statements are required from 2024-01-01 only; earlier missing statements are not chased (no workarounds, censuses or back-fills), nothing already stored is deleted (D147), and the loader excludes not-yet-loaded files for periods before the floor (`COVERAGE_FLOOR`; feature values stored from the same date). D145 stays.
 - **Scope and formats (D155, D157, D154):** filings are loaded into D1 for the 250 focus companies (Nifty 50 + Next 50 + Midcap 150, `FOCUS_INDICES`); readers are still proven on every stored file by census. Statements carry every reported line (D154) and follow the legal formats (Schedule III Div II/III/I; Banking Regulation Act Third Schedule; IRDAI), shown as heads with sub-rows (D157).
 - **Three layers (D47; layer 1 in R2 per D132):**
   - **As filed:** every XBRL fact (tag, context, unit, decimals, filing id), lossless.
   - **Canonical:** our own line items with templates for industrial / bank / NBFC / insurance. A quarter filed only as a half-year file (D169) is loaded only from the file's own 3-month column; it is **never derived** from the half-year (owner #345). No stored figure is ever derived — no subtraction, no summed quarters (D170, enforced by filings 0039).
   - **Views:** Screener-like summary, statements, ratios, all computed.
+- **Cash flow with untagged adjustments (D167):** decided as option (a); **built 5 Nov as option (b)** (owner #363): the filed lines load when only the adjustments check fails; the page shows "Other adjustments (not itemised in the filing; derived)", computed when shown, never stored (D170).
 - **Value key:** (security, statement, line, period, **basis**, **version**). `version` stays in the stored key for now (D162).
   - *Original* = that period's own XBRL.
   - *Restated* = a later filing's comparative column (from PDF, identity-checked).
   - Default series = latest restated, with a marker (D48).
 - **Basis (D50):** primary basis per company — consolidated (most), **standalone (banks)**, both (holding companies). Basis switches create series breaks. Profit is split into attributable to owners vs NCI.
 - **Conventions:** EBITDA excludes other income (company figure stored alongside) (D49). Adjusted metrics exclude exceptional items; TTM; average capital for ROE/ROCE; no sentinel values (D52). Computed values are stored in the feature table only, labelled with their inputs (D171).
+- **Computed tables (D171), filings DB:**
+  - `feature_value` — (security, basis, field, period_end) → value or reason, `inputs`, origin `computed`, `computed_at`; P&L / balance-sheet / sector-pack fields per quarter or balance-sheet date, valuation fields under `latest` (P/E also per trading day).
+  - `ownership_feature` — §11 fields, one row per (security, field), `as_of` = shareholding date used.
+  - `event_feature` — §12 / §13 fields, one row per (security, field), `as_of` = IST day computed.
+  - `company_group` — each focus company's promoter group (D40): `group_name` (NULL = no group in the 250), `members`, `entities`.
+- **Basis and quality tables:** `primary_basis` (D50), `basis_break` (series breaks, D51), `restatement_flag` (D48), `coverage_gap`, `feed_fresh` (newest disclosure per feed).
 - **Also stored:**
   - shareholding pattern (incl. pledges, named holders ≥ 1%). **Percent basis:** the filed % (SCRR 1957 base, excludes ADR custodian / employee-trust holdings) is the default; % of all shares is kept alongside. Promoter encumbrance % is of the *promoter holding*, not of the company.
   - insider (PIT) and Reg 29 transactions, promoter pledges/encumbrance (D28)
@@ -748,7 +764,7 @@ dossier            computed current-state view per stock, rebuilt after each eve
 ```
 - **Claim types:** reported · guidance · target · aspiration · analyst question · third-party. Only reported + guidance count when comparing delivery against promises (D33).
 - **"Silently dropped":** not mentioned in 2 consecutive *commentary* events where outlook was discussed. Annual-only guidance patterns are respected. "Commentary stopped" is a separate flag (D33).
-- **KPI dictionary:** shared metrics + sector packs for the 15 Nifty 50 industries; unmatched → `other` + review (D31). Drafted in `docs/field-catalogue.md` §8.
+- **KPI dictionary:** shared metrics + sector packs for the 15 Nifty 50 industries; unmatched → `other` + review (D31). Sector packs: Part 5, Field Catalogue §8 (built: banks, NBFCs, insurers).
 - **Vectorize:** unstructured commentary with `{security_id, type, period, disclosed_at}`, always filtered by stock and time.
 
 #### 5.6 `graph`
@@ -772,8 +788,8 @@ relation      kind: supplier_of | customer_of | subsidiary_of | competitor_of | 
 Users (Google sign-in; deletion/export on request, D107), watchlists, saved queries/trackers/baskets, on-site alerts, error reports, owner corrections log (D35), audit log, query cache, cost ledger.
 
 #### 5.8 Feature table
-One row per stock, hundreds of precomputed fields + compact quarterly series (≤ 12 quarters), rebuilt nightly and after events. It powers the query builder, trackers, dashboard and sector pages. **Computed values live here only (D171, owner #358):** TTM, ratios and D66 fields are stored with origin `computed`, their inputs and computed time; never in `fin_value` (D170).
-Full list: `docs/field-catalogue.md`.
+Not one row per stock: four narrow tables, one row per field — `filings.feature_value` (per basis and period, so the quarterly series is the rows themselves; stored from 2024-01-01), `filings.ownership_feature`, `filings.event_feature` and `market.price_feature` (latest value only). Rebuilt for companies with new results filings (full rebuild: `/maint/features`), valuations once per trading day, ownership / event fields once per IST day, price fields with the market daily job; a rebuild writes only values that changed. It powers the query builder, trackers, dashboard and sector pages. **Computed values live here only (D171, owner #358):** TTM, ratios and D66 fields are stored with origin `computed`, their inputs and computed time; never in `fin_value` (D170). An unavailable value is stored as null with its reason.
+Full list: Part 5, Field Catalogue (field names as the code emits them).
 
 ---
 
@@ -966,6 +982,7 @@ Not built now. Designed in: accounts, API keys, exports, per-plan limits. The we
 
 ### 11. Budget ($100/month total, D18)
 **First month (D154):** $10 ceiling (Workers Paid $5 + D1 writes beyond 50M at $1/M); `MONTHLY_WRITE_CAP` 54M as the guard.
+**Write caps since:** D164 raised the cap to 62M and set the zero-mass-write rule (no migration or back-fill rewrites a large table or writes millions of rows); D164 is superseded by D166 (November 2026: $25, soft 60M / hard 68M; from December 54M); the zero-mass-write rule stays.
 
 | Item | Allocation (initial; tuned from measured cost per item) |
 |---|---|
@@ -1097,17 +1114,16 @@ Not built now. Designed in: accounts, API keys, exports, per-plan limits. The we
 ```
 packages/core/        shared TS: types, NSE parsers, XBRL mapping, FY/unit/basis normalisers, validators, query language
 workers/market/       market daily + nightly derived
-workers/filings/      structured filings (integrated filings, shareholding, PIT/SAST, ratings, BRSR, board meetings)
-workers/announce/     poller + queue consumers (triage, extract, verify, context, analyse, commit)
+workers/filings/      structured filings (results, shareholding, PIT/SAST, ratings, board meetings) + feature tables (§5.8)
+workers/prefetch/     raw NSE API lists and XBRL attachments into R2 with the download ledger (D128), daily freshness, gzip pass (D147)
 workers/web/          site v0 (M3, D151): Hono API `/api/v1` + React/Vite site served as Workers static assets (one Worker, one deploy)
-tools/classify/       owner-machine CLI (sector job)
-tools/relay/          fallback fetch relay (only if needed)
+tools/                d1.mjs (CI database helper), prefetch_archive.py / prefetch_attachments.py (GitHub-runner downloads, D128), nse_session.py (D160 headers)
 db/migrations/{market,filings,announce,memory,graph,app}/
-eval/gold/            gold set (metadata + expected outputs; no NSE PDFs committed)
-docs/                 DISCLO.md = the one document (D159; all former .md files merged) + sector-map.json; no README/description at the root (D97)
+docs/                 DISCLO.md = the one document (D159; all former .md files merged) + sector-map.json + the owner's ProwessIQ PDF; no README/description at the root (D97)
 probe/                throwaway reachability check
-.github/workflows/    ci.yml (CI) + probe.yml (temporary NSE reachability probe; deploys/deletes a test Worker)
+.github/workflows/    ci, deploy / deploy-market / deploy-filings, db (migrations), ops (D165), backup, infra-check, prefetch-archive, prefetch-attachments, probe
 ```
+Not built yet: `workers/announce/` (announcements lane, M5), the sector-job CLI, a fetch relay, the gold set (`eval/gold/`, M4, §9.3).
 
 ---
 
@@ -2030,14 +2046,14 @@ Legend: **(a)** owner decided · **(b)** Claude proposed, owner accepted · **(c
 <!-- BEGIN docs/field-catalogue.md -->
 ## Field Catalogue — v1, approved by owner (D123)
 
-This lists the fields the query builder, dashboard and dossiers can use. Each field is precomputed nightly, or after each event, into the per-stock feature table (D64).
+This lists the fields the query builder, dashboard and dossiers can use. Each field is precomputed into the feature tables (§5.8, D64). Field names below are the names the code emits; a field marked **not built** has no code yet.
 Fields marked 🔒 are **owner-only** (D53) and never appear in public queries or APIs. Fields marked *est.* are labelled estimates (method shown).
 **History available to series functions:** up to 12 quarters + 5 years annual for financials (D90); market data from 2024-01-01 (D2).
 
 **Conventions (apply to every field):**
-- **Basis:** the company's primary basis (D50) unless the field name ends in `_sa` (standalone) or `_cons` (consolidated).
-- **Money:** ₹ crore. **Percentages:** in %, e.g. `15` = 15%. **Margin changes:** in basis points (`_bps`).
-- **Adjusted vs reported:** "adjusted" excludes exceptional items (D52). Fields with `_rep` are as reported.
+- **Basis:** the company's primary basis (D50). `feature_value` stores both bases in its `basis` column (no `_sa` / `_cons` names in the code).
+- **Money:** shown in ₹ crore. Computed money fields in `feature_value` are stored in exact ₹ (as filed), so their names carry no `_cr`; price fields ending `_cr` are stored in crore. **Percentages:** in %, e.g. `15` = 15%. **Margin changes:** in basis points (`_bps`).
+- **Adjusted vs reported:** "adjusted" excludes exceptional items (D52) and carries `adj_` (`adj_pbt_q`, `adj_pat_q`); other P&L fields are as filed. `_rep` is used only by `pe_ttm_rep`.
 - **Prices:** corporate-action adjusted (D6) unless the name ends in `_raw`. Market cap is never adjusted.
 - **Restated figures:** latest restated is the default (D48).
 - **Missing data:** if a field can't be computed, it's `null` with a reason, never a sentinel value (D52). A `null` never matches a condition.
@@ -2063,94 +2079,106 @@ The plain-English mode only translates into this language. Anything that can't b
 ---
 
 ### 2. Identity & classification
+These are not feature-table fields: each lives in its own table — identifiers in `market.security_identifier`, sector and industry in `market.classification`, index in `market.index_membership`, group in `filings.company_group`, primary basis in `filings.primary_basis`; the statement template is the `feature_value` field `layout`.
 | Field | Definition | Source |
 |---|---|---|
 | `symbol`, `name`, `isin` | Current identifiers | EQUITY_L, bhavcopy |
 | `sector` | One of NSE's 22 broad sectors (D121) | NSE index CSV `Industry` (Total Market list); else announcement `smIndustry` mapped to the 22 sectors, labelled; else "Unclassified" |
 | `industry_detail` | Finer NSE industry where available (75 values, e.g. Paints, Sugar), labelled | Announcement `smIndustry` (D121) |
 | `index` | Current index memberships | Index snapshots (D9) |
-| `group` | Promoter group (e.g. Tata, Adani) | Shareholding pattern (D40, D56) |
-| `listing_age_years` | Years since listing | EQUITY_L |
-| `statement_template` | industrial / bank / NBFC / insurance | Results metadata |
+| `group` | Promoter group (e.g. Tata, Adani): the promoter entity shared by most of the group's companies, from the exact promoter flags of the latest shareholding filing; none when not in a group of the 250 | Shareholding pattern (D40, D56) → `company_group` |
+| `listing_age_years` | Years since listing — **not built** (the listing date is `market.security.listed_on`) | EQUITY_L |
+| `statement_template` → `layout` | industrial / bank / nbfc / life_insurance / general_insurance | Results metadata |
 | `primary_basis` | consolidated / standalone / both | D50 |
 
 ### 3. Price, liquidity & technicals (EOD)
+Stored in `market.price_feature` (latest value, `as_of` = last session).
 | Field | Definition |
 |---|---|
 | `close`, `close_raw` | Last close, adjusted / raw |
-| `mcap_cr` | Full market cap (NSE MCAP file, D5) |
+| `mcap_cr` | Full market cap (NSE MCAP file, D5) — **not built** as a feature; the site API reads it from `market.shares_daily` |
 | `ret_1w`, `ret_1m`, `ret_3m`, `ret_6m`, `ret_1y`, `ret_ytd` | Price return on adjusted close |
-| `ret_vs_nifty_3m`, `ret_vs_sector_3m` | Relative return |
+| `ret_vs_nifty_3m`, `ret_vs_sector_3m` | Relative return; `ret_vs_sector_3m` is always null with its reason (no sector index mapped, G5) |
 | `pct_from_52w_high`, `pct_from_52w_low` | On adjusted prices (NSE's own 52w data is unadjusted, never used) |
 | `dma_50`, `dma_200`, `above_dma_200` | Moving averages / flag |
 | `rsi_14`, `volatility_1y` | Standard definitions, documented |
 | `avg_turnover_20d_cr`, `volume_vs_20d` | Liquidity |
 | `delivery_pct_20d` | Avg delivery % (`sec_bhavdata_full`, D65) |
-| `ema_20`, `ema_50`, `ema_100`, `ema_200`, `above_ema_*` | EMAs / flags (dashboard participation, D67) |
+| `ema_20`, `ema_50`, `ema_100`, `ema_200`, `above_ema_20` … `above_ema_200` | EMAs / flags (dashboard participation, D67) |
 | `in_asm`, `in_gsm`, `in_fo_ban`, `price_band` | Surveillance / F&O ban / price band (D76) |
-| `bulk_block_deals_90d` | Count + net value of bulk/block deals (D67) |
-| `unexplained_move_30d` | Moves beyond threshold with no disclosure in the window (D69) |
+| `bulk_block_deals_90d`, `bulk_block_net_90d_cr` | Count, and net value (buy − sell, ₹ crore), of bulk/block deals over 90 calendar days (D67) |
+| `unexplained_move_30d` | Moves beyond threshold with no disclosure in the window (D69) — **not built** |
 
 ### 4. Valuation
+Stored in `feature_value` under period `latest` (P/E also per trading day); dividend yield in `market.price_feature`.
 | Field | Definition |
 |---|---|
-| `pe_ttm` | mcap ÷ adjusted TTM PAT attributable to owners |
-| `pe_ttm_rep` | Same, on reported PAT |
-| `pb` | mcap ÷ latest net worth attributable to owners |
-| `ev_ebitda_ttm` | (mcap + net debt + NCI) ÷ TTM EBITDA (D49 definition) |
-| `mcap_to_sales_ttm`, `earnings_yield`, `dividend_yield_ttm` | Standard |
-| `pe_vs_own_median_2y` | % above/below own median P/E since 2024 |
-| `pe_vs_industry_median` | % above/below industry median |
-| `pb_bank` | For banks: P/B on standalone net worth |
+| `pe_ttm` | mcap ÷ adjusted TTM PAT attributable to owners — always null with its reason (tax on exceptional items not filed, G4) |
+| `pe_ttm_rep` | mcap ÷ TTM PAT attributable to owners as filed (four filed quarters) |
+| `pb` | mcap ÷ latest equity attributable to owners |
+| `ev_ebitda_ttm` | (mcap + net debt + NCI) ÷ TTM EBITDA (D49 definition); industrial companies only |
+| `mcap_to_sales_ttm`, `earnings_yield`, `dividend_yield_ttm` | Standard; earnings yield = TTM PAT to owners ÷ mcap; dividend yield = dividends per share with ex-date in the last 12 months (on today's share basis) ÷ latest unadjusted close, 0 when none |
+| `pe_vs_own_median_2y` | % above/below own median P/E since 2024 — **not built** (the daily `pe_ttm_rep` history it needs is stored) |
+| `pe_vs_industry_median` | % above/below the median P/E of the company's **NSE broad sector** (D121) among the 250; P/E on the primary basis, only positive P/Es count, a sector needs ≥ 5 of them |
+| `pb_bank` | For banks: P/B on standalone net worth — **not built** (`pb` is stored on both bases; banks' primary basis is standalone) |
 
 ### 5. Growth (quarterly series, last 12 quarters available to series functions)
+Stored in `feature_value`, one row per quarter. Revenue = revenue from operations (industrial), total income (banks, NBFCs), gross premium (life), net premium earned (general) (owner #360). Growth is null when the base is zero or a loss.
 | Field | Definition |
 |---|---|
-| `revenue_q`, `ebitda_q`, `pbt_q`, `pat_q` | Quarterly values (adjusted; `_rep` for reported) |
-| `revenue_yoy_q`, `ebitda_yoy_q`, `pat_yoy_q`, `eps_yoy_q` | YoY growth |
+| `revenue_q`, `ebitda_q`, `pat_q`, `pat_owners_q` | Quarterly values as filed (EBITDA computed, D49, industrial only) |
+| `adj_pbt_q`, `adj_pat_q` | Adjusted (D52): profit before exceptional items and tax as filed; PAT less exceptional items at their pre-tax amount (their tax is not filed; labelled) |
+| `pbt_q`, `_rep` variants | **Not built** — `revenue_q` / `pat_q` are already as filed; reported PBT is a statement line, not a feature |
+| `revenue_ttm`, `ebitda_ttm`, `pat_ttm`, `pat_owners_ttm` | Sum of the four filed quarters (D170); null if one is missing |
+| `revenue_yoy_q`, `pat_yoy_q`, `eps_yoy_q` | YoY growth; EPS (basic) growth is withheld when the implied share count (profit to owners ÷ EPS) moves outside 0.8–1.25× (split / bonus not restated) |
+| `ebitda_yoy_q` | **Not built** |
 | `revenue_qoq`, `pat_qoq` | QoQ growth |
 | `revenue_ttm_yoy`, `pat_ttm_yoy` | TTM growth |
 | `revenue_vs_trend_q` | Latest YoY growth minus the company's own 8-quarter average YoY growth (pp). The basis of "good results" (D53). |
 | `pat_vs_trend_q` | Same for PAT |
-| `segment_revenue_yoy[segment]` | Per reported segment |
+| `segment_revenue_yoy[segment]` | Per reported segment — **not built** (G10) |
 
 ### 6. Profitability & earnings quality
 | Field | Definition |
 |---|---|
-| `ebitda_margin_q`, `ebitda_margin_ttm` | Operating EBITDA ÷ revenue (excludes other income, D49) |
-| `ebitda_margin_change_yoy_bps` | Margin change |
-| `ebitda_company_reported_q` | Company's own EBITDA figure, if given |
-| `roce`, `roe`, `roa` | D52 conventions (average capital; capital-employed definition documented) |
-| `other_income_share_pbt_ttm` | Other income ÷ PBT |
-| `exceptional_items_ttm_cr` | Sum of exceptional items |
-| `effective_tax_rate_ttm` | Tax ÷ PBT |
-| `ocf_to_pat_ttm` | Operating cash flow ÷ PAT (half-yearly data) |
+| `ebitda_margin_q`, `ebitda_margin_ttm` | Operating EBITDA ÷ revenue (excludes other income, D49); industrial only |
+| `ebitda_margin_change_yoy_bps` | Margin change — **not built** |
+| `ebitda_company_reported_q` | Company's own EBITDA figure, if given — **not built** |
+| `roce`, `roe`, `roa` | At balance-sheet dates, on average capital at the start and end of the 12 months (D52). ROE = TTM PAT to owners ÷ average equity to owners; ROCE = TTM EBIT (profit before exceptional items and tax + finance costs) ÷ average (total equity + borrowings), industrial only; ROA = TTM net profit ÷ average total assets |
+| `other_income_share_pbt_ttm` | Other income ÷ PBT (TTM); industrial only |
+| `exceptional_items_ttm` | Sum of exceptional items, four filed quarters (₹; was `exceptional_items_ttm_cr`); a quarter filing PBT but no exceptional line counts as none (noted) |
+| `effective_tax_rate_ttm` | Tax ÷ PBT (TTM) |
+| `ocf_to_pat_fy` | Operating cash flow ÷ net profit (total, not owners'), **full years only** (cash flow is filed year to date; was `ocf_to_pat_ttm`); industrial only |
 | `margin_recovery`, `margin_erosion` | Flags: margin rising ≥ 2 quarters after a trailing-4Q low / ≥ 200 bps (owner #380; was "X") below trailing-8Q peak or consecutive contraction (D70) |
-| `employee_cost_per_employee_sa` | Standalone employee expense ÷ BRSR headcount, vs industry median (D71) |
-| `headcount`, `headcount_growth_yoy`, `contract_worker_share` | BRSR, standalone (D71) |
-| `energy_growth_vs_revenue`, `water_growth_vs_revenue` | BRSR activity proxies (D71) |
-| `fcf_ttm_cr` | OCF − capex |
+| `employee_cost_per_employee_sa` | Standalone employee expense ÷ BRSR headcount, vs industry median (D71) — **not built** (BRSR, G10) |
+| `headcount`, `headcount_growth_yoy`, `contract_worker_share` | BRSR, standalone (D71) — **not built** (G10) |
+| `energy_growth_vs_revenue`, `water_growth_vs_revenue` | BRSR activity proxies (D71) — **not built** (G10) |
+| `fcf_fy` | OCF − capex, full years (was `fcf_ttm_cr`); industrial only |
 
 ### 7. Balance sheet & working capital (half-yearly)
+At balance-sheet dates (half-year and year end), in `feature_value`. Industrial companies unless stated.
 | Field | Definition |
 |---|---|
-| `net_debt_cr`, `net_debt_to_ebitda`, `debt_to_equity` | Leverage |
-| `interest_coverage_ttm` | EBIT ÷ finance cost |
-| `receivable_days`, `inventory_days`, `payable_days`, `working_capital_days`, `cash_conversion_cycle` | Standard, documented |
-| `capex_ttm_cr`, `cwip_cr` | Investment |
-| `contingent_liabilities_cr` | From annual-report sections (D74) |
-| `msme_dues_cr`, `msme_dues_change` | Integrated Filing (D76) |
-| `bank_statement_discrepancy` | Annual-report note: quarterly statements to banks vs books (D83, red flag) |
-| `unhedged_fx_exposure_cr`, `fx_earnings_cr`, `fx_outgo_cr`, `rnd_pct_sales` | Annual report (D74) |
-| `rm_cost_pct_revenue` | Materials consumed + stock-in-trade purchases ± inventory change, ÷ revenue (D72) |
+| `net_debt` | Borrowings (current + non-current) − cash and cash equivalents − other bank balances; investments are not netted (was `net_debt_cr`) |
+| `net_debt_to_ebitda` | **Not built** |
+| `debt_to_equity` | Borrowings (current + non-current) ÷ equity to owners; NBFCs: borrowed funds (debt securities + borrowings + deposits + subordinated liabilities) ÷ equity to owners; not used for banks and insurers |
+| `equity_owners`, `nci` | Equity attributable to owners; non-controlling interest as filed, else total equity − equity to owners (labelled), 0 on standalone |
+| `interest_coverage_ttm` | TTM EBIT ÷ TTM finance cost |
+| `receivable_days`, `inventory_days`, `payable_days`, `working_capital_days`, `cash_conversion_cycle` | 365-day year. Receivable days and working-capital days on TTM revenue; inventory and payable days on TTM cost of goods (materials + purchases of stock in trade + change in inventories); cash conversion cycle = receivable + inventory − payable days (none without cost of goods); working-capital days = (trade receivables + inventories − trade payables) ÷ TTM revenue, an inventories line not filed counts as 0 (noted) |
+| `capex_fy`, `cwip` | Investment: purchase of property, plant and equipment for the full year (cash flow; was `capex_ttm_cr`); capital work in progress as filed (was `cwip_cr`) |
+| `contingent_liabilities_cr` | From annual-report sections (D74) — **not built** |
+| `msme_dues_cr`, `msme_dues_change` | Integrated Filing (D76) — **not built** |
+| `bank_statement_discrepancy` | Annual-report note: quarterly statements to banks vs books (D83, red flag) — **not built** |
+| `unhedged_fx_exposure_cr`, `fx_earnings_cr`, `fx_outgo_cr`, `rnd_pct_sales` | Annual report (D74) — **not built** |
+| `rm_cost_pct_revenue` | Materials consumed + stock-in-trade purchases ± inventory change, ÷ revenue (D72) — **not built** (the same cost of goods feeds inventory / payable days) |
 
 ### 8. Sector packs (KPI dictionary, D31)
-Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), and labelled `source = presentation/transcript` vs `xbrl`.
+Bank, NBFC and insurer packs are **built from filed results lines** (`feature_value`, computed, D171); a ratio marked "computed" is ours, not the company's own (that note is not stored, G2). The other packs are planned from presentations / transcripts (LLM-extracted, verified, labelled `source = presentation/transcript`) and are **not built** (M6).
 | Pack | Fields |
 |---|---|
-| Banks | `nim`, `gnpa_pct`, `nnpa_pct`, `pcr`, `credit_cost`, `casa_pct`, `loan_growth_yoy`, `deposit_growth_yoy`, `cost_to_income`, `car`, `slippage_ratio` |
-| NBFCs | `aum_cr`, `aum_growth_yoy`, `nim`, `gs3_pct`, `ns3_pct`, `credit_cost`, `disbursement_growth_yoy` |
-| Insurers | `vnb_cr`, `vnb_margin`, `ape_growth_yoy`, `solvency_ratio`, `persistency_13m` |
+| Banks | `nii_q`, `nii_yoy_q`, `nii_ttm`, `ppop_q`, `ppop_yoy_q` (filed operating profit), `cost_to_income_ttm`, `credit_cost_ttm` (TTM provisions ÷ average advances), `nim_computed_ttm` (TTM NII ÷ average advances + investments + cash with RBI + balances with banks), `gnpa_pct_q`, `nnpa_pct_q`, `pcr_q` ((gross − net NPA) ÷ gross NPA), `cet1_ratio_q`, `advances_yoy`, `deposits_yoy`, `cd_ratio`. **Not built:** `casa_pct`, `slippage_ratio`, reported NIM (G1); total capital adequacy (`car`; CET1 only) |
+| NBFCs | `nii_q`, `nii_yoy_q`, `nii_ttm` (interest income − finance costs), `net_total_income_ttm`, `opex_ttm`, `cost_to_income_ttm`, `debt_equity_filed_q` (as the company states it), `credit_cost_ttm` (TTM impairment on financial instruments ÷ average loans), `nim_computed_ttm`, `loans_yoy` (balance-sheet loans, not AUM), `borrowings_yoy`, `debt_to_equity`. **Not built:** `aum_cr`, `aum_growth_yoy`, `gs3_pct`, `ns3_pct`, `disbursement_growth_yoy` (G2) |
+| Insurers | Both: `gross_premium_yoy_q`, `net_premium_yoy_q`, `gross_premium_ttm`, `net_premium_ttm`, `gross_premium_ttm_yoy`, `net_premium_ttm_yoy`, `investment_income_policyholders_ttm`, `shareholders_funds_yoy`, `investments_total`, `investments_yoy`. Life: `new_business_premium_q` / `_yoy_q` / `_ttm` (first-year + single, not APE), `renewal_premium_yoy_q`, `expenses_of_management_ratio_computed_q` / `_ttm`. General: `investment_income_shareholders_ttm`, `investment_income_ttm`, `claims_ratio_computed_q` / `_ttm`, `expense_ratio_computed_q` / `_ttm`, `combined_ratio_computed_q` / `_ttm`, `retention_ratio_computed_ttm`, `underwriting_result_ttm`. **Not built:** `vnb_cr`, `vnb_margin`, `ape_growth_yoy`, `solvency_ratio`, `persistency_13m` (G3) |
 | IT services | `cc_revenue_growth_qoq` (constant currency), `deal_tcv_usd_mn`, `attrition_ltm`, `utilisation` |
 | Autos | `volume_q`, `volume_yoy`, `asp`, monthly volumes (from monthly business updates) |
 | Cement | `volume_mt`, `ebitda_per_tonne`, `capacity_mtpa`, `capacity_utilisation` |
@@ -2164,6 +2192,7 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 | Ports / airlines / services | `cargo_mt`, `passengers_mn`, `rask`/`yield` |
 
 ### 9. Guidance & commitments (memory, D33)
+**Not built** (memory, M6).
 | Field | Definition |
 |---|---|
 | `guidance_open_count` | Open guidance items |
@@ -2175,6 +2204,7 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 | `commentary_stopped` | Flag (D33) |
 
 ### 10. Orders, capacity & business exposure
+**Not built** (M6 extraction, M9 depth).
 | Field | Definition |
 |---|---|
 | `order_book_cr`, `order_book_to_ttm_revenue` | Order book and coverage (years of revenue) |
@@ -2191,49 +2221,56 @@ Sourced from filings/presentations. LLM-extracted, verified (quotes + checks), a
 | `commissioned_90d`, `commissioning_cost_cr`, `commissioning_est_dep_cr` *est.*, `commissioning_est_interest_cr` *est.*, `commissioning_est_margin_bps` *est.* | Commissioning watch; estimates public and labelled (D82) |
 
 ### 11. Ownership, insiders & pledges (D28, D29, D56)
+Stored in `filings.ownership_feature` from the two latest shareholding filings (`as_of` = the latest). Holdings are % of the SCRR base (all shares less non-promoter-non-public holdings), computed from the filed share counts; each change is against the previous shareholding filing, in percentage points.
 | Field | Definition |
 |---|---|
-| `promoter_holding_pct`, `promoter_holding_change_qoq` | Shareholding pattern |
-| `promoter_pledged_pct`, `pledge_change_qoq` | Pledge truth from shareholding pattern + events |
-| `fii_holding_pct`, `dii_holding_pct`, `mf_holding_pct`, `public_holding_pct` (+ `_change_qoq`) | Shareholding pattern |
-| `insider_net_buy_30d_cr`, `insider_net_buy_90d_pct_equity` | Insider-trading disclosures; ESOP exercise excluded |
-| `promoter_group_net_buy_90d_cr` | Promoter + promoter group |
-| `insider_trades_in_window_closure_12m` | Count (red flag) |
-| `sast_crossings_90d` | Takeover Reg 29 disclosures |
-| `tracked_investors[]` | Named holders ≥ 1% from shareholding patterns (D67) |
+| `promoter_holding_pct`, `promoter_holding_change_qoq` | Shareholding pattern; 0 when the filing has no promoter group |
+| `promoter_pledged_pct`, `pledge_change_qoq` | Pledged (else encumbered) shares ÷ promoter shares, **from the shareholding filing only**; no figure with the declaration "not pledged" → 0; not applicable without a promoter group |
+| `fii_holding_pct`, `dii_holding_pct`, `mf_holding_pct`, `public_holding_pct`, with `fii_holding_change_qoq`, `dii_holding_change_qoq`, `mf_holding_change_qoq`, `public_holding_change_qoq` | Shareholding pattern |
+| `group_pledged_max_pct`, `group_members_pledging` | Promoter group (D40): highest promoter pledge among the group's companies in the 250, and how many pledge at all; none when not in a group of the 250 |
+| `insider_net_buy_30d_cr`, `insider_net_buy_90d_pct_equity` | Insider-trading disclosures; ESOP exercise excluded — **not built** (G7) |
+| `promoter_group_net_buy_90d_cr` | Promoter + promoter group — **not built** (G7) |
+| `insider_trades_in_window_closure_12m` | Count (red flag) — **not built** (G7) |
+| `sast_crossings_90d` | Takeover Reg 29 disclosures — **not built** (the disclosures are stored) |
+| `tracked_investors[]` | Named holders ≥ 1% from shareholding patterns (D67) — **not built** (the holders are stored) |
 
 ### 12. Events, red flags & governance
+Built fields are stored in `filings.event_feature` (`as_of` = IST day computed).
 | Field | Definition |
 |---|---|
-| `red_flags_12m` | Count, with types |
-| `auditor_change_12m`, `auditor_qualification_latest` | Governance |
-| `kmp_resignations_12m`, `director_resignations_12m` | Management churn |
-| `restatement_error_12m` | Error-type restatement (D48) |
-| `credit_rating_latest`, `rating_action_12m` | Up / down / none (structured feed, D76) |
-| `rated_facilities_cr`, `rated_facilities_change_cr` (+ by type: `term_loan`, `fund_based_wc`, `non_fund_based`, `ncd`) | From rating letters in announcements (D81) |
-| `independent_director_share`, `board_attendance`, `auditor_tenure_years`, `investor_complaints_q` | Integrated Filing – Governance (D76) |
-| `filing_delay_median_min`, `late_filings_12m`, `corrigenda_12m`, `results_filed_friday_late` | Disclosure timeliness (D69) |
-| `disclosure_regression_flags` | KPIs/segments stopped, definitions changed, new risk language (D69) |
-| `guidance_met_rate_by_exec[person]` | Management credibility ledger (D69) |
-| `regulatory_actions_12m` | SEBI/RBI/other orders |
-| `litigation_open_cr` | Disclosed exposure |
-| `monitoring_agency_deviation` | Deviation in use of raised funds |
+| `red_flags_12m` | Count, with types — **not built** |
+| `auditor_change_12m`, `auditor_qualification_latest` | Governance — **not built** (G8) |
+| `kmp_resignations_12m`, `director_resignations_12m` | Management churn — **not built** (G8) |
+| `restatement_error_12m` | Error-type restatement (D48) — **not built** (restated lines are listed in `filings.restatement_flag`) |
+| `credit_rating_latest`, `rating_action_12m` | Latest stored rating as "rating (outlook), agency, date"; actions in the last 12 months: up / down / mixed (both) / none (structured feed, D76) |
+| `rated_facilities_cr`, `rated_facilities_change_cr` (+ by type: `term_loan`, `fund_based_wc`, `non_fund_based`, `ncd`) | From rating letters in announcements (D81) — **not built** (M6) |
+| `independent_director_share`, `board_attendance`, `auditor_tenure_years`, `investor_complaints_q` | Integrated Filing – Governance (D76) — **not built** (G8) |
+| `late_results_12m`, `results_filed_friday_late` | Results periods first disclosed in the last 12 months after the LODR deadline (45 days; 60 for the March year end) (was `late_filings_12m`); latest results first disclosed on a Friday at or after 17:00 IST (D69) |
+| `filing_delay_median_min`, `corrigenda_12m` | Disclosure timeliness (D69) — **not built** (filing delay: G9) |
+| `disclosure_regression_flags` | KPIs/segments stopped, definitions changed, new risk language (D69) — **not built** (M6) |
+| `guidance_met_rate_by_exec[person]` | Management credibility ledger (D69) — **not built** (M6) |
+| `regulatory_actions_12m` | SEBI/RBI/other orders — **not built** |
+| `litigation_open_cr` | Disclosed exposure — **not built** |
+| `monitoring_agency_deviation` | Deviation in use of raised funds — **not built** |
 
 ### 13. Corporate actions & results timing
 | Field | Definition |
 |---|---|
-| `dividend_ttm`, `buyback_12m`, `last_split_bonus_date` | Corporate actions |
-| `last_result_date`, `next_result_date`, `days_to_next_result` | From board-meeting intimations |
-| `concall_scheduled_next` | Date, if intimated |
-| `concall_analysts`, `concall_questions_by_theme`, `concall_congratulations`, `concall_qa_share`, `concall_declined_answers` | Factual concall metrics (D67) |
+| `dividend_ttm`, `last_split_bonus_date` | Dividends per share (₹) with ex-date in the last 12 months, on today's share basis; last split / bonus / consolidation stored (from 2024) — `market.price_feature` |
+| `buyback_12m` | **Not built** (G10) |
+| `last_result_date`, `last_result_period`, `next_result_date`, `days_to_next_result` | IST date of the latest results period's first disclosure and that period's end; next board meeting intimated for financial results (`filings.event_feature`) |
+| `concall_scheduled_next` | Date, if intimated — **not built** (G10) |
+| `concall_analysts`, `concall_questions_by_theme`, `concall_congratulations`, `concall_qa_share`, `concall_declined_answers` | Factual concall metrics (D67) — **not built** (G10) |
 
 ### 14. Data quality (always queryable)
+The first four are **not built as fields**; the information is stored elsewhere.
 | Field | Definition |
 |---|---|
-| `data_basis`, `basis_switch_date` | D50 |
-| `restated_fields` | Which fields are restated |
-| `mcap_source` | nse / derived (Jan 2024) |
-| `as_of(field)` | Freshness of any field |
+| `data_basis`, `basis_switch_date` | D50 — not built; stored in `filings.primary_basis` and `filings.basis_break` |
+| `restated_fields` | Which fields are restated — not built; restated lines are in `filings.restatement_flag` |
+| `mcap_source` | nse / derived (Jan 2024) — not built as a field; a column of `market.shares_daily` |
+| `as_of(field)` | Freshness of any field: `as_of` on price / ownership / event rows; `period_end` and `computed_at` on `feature_value`; newest disclosure per feed in `filings.feed_fresh` |
+| `layout`, `owners_profit_source`, `owners_profit_identity` | `feature_value`: statement format used; quarters where profit to owners = net profit (no minority on the balance sheet) or = net profit − profit to NCI (both filed), counted |
 
 ### 15. 🔒 Owner-only (D53)
 | Field | Definition |
@@ -2273,16 +2310,17 @@ Hand-off to design. Measured live: `/readiness` over all 250 companies (5 pages)
 
 | Group | Ready for the site | Partial — with the reason | Not available |
 |---|---|---|---|
-| §3 Price, liquidity, technicals (`market.price_feature`, as of the last session) | 250: close, returns 1w / 1m / 3m, return vs Nifty, DMA 50, EMA 20–100 + flags, RSI, turnover, volume vs 20d, delivery % 20d, ASM / GSM / F&O ban, bulk/block 90d; 249: DMA / EMA 200, return 6m / YTD, price band | 243: 52-week high / low distance, 1-year return and volatility (7 listed < 1 year) | `ret_vs_sector_3m` 0 (no sector index mapped — parked, #374) |
-| §4 Valuation | P/E reported 242, P/B 246, earnings yield 245, market cap ÷ sales 245, dividend yield (market pass, from 6 Nov) | EV/EBITDA 188; P/E vs NSE broad-sector median 217 (needs ≥ 5 positive P/Es in the sector, primary basis; 24 have no P/E, Services and Textiles have too few) (log #398) | `pe_ttm` (adjusted) 0 by design — tax on exceptional items not filed |
-| §5 Growth | revenue / PAT quarterly 247; revenue YoY 243, PAT YoY 240, QoQ 247; TTM revenue 246, PAT 246 | EPS YoY 236 (225) — 21 lack EPS or owners' profit in a quarter, 12 loss base, 8 had a share-count check of "NaN" (fixed, C1); TTM growth 226–228; revenue vs trend 212, PAT vs trend 204 (need 8 earlier quarters of growth; companies listed or filing since 2022 fall short) | segment growth (not built) |
-| §6 Profitability, earnings quality | ROE 243, ROA 237, tax rate 246, exceptional items 246, adjusted PAT 247, adjusted PBT 223 (24 file no "before exceptional" line) | EBITDA, margin 193; ROCE 191; other-income share 192; FCF, capex 193; OCF ÷ PAT 191 — all by design for lenders / insurers; margin erosion 180 / recovery 187 (a quarter's margin missing) | BRSR fields (M9) |
-| §7 Balance sheet | equity to owners 247, debt to equity 192 (by design 55), net debt 193, CWIP 193, receivable days 192, working-capital days 192 | interest cover 192; inventory / payable days and cash conversion cycle 167 (30 services companies have no cost of goods — expected, working-capital days covers them) | annual-report fields (later) |
-| §8 Sector packs | **bank pack** (owner #387, built 6 Nov; 18 / 18 banks, log #392): NII quarter / TTM / YoY, operating profit and YoY, cost to income, credit cost, computed NIM (the field name says computed; the stored row carries no note — G2), GNPA / NNPA %, PCR, CET1, advances and deposits growth, CD ratio | NBFC pack (#104) and insurer pack (log #398) built from filed lines — see Part 2 G2 / G3 for fields; coverage counted after the rebuild | CASA, slippages, restructured book, reported NIM (not in filings; M6) |
-| §11 Ownership | promoter holding 234 (13 Sep 2026 filings without the promoter table read), FII / DII / MF / public and their quarter change 247; **promoter pledge 234 and its quarter change 234** (fixed 6 Nov: 199 files declare "not pledged" with no figure → 0, sourced to the declaration) | group pledge 73 (174 not in a promoter group of the 250); the 13 without pledge = the 13 without promoter holding for Sep 2026 | insider fields — parked last |
-| §12 Events, governance | late results (12 m) and Friday-late flag 247 | credit rating latest / 12-month action 49 (most have no rated debt) | auditor, KMP / director churn, governance-filing fields, filing delay in minutes (board end time not stored); AI-read fields (M6) |
-| §13 Corporate actions, results timing | last result date / period 247; dividend TTM, last split / bonus (market pass, from 6 Nov) | next result date 20 — only meetings already intimated (normal: dates are announced ~1–3 weeks ahead) | buyback, concall fields (M6) |
-| §14 Data quality | basis, restatement flags, freshness per feed | — | — |
+| §3 Price, liquidity, technicals (`market.price_feature`, as of the last session) | 250: close, returns 1w / 1m / 3m, return vs Nifty, DMA 50, EMA 20–100 + flags, RSI, turnover, volume vs 20d, delivery % 20d, ASM / GSM / F&O ban, bulk/block 90d (`bulk_block_deals_90d`, `bulk_block_net_90d_cr`); 249: DMA / EMA 200, return 6m / YTD, price band | 243: 52-week high / low distance, 1-year return and volatility (7 listed < 1 year) | `ret_vs_sector_3m` 0 (no sector index mapped — parked, #374, G5); not built: `mcap_cr` as a field (market cap is read from `shares_daily`), `unexplained_move_30d` |
+| §4 Valuation | P/E reported 242, P/B 246, earnings yield 245, market cap ÷ sales 245, dividend yield (market pass, from 6 Nov) | EV/EBITDA 188; P/E vs NSE broad-sector median 217 (needs ≥ 5 positive P/Es in the sector, primary basis; 24 have no P/E, Services and Textiles have too few) (log #398) | `pe_ttm` (adjusted) 0 by design — tax on exceptional items not filed (G4); not built: `pe_vs_own_median_2y`, `pb_bank` |
+| §5 Growth | revenue / PAT quarterly 247; revenue YoY 243, PAT YoY 240, QoQ 247; TTM revenue 246, PAT 246 | EPS YoY 236 (225) — 21 lack EPS or owners' profit in a quarter, 12 loss base, 8 had a share-count check of "NaN" (fixed, C1); TTM growth 226–228; revenue vs trend 212, PAT vs trend 204 (need 8 earlier quarters of growth; companies listed or filing since 2022 fall short) | not built: segment growth (G10), `ebitda_yoy_q`, `pbt_q` (only `adj_pbt_q`), the `_rep` variants |
+| §6 Profitability, earnings quality | ROE 243, ROA 237, tax rate 246, exceptional items 246 (`exceptional_items_ttm`), adjusted PAT 247, adjusted PBT 223 (24 file no "before exceptional" line) | EBITDA, margin 193; ROCE 191; other-income share 192; FCF, capex 193 (`fcf_fy`, `capex_fy`: full years); OCF ÷ PAT 191 (`ocf_to_pat_fy`: full years, total PAT) — all by design for lenders / insurers; margin erosion 180 / recovery 187 (a quarter's margin missing) | BRSR fields (M9, G10); not built: `ebitda_margin_change_yoy_bps`, `ebitda_company_reported_q` |
+| §7 Balance sheet | equity to owners 247, debt to equity 192 (by design 55), net debt 193 (`net_debt`), CWIP 193 (`cwip`), receivable days 192, working-capital days 192 | interest cover 192; inventory / payable days and cash conversion cycle 167 (30 services companies have no cost of goods — expected, working-capital days covers them) | annual-report and Integrated Filing fields (later); not built: `net_debt_to_ebitda`, `rm_cost_pct_revenue` |
+| §8 Sector packs | **bank pack** (owner #387, built 6 Nov; 18 / 18 banks, log #392): NII quarter / TTM / YoY, operating profit and YoY, cost to income, credit cost, computed NIM (the field name says computed; the stored row carries no note — G2), GNPA / NNPA %, PCR, CET1, advances and deposits growth, CD ratio (field names in §8) | NBFC pack (#104) and insurer pack (log #398) built from filed lines — field names in §8, gaps in Part 2 G2 / G3; coverage counted after the rebuild | CASA, slippages, restructured book, reported NIM (not in filings; M6, G1); NBFC AUM / stage 3 / disbursements (G2); insurer VNB / APE / solvency / persistency (G3); other packs (M6) |
+| §11 Ownership | promoter holding 234 (13 Sep 2026 filings without the promoter table read), FII / DII / MF / public and their quarter change 247; **promoter pledge 234 and its quarter change 234** (fixed 6 Nov: 199 files declare "not pledged" with no figure → 0, sourced to the declaration) | group pledge 73 (`group_pledged_max_pct`, `group_members_pledging`; 174 not in a promoter group of the 250); the 13 without pledge = the 13 without promoter holding for Sep 2026 | insider fields — parked last (G7); not built: SAST crossings, tracked investors |
+| §12 Events, governance | late results (12 m, `late_results_12m`) and Friday-late flag 247 | credit rating latest / 12-month action (up / down / mixed / none) 49 (most have no rated debt) | auditor, KMP / director churn, governance-filing fields (G8), filing delay in minutes (board end time not stored, G9); red flags, restatement error, corrigenda, regulatory actions, litigation; AI-read fields (M6) |
+| §13 Corporate actions, results timing | last result date / period 247; dividend TTM, last split / bonus (market pass, from 6 Nov) | next result date 20 — only meetings already intimated (normal: dates are announced ~1–3 weeks ahead) | buyback, concall fields (M6, G10) |
+| §14 Data quality | as stored data, not fields: primary basis and basis breaks (`filings.primary_basis`, `basis_break`), restatement flags (`restatement_flag`), market-cap source (`shares_daily.mcap_source`), freshness per feed (`feed_fresh`) and per row (`as_of` / `computed_at`); `layout`, `owners_profit_source` in `feature_value` | — | `data_basis`, `basis_switch_date`, `restated_fields`, `mcap_source` as queryable fields (not built) |
+| §2 Identity; §9 Guidance; §10 Orders | §2 lives in its own tables (§2 note), not the feature tables | — | `listing_age_years`; all of §9 and §10 (M6 / M9) |
 
 **C. Defects and checks found by this map (next)**
 1. ~~`eps_yoy_q`: 8 companies get "implied share count changed ×NaN"~~ — zero profit to owners makes 0 ÷ 0; fixed 6 Nov (states the reason), stored at the next rebuild of those companies.
@@ -3171,6 +3209,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 | 396 | *(build, 6 Nov 15:00 IST)* | `/readiness-fields` now names the companies: consolidated owners' profit missing for Sep 2026 in OBEROIRLTY, HDFCLIFE, AJANTPHARM, LICI, GLENMARK, APLAPOLLO, GLAXO, SAIL, MEDANTA, MAZDOCK, GICRE, AIIL (and single-quarter gaps in COROMANDEL, HINDCOPPER, MRF, BOSCHLTD, ICICILIFE, BAJAJHLDNG, MAXHEALTH, MANKIND, NLCINDIA, PERSISTENT, APARINDS, NMDC, HAL, BHEL, VAML). Live files: OBEROIRLTY files owners 0 and NCI 0, equity = equity to owners ₹19,090 crore, EPS 20.95 = all of net profit; HDFCLIFE (IRDAI) files no owners / NCI line, equity only as shareholders' funds. **Rule replaced:** per quarter, owners' profit = net profit when the quarter files no non-zero NCI profit and the balance sheet at that date (or ≤ ~6 months before) shows no minority (NCI line zero, equity = equity to owners within ₹1 lakh / 0.1 %, or for insurers shareholders' funds with no minority line); filed figures are kept. Tests 495 pass | 🔶 |
 | 397 | *(build, 6 Nov 15:45 IST)* | Deploy of #102 failed twice at the first Cloudflare upload ("malformed response from the API"; migrations and tests passed; production unchanged), succeeded on a fresh dispatch 30 min later. Rebuild 1.53 M read / 600 written; valuations 46 k / 186. **Owners' profit missing for Sep 2026: 12 → 5** (GLENMARK, SAIL, MEDANTA, MAZDOCK, AIIL); filled from net profit for 69 companies (was 33) — HDFCLIFE, LICI, GICRE, OBEROIRLTY and others now covered; P/E vs sector median 203 → 216. Added: owners = net profit − profit to NCI when the NCI profit is filed and no owners' figure (test, 496 pass). Remaining gaps to Part 2 G16 (owners) and G17 (ROE: no balance sheet a year earlier) | 🔶 |
 | 398 | *(build, 6 Nov 16:10 IST)* | #103 deployed first time. Rebuild 1.53 M read / 39 written; valuations 46 k / 21. Owners' profit: identity (net profit − NCI profit) fills 2 companies, net-profit fill 69; latest-quarter gap unchanged at 5 (GLENMARK, SAIL, MEDANTA, MAZDOCK, AIIL), TTM 245/247, ROE 242, P/E (reported) 243, P/E vs sector median 217. Adjusted P/E is 0/247 by design (adjusted profit to owners is not filed). **NBFC pack built (#104)** by a second agent working in parallel on code only (production runs stay one at a time: the ops queue cancels a waiting run); reviewed here, 498 tests pass; GNPA / NNPA % and CRAR not buildable (no stored tag) → G2. **Insurer pack built** the same way (third agent, code only; computed ratios checked against GODIGIT's filed ratios and SBILIFE's expenses-of-management ratio; 503 tests pass) → G3. **Docs-vs-code audit** (read-only agent): stale rows fixed here (G11 fallback already built 5 Nov; §4/§5/§8 readiness rows). Still to fix in Part 5: field-catalogue names differ from the code for the bank / NBFC / insurer packs and several core fields (`cwip` vs `cwip_cr`, `capex_fy` vs `capex_ttm_cr` …); catalogue fields no code emits (`mcap_cr`, `unexplained_move_30d`, `pe_vs_own_median_2y`, `pb_bank`, `ebitda_yoy_q`, `net_debt_to_ebitda`, `rm_cost_pct_revenue`, §14 basis fields) read as available; §5.2 / §5.3 omit `price_feature`, `feature_value`, `ownership_feature`, `event_feature`, `company_group`; repo layout (§ repo) lists folders that do not exist; consistency checks 4 (D164, D167, D168 not in §1–§16) and 5 (open items stale) fail . **NBFC coverage after the #104 rebuild** (1.53 M read / 5,036 written, the new rows): of 30 NBFCs, NII and net total income, opex, cost to income 30 / 30; computed NIM 28; credit cost 25 (5 with no loans: BAJAJHLDNG, BAJAJFINSV, TATAINVEST, HDFCAMC, MFSL); loans YoY 24, borrowings YoY 24; filed debt-equity ratio only 8 (22 file none for Sep 2026); PIRAMALFIN and ICICIAMC lack Division III detail at Sep 2025. Finding: the NBFC layout also holds non-lenders (holding companies, AMCs, MFSL) and a lessor (IRFC: NII negative, income is lease income) → G18 | 🔶 Part 5 alignment next |
+| 399 | *(build, 6 Nov 17:20 IST)* | #106 deployed. **ins_rev** 76 files of the 6 insurers, 1,470 lines (57 k read / 4.8 k written), no file skipped. **ratings_relink v4** 24,654 focus rows (40 k / 6): linked by issuer code 22,738, by name 1,916; nothing newly linked. It reported 367 "ambiguous" — all three cases are one security under an old and a new symbol (TATAMOTORS / TMPV, L&TFH / LTF, ICICIPRULI / ICICILIFE), a defect of #106: fixed in #107 (one symbol per ISIN, the first read keeps the link, as before; stored rows were never unlinked). Rebuild 1.53 M / 1.7 k. Insurer pack: every new field 6 / 6 (life-only 4, general-only 2), filed ratios and persistency present; **TTM premium YoY 0 / 6** — no Dec 2024 quarter stored for any insurer → G19. SBIN / HINDZINC / TVSMOTOR name links not confirmed (`/ratings-coverage` has no per-company list) → G11. NBFC sub-types (G18) built in #107 by a parallel agent; cost to income kept for non-lenders on review | 🔶 |
 
 ### Consistency check procedure (run after every update)
 1. Every decision ID D1…Dn appears exactly once in Appendix A, in order, with no gaps.
@@ -3179,7 +3218,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-06 after entry #398 (audit): checks 1 and 6 pass; check 3 fails (D172–D173 on the unmerged branch); check 4 fails (D164, D167, D168 not placed in §1–§16); check 5 fails (open items #206/#224, #240, #241, #284 stale); check 2 as before — entries #376–#378 and D172–D173 are on the unmerged branch `ccr-e03ed666-9h1ii2` (gap closes when it merges; else renumber #379–#397) (171 decisions here, 395 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in Part 4 §11).*
+*Last run 2026-11-06 after entry #398 (audit): checks 1 and 6 pass; check 3 fails (D172–D173 on the unmerged branch); check 4 passes after the Part 5 alignment (D164 in §11, D167 and D168 in §5.3); check 5 fails (open items #206/#224, #240, #241, #284 stale); check 2 as before — entries #376–#378 and D172–D173 are on the unmerged branch `ccr-e03ed666-9h1ii2` (gap closes when it merges; else renumber #379–#397) (171 decisions here, 395 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in Part 4 §11).*
 
 ### Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
