@@ -113,6 +113,22 @@ describe("masters", () => {
   it("EQUITY_L", () => {
     expect(parseEquityList(text("EQUITY_L.csv")).find((r) => r.symbol === "INFY")).toMatchObject({ isin: "INE009A01021", listedOn: "1995-02-08", series: "EQ" });
   });
+  it("EQUITY_L listing dates (DD-MON-YYYY -> ISO; header spaces as NSE ships them)", () => {
+    const csv = [
+      "SYMBOL,NAME OF COMPANY, SERIES, DATE OF LISTING, PAID UP VALUE, MARKET LOT, ISIN NUMBER, FACE VALUE",
+      "RELIANCE,Reliance Industries Limited,EQ,29-NOV-1995,10,1,INE002A01018,10",
+      "TATAMOTORS,Tata Motors Limited,EQ,09-JUN-1995,2,1,INE155A01022,2",
+      "SBILIFE,SBI Life Insurance Company Limited,EQ,03-OCT-2017,10,1,INE123W01016,10",
+      "NEWCO,New Company Limited,BE,-,10,1,INE000X01010,10",
+      "",
+    ].join("\r\n");
+    expect(parseEquityList(csv).map((r) => [r.symbol, r.listedOn, r.isin, r.series])).toEqual([
+      ["RELIANCE", "1995-11-29", "INE002A01018", "EQ"],
+      ["TATAMOTORS", "1995-06-09", "INE155A01022", "EQ"],
+      ["SBILIFE", "2017-10-03", "INE123W01016", "EQ"],
+      ["NEWCO", null, "INE000X01010", "BE"],
+    ]);
+  });
   it("index list gives sector (D121)", () => {
     expect(parseIndexList(text("ind_niftytotalmarket_list.csv")).find((r) => r.symbol === "ITC")?.sector).toBe("Fast Moving Consumer Goods");
   });

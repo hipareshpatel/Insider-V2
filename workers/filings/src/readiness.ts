@@ -98,7 +98,7 @@ export const SQL_GAP_SHP = "SELECT f.period_end, s.category FROM filing f JOIN s
 // company's per-company results lists in the ledger.
 export const SQL_LATE_Q_AT = "SELECT 1 AS ok FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND period_end = ?2 AND period_kind = 'Q' AND +statement = 'pl' LIMIT 1";
 export const SQL_LATE_FIRST_Q = "SELECT period_end FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND +period_kind = 'Q' AND +statement = 'pl' ORDER BY period_end LIMIT 1";
-// market: security.listed_on (NSE listing date; no loader fills it yet), else the earliest stored daily price (history
+// market: security.listed_on (NSE listing date from EQUITY_L, market POST /maint/listed_on), else the earliest stored daily price (history
 // starts at the floor, D2), by primary key
 export const SQL_LISTED_ON = "SELECT listed_on FROM security WHERE security_id = ?1";
 export const SQL_FIRST_PRICE = "SELECT d FROM price_daily WHERE security_id = ?1 ORDER BY d LIMIT 1";

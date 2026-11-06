@@ -266,3 +266,17 @@ describe("/gap-census late_start (G19, read-only): index-backed per company", as
     expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
   });
 });
+
+describe("market: /maint/listed_on (log #402, one-off): security.listed_on from the stored EQUITY_L", async () => {
+  const l = await import("../../workers/market/src/listedon.js");
+  it.each([
+    ["listed ISINs to securities by ix_sid_lookup", l.SQL_IDS_BY_ISIN, ['["INE009A01021"]'], /SEARCH security_identifier USING INDEX ix_sid_lookup \(id_type=\? AND value=\?\)/],
+    ["listed symbols to current securities by ix_sid_lookup", l.SQL_IDS_BY_SYMBOL, ['["INFY"]'], /SEARCH security_identifier USING INDEX ix_sid_lookup \(id_type=\? AND value=\?\)/],
+    ["stored listing dates by primary key", l.SQL_LISTED_CUR, ["[1,2]"], /SEARCH security USING INTEGER PRIMARY KEY \(rowid=\?\)/],
+    ["set changed listing dates by primary key", l.SQL_SET_LISTED, ['[[1,"1995-02-08"]]'], /SEARCH security USING INTEGER PRIMARY KEY \(rowid=\?\)/],
+  ] as [string, string, unknown[], RegExp][])("%s", (_n, sql, params, want) => {
+    const p = plan(M, sql, params);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
+  });
+});

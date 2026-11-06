@@ -11,6 +11,7 @@ import { buildSectors } from "./sectors.js";
 import { digestDay } from "./digest.js";
 import { WEEKEND_MARKER, loadIndexHistory, loadIndexWeekends } from "./indexhist.js";
 import { runDay } from "./daily.js";
+import { listedOnPass } from "./listedon.js";
 import { istNow } from "./dates.js";
 import { priceFeaturesStep } from "./technicals.js";
 import { type D1Meter, FORBIDDEN_TEXT, chargeReads, writeCaps, writeLevel, writesThisMonth, readLevel, readsToday, statusAuthorized } from "@disclo/core";
@@ -98,6 +99,7 @@ export default {
       if (name === "deals_refill") { const x = await refillDealsCsv(sd, 60_000); r = { ...x, done: !x.refilled && !x.waiting }; }
       else if (name === "index_history") { const x = await loadIndexHistory(m, env.RAW, 60_000); r = { ...x, done: x.days === 0 }; }
       else if (name === "index_weekends") r = (await loadIndexWeekends(m, env.RAW, 60_000)) ?? { done: true };
+      else if (name === "listed_on") r = await listedOnPass(m, env.RAW); // log #402: security.listed_on from the stored EQUITY_L (changed rows only)
       else if (name === "derive_jan2024") { const n = await deriveJanuary2024(m); r = { rows: n, done: n === 0 }; }
       else if (name === "price_features") r = await priceFeaturesStep(m, new Date(), 50, undefined, url.searchParams.get("restart") === "1"); // restart: a new pass for the same session (new fields)
       else if (name === "repair_factors") {
