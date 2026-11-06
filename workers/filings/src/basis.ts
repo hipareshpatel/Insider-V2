@@ -92,7 +92,7 @@ export const SQL_BASIS_LISTS = "SELECT r2_key FROM fetch_job INDEXED BY ix_fetch
 /** One company's stored NSE results lists (every symbol it has had), for runPrimaryBasis. */
 export function basisLists(filings: Sql, market: Sql, getText: (k: string) => Promise<string | null>): (sid: number) => Promise<string[]> {
   return async (sid: number) => {
-    const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND id_type='nse_symbol'", [sid])).map((r) => r.value);
+    const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND +id_type='nse_symbol'", [sid])).map((r) => r.value);
     const keys = await filings.all<{ r2_key: string }>(SQL_BASIS_LISTS, [JSON.stringify(syms)]);
     return (await Promise.all(keys.map((k) => getText(k.r2_key)))).filter((t): t is string => !!t);
   };
@@ -157,7 +157,7 @@ export async function classifyGaps(db: Sql, market: Sql, getText: (k: string) =>
   const cur = st ? JSON.parse(st.detail) as { after: number; companies: number } : { after: 0, companies: 0 };
   const sids = (await db.all<{ security_id: number }>("SELECT DISTINCT security_id FROM coverage_gap WHERE security_id > ? AND period_end >= '2024-01-01' ORDER BY security_id LIMIT ?", [cur.after, perCall])).map((r) => r.security_id);
   for (const sid of sids) {
-    const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND id_type='nse_symbol'", [sid])).map((r) => r.value);
+    const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND +id_type='nse_symbol'", [sid])).map((r) => r.value);
     const keys = await db.all<{ r2_key: string }>(SQL_BASIS_LISTS, [JSON.stringify(syms)]);
     const listed = nseListedFiles((await Promise.all(keys.map((k) => getText(k.r2_key)))).filter((t): t is string => !!t));
     const gaps = await db.all<{ period_end: string; basis: string }>("SELECT period_end, basis FROM coverage_gap WHERE security_id=? AND period_end >= '2024-01-01'", [sid]); // D168
