@@ -33,6 +33,16 @@ export function decideBasis(x: BasisInput): BasisDecision {
 
 const MON: Record<string, string> = { JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06", JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12" };
 const iso = (d: unknown) => { const m = /^(\d{2})-([A-Za-z]{3})-(\d{4})/.exec(String(d ?? "")); return m ? `${m[3]}-${MON[m[2]!.toUpperCase()]}-${m[1]}` : null; };
+/** The period (quarter or year) end of one row of NSE's results lists: Integrated Filing qe_Date, results toDate. */
+export const listRowPeriodEnd = (r: Record<string, unknown>): string | null => iso(r.qe_Date ?? r.qeDate ?? r.toDate ?? r.to_date);
+/** /if-list ?since= (G19): a year ("2026") or a date ("2025-03-31") → the earliest period end kept; null = no filter. */
+export function ifListSince(param: string | null): string | null | "bad" {
+  if (!param) return null;
+  if (/^\d{4}$/.test(param)) return `${param}-01-01`;
+  return /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : "bad";
+}
+/** Keeps a list row when its own period end is on/after `since` (the list's fetch date or any other date never counts). */
+export const ifListKeeps = (r: Record<string, unknown>, since: string | null) => !since || (listRowPeriodEnd(r) ?? "") >= since;
 /** (quarter end, basis) pairs on NSE's own results lists for one company, from the stored lists (quarterly results only). */
 export function nseListed(listJsons: string[]): Set<string> {
   const out = new Set<string>();
