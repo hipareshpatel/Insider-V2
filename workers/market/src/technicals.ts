@@ -2,7 +2,7 @@
 // security's last ≈ 400 days of closes (primary-key range) and its applied factors; writes only values that changed.
 // Surveillance / F&O ban / price band / deals come from the stored market-structure tables (index or key ranges only).
 import {
-  type Sql, FOCUS_DEFAULT, SQL_FOCUS, batchAll, insertRows, priceFeatures, structureFeatures, dealsCoverage, dealsWindowFrom, dividendYieldTtm,
+  type Sql, FOCUS_DEFAULT, SQL_FOCUS, batchAll, insertRows, priceFeatures, structureFeatures, dealsCoverage, dealsWindowFrom, dividendYieldTtm, buybackFeatures,
   type DealRow, type LedgerDay, type Session, type SectorInput, sectorIndexNames,
 } from "@disclo/core";
 
@@ -21,6 +21,9 @@ export const SQL_APPLIED_FACTORS = "SELECT ex_date, factor FROM adj_factor WHERE
 // §4 dividend yield: dividends of one security over a window (amount set also on combined actions, e.g. bonus + dividend)
 export const SQL_LAST_SPLIT_BONUS = "SELECT max(ex_date) AS d FROM corp_action WHERE security_id = ?1 AND type IN ('split','bonus','consolidation') AND status <> 'rejected'";
 export const SQL_DIVIDENDS = "SELECT ex_date, amount FROM corp_action WHERE security_id = ?1 AND ex_date > ?2 AND ex_date <= ?3 AND amount IS NOT NULL AND status <> 'rejected'";
+// G10 buyback: once per step for the batch's securities (index range per security_id); LIKE only narrows the read — the
+// exact rule is BUYBACK_PURPOSE on raw_purpose. Every stored date, so last_buyback_date is not windowed.
+export const SQL_BUYBACKS_OF = "SELECT security_id, ex_date, raw_purpose FROM corp_action WHERE security_id IN (SELECT value FROM json_each(?1)) AND raw_purpose LIKE '%back%' AND status <> 'rejected'";
 // market structure: once per step (the as-of session's ledger and ban list), then per security (its symbols' rows)
 export const SQL_LEDGER_DAY = "SELECT source, d, rows, note FROM ms_day WHERE source IN ('fo_ban','price_band','surveillance') AND d = ?1";
 export const SQL_LEDGER_DEALS = "SELECT source, d, rows, note FROM ms_day WHERE source IN ('bulk','block') AND d >= ?1 AND d <= ?2";
@@ -78,9 +81,17 @@ export async function sectorContext(m: Sql, day: string, sids: readonly number[]
   return (sid) => ({ sector: sector.has(sid) ? sector.get(sid)! : undefined, members: members.get(sid) ?? [], closes });
 }
 
+/** Step-level buyback rows (G10): one read for the batch, grouped by security. */
+export async function buybackContext(m: Sql, sids: readonly number[]): Promise<(sid: number) => { exDate: string; purpose: string }[]> {
+  const by = new Map<number, { exDate: string; purpose: string }[]>();
+  if (sids.length) for (const r of await m.all<{ security_id: number; ex_date: string; raw_purpose: string }>(SQL_BUYBACKS_OF, [JSON.stringify(sids)]))
+    by.set(r.security_id, [...by.get(r.security_id) ?? [], { exDate: r.ex_date, purpose: r.raw_purpose }]);
+  return (sid) => by.get(sid) ?? [];
+}
+
 /** One security: features as of `day` (ISO). Returns rows offered. */
 const shiftYear = (iso: string) => `${Number(iso.slice(0, 4)) - 1}${iso.slice(4)}`;
-export async function securityPriceFeatures(m: Sql, sid: number, day: string, now: Date, nifty?: { date: string; close: number }[], structure?: StructureCtx, sector?: SectorInput): Promise<number> {
+export async function securityPriceFeatures(m: Sql, sid: number, day: string, now: Date, nifty?: { date: string; close: number }[], structure?: StructureCtx, sector?: SectorInput, buybacks?: readonly { exDate: string; purpose: string }[]): Promise<number> {
   const to = Number(day.replace(/-/g, "")), d0 = new Date(`${day}T00:00:00Z`); d0.setUTCDate(d0.getUTCDate() - 400);
   const rows = await m.all<{ d: number; series: string; close: number; volume: number; turnover_paise: number | null }>(SQL_SESSIONS, [sid, Number(d0.toISOString().slice(0, 10).replace(/-/g, "")), to]);
   const byDay = new Map<number, (typeof rows)[number]>();
@@ -99,6 +110,7 @@ export async function securityPriceFeatures(m: Sql, sid: number, day: string, no
   out.push({ field: "dividend_ttm", value: dy.value === null ? null : (Math.round(dy.dps * 100) / 100).toFixed(2), reason: dy.reason });
   const [sb] = await m.all<{ d: string | null }>(SQL_LAST_SPLIT_BONUS, [sid]);
   out.push({ field: "last_split_bonus_date", value: sb?.d ?? null, reason: sb?.d ? null : "no split, bonus or consolidation stored (corporate actions are stored from 2024-01-01)" });
+  if (buybacks) out.push(...buybackFeatures(asOf, buybacks));
   const at = now.toISOString();
   // structure flags are as of the last loaded session (`day`), which may be after a suspended stock's last close
   const st = structure ? await securityStructure(m, sid, day, structure) : [];
@@ -131,7 +143,8 @@ export async function priceFeaturesStep(m: Sql, now: Date, limit = 50, spec = FO
   // one close per day (both spellings of the index name may be stored for a day)
   const niftyByDay = [...new Map(nifty.map((x) => [x.date, x])).values()];
   const sectorOf = await sectorContext(m, day, sids);
-  for (const sid of sids) rows += await securityPriceFeatures(m, sid, day, now, niftyByDay, structure, sectorOf(sid));
+  const buybacksOf = await buybackContext(m, sids);
+  for (const sid of sids) rows += await securityPriceFeatures(m, sid, day, now, niftyByDay, structure, sectorOf(sid), buybacksOf(sid));
   const done = sids.length < limit;
   await m.run("INSERT INTO kv_state (k, v) VALUES ('price_features', ?) ON CONFLICT (k) DO UPDATE SET v=excluded.v", [JSON.stringify({ day, after: sids.length ? sids[sids.length - 1] : after, done, ready })]);
   return { day, companies: sids.length, rows, done };

@@ -208,6 +208,7 @@ describe("market: price features of the focus companies (field catalogue §3, on
     ["sessions of one security in a date range", t.SQL_SESSIONS, [1, 20250101, 20260101], /SEARCH price_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
     ["last split / bonus of one security", t.SQL_LAST_SPLIT_BONUS, [1], /SEARCH corp_action USING INDEX sqlite_autoindex_corp_action_1 \(security_id=\?\)/],
     ["dividends of one security over a year", t.SQL_DIVIDENDS, [1, "2025-11-05", "2026-11-05"], /SEARCH corp_action USING INDEX sqlite_autoindex_corp_action_1 \(security_id=\? AND ex_date>\? AND ex_date<\?\)/],
+    ["buyback purposes of the step's securities (G10, once per step)", t.SQL_BUYBACKS_OF, ["[1,2]"], /SEARCH corp_action USING INDEX sqlite_autoindex_corp_action_1 \(security_id=\?\)/],
     ["applied factors of one security", t.SQL_APPLIED_FACTORS, [1], /USING (PRIMARY KEY|INDEX sqlite_autoindex_adj_factor_1) \(security_id=\?\)/],
     ["delivery of one security in a date range", t.SQL_DELIVERY, [1, 20250101, 20260101], /SEARCH delivery_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
     ["Nifty 50 closes in a date range", t.SQL_NIFTY, [20250101, 20260101], /SEARCH index_daily USING PRIMARY KEY \(index_name=\? AND d>\? AND d<\?\)/],
