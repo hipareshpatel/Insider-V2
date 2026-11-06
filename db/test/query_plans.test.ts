@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
+import { SQL_REQUEUE_LISTS } from "../../workers/prefetch/src/daily.js";
 import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, SQL_ORPHAN_RESTATED } from "../../workers/filings/src/load.js";
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS } from "../../workers/filings/src/events.js";
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
@@ -50,6 +51,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: half-year filing of one gap (D169, manual)", "SELECT filing_id, kind, source_url, disclosed_at FROM filing WHERE security_id=? AND period_end=? AND period_kind='H' AND basis=?", [1, "2025-03-31", "consolidated"], /ix_filing_sec/],
   ["filings: filings stored under another company than their list (C61, manual)", SQL_MISATTR, ['["INFY"]'], /ix_filing_source_url \(source_url=\?\)/],
   ["filings: move one filing's rows to the linking company (C61, manual)", SQL_MOVE_FIN_VALUE, [783, 2215, 22294], /SEARCH fin_value USING INDEX \w+ \(security_id=\?\)/],
+  ["prefetch: re-queue named focus companies' empty / failed lists (manual, bounded)", SQL_REQUEUE_LISTS, ['["u"]'], /SEARCH fetch_job USING INDEX sqlite_autoindex_fetch_job_1 \(url=\?\)/],
   ["filings: re-queue named 404 jobs (manual, bounded)", SQL_REQUEUE_404, ["[1,2]", '["INFY"]'], /SEARCH fetch_job USING INTEGER PRIMARY KEY \(rowid=\?\)/],
   ["filings: earlier filed quarters of the year (C62 proof, per half-year file)", SQL_EARLIER_Q, [1, '["2026-06-30"]', "consolidated", '["revenue","pat"]'], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
   ["filings: relabel a proven quarter (C62, per half-year file)", SQL_RELABEL_Q, [1, "2026-09-30", "consolidated", 50], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],

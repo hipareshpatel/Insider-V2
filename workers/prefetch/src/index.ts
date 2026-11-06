@@ -3,7 +3,7 @@ import { type D1Meter, EQUITY_SERIES, FOCUS_DEFAULT, FORBIDDEN_TEXT, type Sql, b
 import { d1Sql } from "./d1.js";
 import { attachmentKey, attachments } from "./discover.js";
 import { bulkJobs, companyJobs } from "./jobs.js";
-import { dailyRefresh, dueSlot, seedFullHistory, seedStructureHistory, seedPitWindows } from "./daily.js";
+import { dailyRefresh, dueSlot, requeueCompanyLists, seedFullHistory, seedStructureHistory, seedPitWindows } from "./daily.js";
 import { compressStep } from "./compress.js";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; PARALLEL?: string; PER_RUN?: string; INGEST_TOKEN?: string; STATUS_TOKEN?: string; FOCUS_INDICES?: string; DAILY_READ_CAP?: string }
@@ -211,6 +211,8 @@ export default {
       else if (name === "structure_history") out = { queued: await seedStructureHistory(db, now), done: true };
       // item 7: insider-trade lists by calendar quarter for the focus companies (NSE's dated list answers ≈ 1 year)
       else if (name === "pit_windows") out = { queued: await seedPitWindows(db, now, (await focusSymbolsOf(d1Sql(env.DB_MARKET), env.FOCUS_INDICES ?? FOCUS_DEFAULT)) ?? []), done: true };
+      // MCX / ABBOTINDIA: re-queue the per-company lists of named focus companies (?symbols=A,B; empty or failed only)
+      else if (name === "company_lists") out = { ...(await requeueCompanyLists(db, now, (url.searchParams.get("symbols") ?? "").split(","), await focusSymbolsOf(d1Sql(env.DB_MARKET), env.FOCUS_INDICES ?? FOCUS_DEFAULT))), done: true };
       else return new Response("unknown pass", { status: 404 });
       return Response.json(out, { headers: { "cache-control": "no-store" } });
     }
