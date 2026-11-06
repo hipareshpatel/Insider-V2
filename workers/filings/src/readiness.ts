@@ -51,7 +51,7 @@ export const SQL_FV_COVERAGE = `SELECT field, count(DISTINCT security_id) AS com
   FROM (SELECT security_id, field, value, row_number() OVER (PARTITION BY security_id, basis, field ORDER BY period_end DESC) AS rn
         FROM feature_value WHERE security_id IN (SELECT value FROM json_each(?1)) AND basis IN ('consolidated','standalone'))
   GROUP BY field ORDER BY field`;
-export const SQL_FV_REASONS = `SELECT field, substr(reason, 1, 48) AS why, count(DISTINCT security_id) AS companies
+export const SQL_FV_REASONS = `SELECT field, substr(reason, 1, 48) AS why, count(DISTINCT security_id) AS companies, substr(group_concat(DISTINCT security_id), 1, 160) AS sids
   FROM (SELECT security_id, field, value, reason, row_number() OVER (PARTITION BY security_id, basis, field ORDER BY period_end DESC) AS rn
         FROM feature_value WHERE security_id IN (SELECT value FROM json_each(?1)) AND basis IN ('consolidated','standalone'))
   WHERE rn = 1 AND value IS NULL GROUP BY field, why ORDER BY field, companies DESC`;
@@ -62,14 +62,21 @@ export const SQL_EVT_COVERAGE = current("event_feature"), SQL_EVT_REASONS = reas
 export const SQL_PRICE_COVERAGE = current("price_feature"), SQL_PRICE_REASONS = reasons("price_feature");
 
 type Cov = { field: string; companies: number; with_value: number; latest_with_value?: number };
-type Why = { field: string; why: string | null; companies: number };
+type Why = { field: string; why: string | null; companies: number; sids?: string | null; symbols?: string[] };
+export const SQL_SYMBOL_OF_SIDS = "SELECT security_id, min(value) AS symbol FROM security_identifier WHERE security_id IN (SELECT value FROM json_each(?1)) AND +id_type = 'nse_symbol' GROUP BY security_id";
 export async function fieldReadiness(filings: Sql, market: Sql, sids: number[]) {
   const ids = [JSON.stringify(sids)];
-  const top = (rows: Why[]) => { const m: Record<string, { why: string | null; companies: number }[]> = {}; for (const r of rows) { const a = (m[r.field] ??= []); if (a.length < 3) a.push({ why: r.why, companies: r.companies }); } return m; };
+  const top = (rows: Why[]) => { const m: Record<string, { why: string | null; companies: number; symbols?: string[] }[]> = {}; for (const r of rows) { const a = (m[r.field] ??= []); if (a.length < 3) a.push({ why: r.why, companies: r.companies, ...(r.symbols ? { symbols: r.symbols } : {}) }); } return m; };
+  // owner #388 follow-up: name the companies behind each feature-table reason (first ≈ 20)
+  const fvWhy = await filings.all<Why>(SQL_FV_REASONS, ids);
+  const sidList = [...new Set(fvWhy.flatMap((r) => (r.sids ?? "").split(",").filter((x) => /^\d+$/.test(x)).map(Number)))];
+  const sym = new Map<number, string>();
+  for (let i = 0; i < sidList.length; i += 400) for (const r of await market.all<{ security_id: number; symbol: string }>(SQL_SYMBOL_OF_SIDS, [JSON.stringify(sidList.slice(i, i + 400))])) sym.set(r.security_id, r.symbol);
+  for (const r of fvWhy) r.symbols = (r.sids ?? "").split(",").filter((x) => /^\d+$/.test(x)).map((x) => sym.get(Number(x)) ?? x);
   const join = (cov: Cov[], why: Why[]) => { const t = top(why); return cov.map((c) => ({ ...c, missing_top: t[c.field] ?? [] })); };
   return {
     focus_companies: sids.length,
-    feature_value: join(await filings.all<Cov>(SQL_FV_COVERAGE, ids), await filings.all<Why>(SQL_FV_REASONS, ids)),
+    feature_value: join(await filings.all<Cov>(SQL_FV_COVERAGE, ids), fvWhy),
     ownership_feature: join(await filings.all<Cov>(SQL_OWN_COVERAGE, ids), await filings.all<Why>(SQL_OWN_REASONS, ids)),
     event_feature: join(await filings.all<Cov>(SQL_EVT_COVERAGE, ids), await filings.all<Why>(SQL_EVT_REASONS, ids)),
     price_feature: join(await market.all<Cov>(SQL_PRICE_COVERAGE, ids), await market.all<Why>(SQL_PRICE_REASONS, ids)),

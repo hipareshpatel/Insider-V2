@@ -18,7 +18,7 @@ import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS, SQL_LATEST_SHP, SQL
 import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
 import { SQL_FOCUS } from "../../packages/core/src/focus.js";
 import { SQL_TWO_LATEST_SHP_URL } from "../../workers/filings/src/shpcov.js";
-import { SQL_GAP_LINES, SQL_GAP_SHP } from "../../workers/filings/src/readiness.js";
+import { SQL_GAP_LINES, SQL_GAP_SHP, SQL_SYMBOL_OF_SIDS } from "../../workers/filings/src/readiness.js";
 import { SQL_FV_COVERAGE, SQL_FV_REASONS, SQL_OWN_COVERAGE, SQL_EVT_COVERAGE, SQL_PRICE_COVERAGE } from "../../workers/filings/src/readiness.js";
 import { SQL_RESULTS_FIRST, SQL_MEETINGS_FROM, SQL_RATINGS_OF, SQL_SYMBOLS_OF_SID } from "../../workers/filings/src/eventfeatures.js";
 import { SQL_TWO_LATEST_SHP, SQL_SHP_CATEGORIES, SQL_SHP_PLEDGE, SQL_GROUP_PLEDGES } from "../../workers/filings/src/ownership.js";
@@ -114,6 +114,13 @@ const cases: [string, string, unknown[], RegExp][] = [
 ];
 
 const M = schema("market");
+describe("market: symbols of named securities (readiness reasons, read-only)", () => {
+  it("by ix_sid_security", () => {
+    const p = plan(M, SQL_SYMBOL_OF_SIDS, ['[1,2]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_sid_security \(security_id=\?/.test(l)), p.join("\n")).toBe(true);
+  });
+});
 describe("market: field readiness, price features (owner #384, read-only)", () => {
   it("price_feature by primary key", () => {
     const p = plan(M, SQL_PRICE_COVERAGE, ['[1,2]']);
