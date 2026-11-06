@@ -74,7 +74,8 @@ export async function fieldReadiness(filings: Sql, market: Sql, sids: number[]) 
   const sidList = [...new Set(fvWhy.flatMap((r) => (r.sids ?? "").split(",").filter((x) => /^\d+$/.test(x)).map(Number)))];
   const sym = new Map<number, string>();
   for (let i = 0; i < sidList.length; i += 400) for (const r of await market.all<{ security_id: number; symbol: string }>(SQL_SYMBOL_OF_SIDS, [JSON.stringify(sidList.slice(i, i + 400))])) sym.set(r.security_id, r.symbol);
-  for (const r of fvWhy) r.symbols = (r.sids ?? "").split(",").filter((x) => /^\d+$/.test(x)).map((x) => sym.get(Number(x)) ?? x);
+  // sids is cut at 160 characters in SQL: a cut list's last id may be a prefix ("1" of "1547") — drop it (log #405)
+  for (const r of fvWhy) { const ids = (r.sids ?? "").split(","); if ((r.sids ?? "").length >= 160) ids.pop(); r.symbols = ids.filter((x) => /^\d+$/.test(x)).map((x) => sym.get(Number(x)) ?? x); }
   const join = (cov: Cov[], why: Why[]) => { const t = top(why); return cov.map((c) => ({ ...c, missing_top: t[c.field] ?? [] })); };
   return {
     focus_companies: sids.length,
