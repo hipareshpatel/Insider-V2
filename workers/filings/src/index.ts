@@ -5,7 +5,8 @@ import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS, isPitAnnouncement } from "./events.js";
-import { shpCoverage, promoterGroups, shpPromoterPass, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
+import { shpCoverage, promoterGroups, shpPromoterPass, shpPromoterHistory, storeGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
+import type { Sql } from "@disclo/core";
 import { ratingCoverage } from "./ratingcov.js";
 import { readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
@@ -13,6 +14,15 @@ import { caLists } from "./calists.js";
 import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; WRITE_SOFT_CAP?: string; WRITE_HARD_CAP?: string; WRITE_CAP_MONTH?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string; STATUS_TOKEN?: string; DAILY_READ_CAP?: string }
+
+/** D40 inputs: the focus companies (one symbol each), their names, and their latest filings' named holders. */
+async function groupInputs(filings: Sql, market: Sql, focus: string[]) {
+  const ids = await market.all<{ security_id: number; symbol: string }>("SELECT security_id, min(value) AS symbol FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) GROUP BY security_id", [JSON.stringify(focus)]);
+  const sym = new Map(ids.map((r) => [r.security_id, r.symbol]));
+  const names = new Map((await market.all<{ security_id: number; name: string }>("SELECT security_id, name FROM security WHERE security_id IN (SELECT value FROM json_each(?1))", [JSON.stringify([...sym.keys()])])).map((r) => [r.security_id, r.name]));
+  const rows = await filings.all<{ security_id: number; category: string; holder_name: string; pct: string | null; promoter: number | null }>(SQL_PROMOTER_HOLDERS, [JSON.stringify([...sym.keys()])]);
+  return { sym, names, rows };
+}
 
 /** D155 (owner #316): load filings only for the focus indices' companies (default Nifty 50 + Next 50 + Midcap 150); "ALL" = everyone. */
 export async function focusSymbols(market: D1Database, spec = FOCUS_DEFAULT, meter?: D1Meter): Promise<string[] | undefined> {
@@ -84,6 +94,15 @@ export default {
           // does not skip the other)
           await step("features", () => featuresStep(ldeps, sids, 10));
           await step("valuations", () => valuationsStep(ldeps, sids, 50)); // D171: P/E, P/B, EV/EBITDA on the latest close, once per trading day
+          // D40: promoter groups stored once per IST day (≈ 15 k holder rows read; writes only changed companies)
+          await step("groups", async () => {
+            const day = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+            if ((await ldeps.filings.all("SELECT 1 FROM daily_refresh WHERE day=?1 AND slot='groups'", [day])).length) return null;
+            const g = await groupInputs(ldeps.filings, market, focus);
+            const r = await storeGroups(ldeps.filings, g.rows, g.sym, g.names, new Date());
+            await ldeps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES (?1,'groups',?2,?3) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [day, new Date().toISOString(), JSON.stringify(r)]);
+            return r;
+          });
         }
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
@@ -122,6 +141,11 @@ export default {
       else if (name === "fy_reread") r = await fyReread(ldeps, (new URL(req.url).searchParams.get("jobs") ?? "").split(",").map(Number));
       else if (name === "version_fix") r = await versionFix(ldeps, { dry: new URL(req.url).searchParams.get("dry") === "1" });
       // D40 (owner yes, 6 Nov): promoter flag of each focus company's latest shareholding filing, from its stored file
+      else if (name === "shp_promoter_history") {
+        const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
+        r = await shpPromoterHistory(db, ldeps.getText, sids, new Date(), COVERAGE_FLOOR, 25, new URL(req.url).searchParams.get("restart") === "1");
+      }
+      else if (name === "groups") { const g = await groupInputs(db, mk, focus ?? []); r = { ...(await storeGroups(db, g.rows, g.sym, g.names, new Date())), done: true }; }
       else if (name === "shp_promoter") {
         const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
         r = await shpPromoterPass(db, ldeps.getText, sids, new Date(), 25, new URL(req.url).searchParams.get("restart") === "1");

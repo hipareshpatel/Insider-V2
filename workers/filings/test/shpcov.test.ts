@@ -59,3 +59,20 @@ describe("D40: a sliver held by a group entity does not chain groups", () => {
     expect(promoterGroups(rows, new Map([[1, "TCS"], [2, "TATAMOTORS"], [3, "OTHER"]]))).toEqual([{ companies: ["TATAMOTORS", "TCS"], shared_entities: ["TATA SONS PRIVATE LIMITED"] }]);
   });
 });
+
+describe("D40: stored group rows", () => {
+  it("each grouped company gets the group's most-shared entity as its name", async () => {
+    const { groupRows } = await import("../src/shpcov.js");
+    const rows = [
+      { security_id: 1, category: "holder:x", holder_name: "Tata Sons Private Limited", pct: "0.72", promoter: 1 },
+      { security_id: 2, category: "holder:x", holder_name: "Tata Sons Private Limited", pct: "0.44", promoter: 1 },
+      { security_id: 3, category: "holder:x", holder_name: "Tata Sons Private Limited", pct: "0.30", promoter: 1 },
+      { security_id: 3, category: "holder:x", holder_name: "Tata Steel Limited", pct: "0.05", promoter: 1 },
+      { security_id: 2, category: "holder:x", holder_name: "Tata Steel Limited", pct: "0.05", promoter: 1 },
+    ];
+    const g = groupRows(rows, new Map([[1, "TCS"], [2, "TATAMOTORS"], [3, "TATAINVEST"], [4, "INFY"]]));
+    expect(g.map((r) => r.sid).sort()).toEqual([1, 2, 3]);
+    expect(new Set(g.map((r) => r.name))).toEqual(new Set(["TATA SONS PRIVATE LIMITED"]));
+    expect(g[0]!.members).toEqual(["TATAINVEST", "TATAMOTORS", "TCS"]);
+  });
+});
