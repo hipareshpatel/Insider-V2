@@ -53,9 +53,9 @@ describe("field catalogue §3: surveillance, F&O ban, price band, deals", () => 
     // a session before the window does not count
     expect(dealsCoverage([...ledger, { source: "bulk", d: 20260801, rows: -1, note: null }], asOf)).toBeNull();
   });
-  it("no symbol: every field null with the reason; sector return null (no sector index mapped)", () => {
+  it("no symbol: every field null with the reason (the sector return is a price feature now)", () => {
     const r = structureFeatures({ ...base, symbol: null });
-    expect(r.filter((f) => f.field !== "ret_vs_sector_3m").every((f) => f.value === null && f.reason === "no NSE symbol valid on 2026-11-05")).toBe(true);
-    expect(get({})("ret_vs_sector_3m")).toMatchObject({ value: null, reason: expect.stringMatching(/^no sector index mapped/) });
+    expect(r.every((f) => f.value === null && f.reason === "no NSE symbol valid on 2026-11-05")).toBe(true);
+    expect(r.some((f) => f.field === "ret_vs_sector_3m")).toBe(false);
   });
 });

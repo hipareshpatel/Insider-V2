@@ -3,7 +3,7 @@
 // Surveillance / F&O ban / price band / deals come from the stored market-structure tables (index or key ranges only).
 import {
   type Sql, FOCUS_DEFAULT, SQL_FOCUS, batchAll, insertRows, priceFeatures, structureFeatures, dealsCoverage, dealsWindowFrom, dividendYieldTtm,
-  type DealRow, type LedgerDay, type Session,
+  type DealRow, type LedgerDay, type Session, type SectorInput, sectorIndexNames,
 } from "@disclo/core";
 
 export const SQL_LAST_LOADED = "SELECT max(trade_date) AS d FROM trading_calendar WHERE is_session = 1 AND universe_rows IS NOT NULL";
@@ -11,6 +11,12 @@ export const SQL_FOCUS_SIDS = "SELECT DISTINCT security_id FROM security_identif
 export const SQL_SESSIONS = "SELECT d, series, close, volume, turnover_paise FROM price_daily WHERE security_id = ?1 AND d >= ?2 AND d <= ?3 ORDER BY d";
 export const SQL_DELIVERY = "SELECT d, series, deliverable_qty FROM delivery_daily WHERE security_id = ?1 AND d >= ?2 AND d <= ?3";
 export const SQL_NIFTY = "SELECT d, close FROM index_daily WHERE index_name IN ('Nifty 50', 'NIFTY 50') AND d >= ?1 AND d <= ?2 ORDER BY d";
+// return vs the sector index (G5), once per step: the sectoral closes over the 3-month window (primary-key range per
+// name), the stored sectoral constituent memberships, and the batch's latest stored sectors (latest as_of wins)
+export const SQL_SECTOR_CLOSES = "SELECT index_name, d, close FROM index_daily WHERE index_name IN (SELECT value FROM json_each(?1)) AND d >= ?2 AND d <= ?3 ORDER BY index_name, d";
+export const SQL_SECTORAL_MEMBERS = "SELECT index_name, security_id FROM index_membership WHERE index_name IN (SELECT value FROM json_each(?1)) AND valid_to IS NULL";
+export const SQL_SECTORS_OF = "SELECT security_id, sector FROM classification WHERE security_id IN (SELECT value FROM json_each(?1)) ORDER BY security_id, as_of";
+export const SECTOR_WINDOW_DAYS = 110; // 3 months back plus room for a holiday run before the base date
 export const SQL_APPLIED_FACTORS = "SELECT ex_date, factor FROM adj_factor WHERE security_id = ?1 AND status IN ('auto','confirmed')";
 // §4 dividend yield: dividends of one security over a window (amount set also on combined actions, e.g. bonus + dividend)
 export const SQL_LAST_SPLIT_BONUS = "SELECT max(ex_date) AS d FROM corp_action WHERE security_id = ?1 AND type IN ('split','bonus','consolidation') AND status <> 'rejected'";
@@ -53,9 +59,28 @@ async function securityStructure(m: Sql, sid: number, day: string, ctx: Structur
   return structureFeatures({ asOf: day, symbol, ledger: ctx.ledger, surveillance, banned: ctx.banned.has(symbol), bands, deals });
 }
 
+/** Step-level sector inputs (G5): three reads per step, never per company. Closes keyed by upper-cased index name, one
+ *  close per day (both spellings of a name may be stored for a day). */
+export async function sectorContext(m: Sql, day: string, sids: readonly number[]): Promise<(sid: number) => SectorInput> {
+  const names = JSON.stringify(sectorIndexNames());
+  const d0 = new Date(`${day}T00:00:00Z`); d0.setUTCDate(d0.getUTCDate() - SECTOR_WINDOW_DAYS);
+  const byName = new Map<string, Map<string, number>>();
+  for (const r of await m.all<{ index_name: string; d: number; close: string }>(SQL_SECTOR_CLOSES, [names, dn(d0.toISOString().slice(0, 10)), dn(day)])) {
+    const k = r.index_name.toUpperCase(), iso = `${String(r.d).slice(0, 4)}-${String(r.d).slice(4, 6)}-${String(r.d).slice(6, 8)}`;
+    if (!byName.has(k)) byName.set(k, new Map());
+    byName.get(k)!.set(iso, Number(r.close));
+  }
+  const closes = new Map([...byName].map(([k, v]) => [k, [...v].sort((a, b) => a[0].localeCompare(b[0])).map(([date, close]) => ({ date, close }))]));
+  const members = new Map<number, string[]>();
+  for (const r of await m.all<{ index_name: string; security_id: number }>(SQL_SECTORAL_MEMBERS, [names])) members.set(r.security_id, [...members.get(r.security_id) ?? [], r.index_name]);
+  const sector = new Map<number, string | null>();
+  if (sids.length) for (const r of await m.all<{ security_id: number; sector: string | null }>(SQL_SECTORS_OF, [JSON.stringify(sids)])) sector.set(r.security_id, r.sector);
+  return (sid) => ({ sector: sector.has(sid) ? sector.get(sid)! : undefined, members: members.get(sid) ?? [], closes });
+}
+
 /** One security: features as of `day` (ISO). Returns rows offered. */
 const shiftYear = (iso: string) => `${Number(iso.slice(0, 4)) - 1}${iso.slice(4)}`;
-export async function securityPriceFeatures(m: Sql, sid: number, day: string, now: Date, nifty?: { date: string; close: number }[], structure?: StructureCtx): Promise<number> {
+export async function securityPriceFeatures(m: Sql, sid: number, day: string, now: Date, nifty?: { date: string; close: number }[], structure?: StructureCtx, sector?: SectorInput): Promise<number> {
   const to = Number(day.replace(/-/g, "")), d0 = new Date(`${day}T00:00:00Z`); d0.setUTCDate(d0.getUTCDate() - 400);
   const rows = await m.all<{ d: number; series: string; close: number; volume: number; turnover_paise: number | null }>(SQL_SESSIONS, [sid, Number(d0.toISOString().slice(0, 10).replace(/-/g, "")), to]);
   const byDay = new Map<number, (typeof rows)[number]>();
@@ -65,7 +90,7 @@ export async function securityPriceFeatures(m: Sql, sid: number, day: string, no
   const sessions: Session[] = [...byDay.values()].sort((a, b) => a.d - b.d).map((r) => ({
     date: `${String(r.d).slice(0, 4)}-${String(r.d).slice(4, 6)}-${String(r.d).slice(6, 8)}`, close: r.close / 100, volume: r.volume, turnoverRs: r.turnover_paise == null ? null : r.turnover_paise / 100, deliverableQty: dl.get(`${r.d}|${r.series}`) ?? null }));
   const factors = (await m.all<{ ex_date: string; factor: string }>(SQL_APPLIED_FACTORS, [sid])).map((f) => ({ exDate: f.ex_date, factor: Number(f.factor) }));
-  const { asOf, rows: out } = priceFeatures(sessions, factors, nifty);
+  const { asOf, rows: out } = priceFeatures(sessions, factors, nifty, sector);
   if (!asOf) return 0;
   const divs = (await m.all<{ ex_date: string; amount: string }>(SQL_DIVIDENDS, [sid, shiftYear(asOf), asOf])).map((x) => ({ exDate: x.ex_date, amount: x.amount }));
   const dy = dividendYieldTtm(asOf, sessions[sessions.length - 1]!.close, divs, factors);
@@ -105,7 +130,8 @@ export async function priceFeaturesStep(m: Sql, now: Date, limit = 50, spec = FO
     .map((r) => ({ date: `${String(r.d).slice(0, 4)}-${String(r.d).slice(4, 6)}-${String(r.d).slice(6, 8)}`, close: Number(r.close) }));
   // one close per day (both spellings of the index name may be stored for a day)
   const niftyByDay = [...new Map(nifty.map((x) => [x.date, x])).values()];
-  for (const sid of sids) rows += await securityPriceFeatures(m, sid, day, now, niftyByDay, structure);
+  const sectorOf = await sectorContext(m, day, sids);
+  for (const sid of sids) rows += await securityPriceFeatures(m, sid, day, now, niftyByDay, structure, sectorOf(sid));
   const done = sids.length < limit;
   await m.run("INSERT INTO kv_state (k, v) VALUES ('price_features', ?) ON CONFLICT (k) DO UPDATE SET v=excluded.v", [JSON.stringify({ day, after: sids.length ? sids[sids.length - 1] : after, done, ready })]);
   return { day, companies: sids.length, rows, done };

@@ -2098,7 +2098,7 @@ Stored in `market.price_feature` (latest value, `as_of` = last session).
 | `close`, `close_raw` | Last close, adjusted / raw |
 | `mcap_cr` | Full market cap (NSE MCAP file, D5) — **not built** as a feature; the site API reads it from `market.shares_daily` |
 | `ret_1w`, `ret_1m`, `ret_3m`, `ret_6m`, `ret_1y`, `ret_ytd` | Price return on adjusted close |
-| `ret_vs_nifty_3m`, `ret_vs_sector_3m` | Relative return; `ret_vs_sector_3m` is always null with its reason (no sector index mapped, G5) |
+| `ret_vs_nifty_3m`, `ret_vs_sector_3m` | Relative return (percentage points, same 3-month base date and as-of session). `ret_vs_sector_3m` (G5): vs a stored sectoral index constituent membership if any (none stored today: snapshots hold broad indices only), else vs the NIFTY sectoral index of the company's stored NSE sector (`SECTOR_INDEX`, e.g. Information Technology → Nifty IT, Power → Nifty Energy), closes from `index_daily` (ind_close_all); `ret_vs_sector_3m_inputs` names the index and the basis. Null with its reason for sectors without an NSE sectoral index (Capital Goods, Construction, Construction Materials, Consumer Services, Telecommunication, Services, Textiles, Diversified, Forest Materials), Unclassified, or missing closes |
 | `pct_from_52w_high`, `pct_from_52w_low` | On adjusted prices (NSE's own 52w data is unadjusted, never used) |
 | `dma_50`, `dma_200`, `above_dma_200` | Moving averages / flag |
 | `rsi_14`, `volatility_1y` | Standard definitions, documented |
