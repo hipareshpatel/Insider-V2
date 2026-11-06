@@ -1108,6 +1108,14 @@ describe("item 7 / G11: credit-rating company-name fallback, ambiguity and link 
     expect(ratingLink({ symbol: "NOTLISTED", isin: "INE530B08144", company: "IIFL Finance Limited" }, fi)).toMatchObject({ symbol: "", via: null, reason: expect.stringMatching(/^no focus company/) });
     expect(ratingSymbol({ symbol: "", isin: "INE651A08041", company: "State Bank Of India" }, fi)).toBe("SBIN");
   });
+  it("an old and a new symbol of one security (rename) are not ambiguous: the first symbol read keeps the link (log #398)", () => {
+    const fi = buildFocusIssuers([
+      { symbol: "L&TFH", isin: "INE498L01015", name: "L&T FINANCE LIMITED" }, { symbol: "LTF", isin: "INE498L01015", name: "L&T FINANCE LIMITED" },
+      { symbol: "ICICIPRULI", isin: "INE726G01019", name: "ICICI PRUDENTIAL LIFE INSURANCE COMPANY LIMITED" },
+      { symbol: "ICICILIFE", isin: "INE726G01019", name: "ICICI PRUDENTIAL LIFE INSURANCE COMPANY LIMITED" }]);
+    expect(ratingLink({ symbol: "NOTLISTED", isin: "INE498L07AB1", company: "L&T Finance Limited" }, fi)).toEqual({ symbol: "L&TFH", via: "isin_issuer", reason: null });
+    expect(ratingLink({ symbol: "", isin: "ZZZ000Z00000", company: "ICICI Prudential Life Insurance Company Ltd" }, fi)).toEqual({ symbol: "ICICIPRULI", via: "name", reason: null });
+  });
   it("an issuer code shared by two focus symbols links neither by the code", () => {
     const two = buildFocusIssuers([{ symbol: "OMEGA", isin: "INE333Z01010", name: "OMEGA LIMITED" }, { symbol: "OMEGADVR", isin: "INE333Z01028", name: "OMEGA DVR" }]);
     const r = ratingLink({ symbol: "", isin: "INE333Z08011", company: "Some Trust" }, two);
