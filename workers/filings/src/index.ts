@@ -630,15 +630,24 @@ export default {
       // Read-only diagnosis: every stored insider-trade (PIT) list for one company — request, status, rows, date range.
       const sym = new URL(req.url).searchParams.get("symbol") ?? "";
       const jobs = (await env.DB_FILINGS.prepare(sym === "ALL" ? "SELECT job_id, url, r2_key, status, http_status, fetched_at, bytes FROM fetch_job WHERE kind='pit' AND symbol IS NULL ORDER BY job_id" : "SELECT job_id, url, r2_key, status, http_status, fetched_at, bytes FROM fetch_job WHERE kind='pit' AND symbol=?1 ORDER BY job_id").bind(...(sym === "ALL" ? [] : [sym])).all<{ job_id: number; url: string; r2_key: string; status: string; http_status: number | null; fetched_at: string | null; bytes: number | null }>()).results;
+      const focusSet = new Set(sym === "ALL" ? (await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES)) ?? [] : []);
       const out = [];
       for (const j of jobs.slice(0, 20)) {
         const text = j.status === "done" ? await getText(env.RAW, j.r2_key) : null;
         let rows = null as number | null, min = null as string | null, max = null as string | null, err = null as string | null;
+        let inFocus = null as number | null, top = null as [string, number][] | null;
         if (text) try {
           const r = parsePit(text); rows = r.length;
           const ds = r.map((t) => t.disclosedAt).filter((x): x is string => !!x).sort(); min = ds[0] ?? null; max = ds[ds.length - 1] ?? null;
+          // all-company lists (6 Nov insider gap): how many rows are the 250's, and which symbols carry the most rows
+          if (sym === "ALL") {
+            const n = new Map<string, number>();
+            for (const t of r) n.set(t.symbol!, (n.get(t.symbol!) ?? 0) + 1);
+            inFocus = r.filter((t) => focusSet.has(t.symbol!)).length;
+            top = [...n].filter(([k]) => focusSet.has(k)).sort((a, b) => b[1] - a[1]).slice(0, 8);
+          }
         } catch (e) { err = String(e).slice(0, 80); }
-        out.push({ job: j.job_id, url: j.url.replace(/^https:\/\/[^/]+\/api\//, ""), status: j.status, http: j.http_status, fetched_at: j.fetched_at, bytes: j.bytes, rows, disclosed_min: min, disclosed_max: max, err });
+        out.push({ job: j.job_id, url: j.url.replace(/^https:\/\/[^/]+\/api\//, ""), status: j.status, http: j.http_status, fetched_at: j.fetched_at, bytes: j.bytes, rows, disclosed_min: min, disclosed_max: max, err, ...(sym === "ALL" ? { in_focus: inFocus, top_focus: top } : {}) });
       }
       return Response.json(out, { headers: { "cache-control": "no-store" } });
     }
