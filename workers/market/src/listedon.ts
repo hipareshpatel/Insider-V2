@@ -18,9 +18,9 @@ export const SQL_IDS_BY_SYMBOL = "SELECT security_id, value FROM security_identi
 /** Stored listing dates of the matched securities (primary key). */
 export const SQL_LISTED_CUR = "SELECT security_id, listed_on FROM security WHERE security_id IN (SELECT value FROM json_each(?1))";
 /** Set the date of changed rows only (?1 = [[security_id, date], …]); the IS NOT guard keeps a re-sent row a no-op. */
-export const SQL_SET_LISTED = `UPDATE security SET listed_on = (SELECT json_extract(value, '$[1]') FROM json_each(?1) WHERE json_extract(value, '$[0]') = security.security_id)
-  WHERE security_id IN (SELECT json_extract(value, '$[0]') FROM json_each(?1))
-    AND listed_on IS NOT (SELECT json_extract(value, '$[1]') FROM json_each(?1) WHERE json_extract(value, '$[0]') = security.security_id)`;
+export const SQL_SET_LISTED = `UPDATE security SET listed_on = j.d
+  FROM (SELECT json_extract(value, '$[0]') AS sid, json_extract(value, '$[1]') AS d FROM json_each(?1)) AS j
+  WHERE security.security_id = j.sid AND security.listed_on IS NOT j.d`;
 
 export type ListedOnResult = { file: string; rows: number; dated: number; matched: number; by_isin: number; by_symbol: number; unmatched: number;
   ambiguous: number; unchanged: number; changed: number; filled: number; corrected: number; unmatched_sample: string[]; done: boolean; missing?: true };
