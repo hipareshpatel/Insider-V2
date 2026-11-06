@@ -10,7 +10,7 @@ import type { Sql } from "@disclo/core";
 import { ownershipStep } from "./ownership.js";
 import { eventStep } from "./eventfeatures.js";
 import { ratingCoverage } from "./ratingcov.js";
-import { fieldReadiness, readiness } from "./readiness.js";
+import { fieldReadiness, gapCensus, readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
 import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
@@ -310,6 +310,13 @@ export default {
       const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
       const sids = [...new Set((await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(focus ?? [])).all<{ security_id: number }>()).results.map((r) => r.security_id))].sort((a, b) => a - b);
       return Response.json({ total: sids.length, offset, ...(await pledgeCensus(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), sids.slice(offset, offset + limit))) }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/gap-census") {
+      // log #385/#386 (read-only): what is stored where owners' profit, NCI or promoter holding is missing
+      const u = new URL(req.url), period = u.searchParams.get("period") ?? "2026-09-30", offset = Math.max(0, Number(u.searchParams.get("offset") ?? 0)), limit = Math.min(125, Math.max(1, Number(u.searchParams.get("limit") ?? 125)));
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      const ids = (await env.DB_MARKET.prepare("SELECT security_id, min(value) AS symbol FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) GROUP BY security_id ORDER BY security_id").bind(JSON.stringify(focus ?? [])).all<{ security_id: number; symbol: string }>()).results;
+      return Response.json(await gapCensus(d1Sql(env.DB_FILINGS), ids.slice(offset, offset + limit).map((r) => ({ sid: r.security_id, symbol: r.symbol })), period), { headers: { "cache-control": "no-store" } });
     }
     if (path === "/readiness-fields") {
       // owner #384 (read-only): every computed field across the 250 — with a value, latest period with a value, top reasons

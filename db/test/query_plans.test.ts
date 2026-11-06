@@ -18,6 +18,7 @@ import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS, SQL_LATEST_SHP, SQL
 import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
 import { SQL_FOCUS } from "../../packages/core/src/focus.js";
 import { SQL_TWO_LATEST_SHP_URL } from "../../workers/filings/src/shpcov.js";
+import { SQL_GAP_LINES, SQL_GAP_SHP } from "../../workers/filings/src/readiness.js";
 import { SQL_FV_COVERAGE, SQL_FV_REASONS, SQL_OWN_COVERAGE, SQL_EVT_COVERAGE, SQL_PRICE_COVERAGE } from "../../workers/filings/src/readiness.js";
 import { SQL_RESULTS_FIRST, SQL_MEETINGS_FROM, SQL_RATINGS_OF, SQL_SYMBOLS_OF_SID } from "../../workers/filings/src/eventfeatures.js";
 import { SQL_TWO_LATEST_SHP, SQL_SHP_CATEGORIES, SQL_SHP_PLEDGE, SQL_GROUP_PLEDGES } from "../../workers/filings/src/ownership.js";
@@ -74,6 +75,8 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: results board meetings of one company from today (§13, daily)", SQL_MEETINGS_FROM, ['["INFY"]', 20261106], /SEARCH board_meeting USING INDEX ix_board_meeting_symbol \(symbol=\? AND meeting_d>\?\)/],
   ["filings: credit ratings of one company (§12, daily)", SQL_RATINGS_OF, ['["INFY"]'], /SEARCH credit_rating USING INDEX ix_credit_rating_symbol \(symbol=\? AND rated_on>\?\)/],
   ["filings: two latest shareholding filings with their stored pledge (defect 2, one-off)", SQL_TWO_LATEST_SHP_URL, [1], /SEARCH f USING (COVERING )?INDEX ix_filing_sec \(security_id=\? AND kind=\?\)/],
+  ["filings: one company's lines at one quarter end (gap census, read-only)", SQL_GAP_LINES, [1, "2026-09-30"], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\? AND period_end=\?\)/],
+  ["filings: latest shareholding categories of one company (gap census, read-only)", SQL_GAP_SHP, [1], /SEARCH f USING (COVERING )?INDEX ix_filing_sec \(security_id=\? AND kind=\?/],
   ["filings: field readiness, feature table (owner #384, read-only)", SQL_FV_COVERAGE, ['[1,2]'], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\?\)/],
   ["filings: field readiness, feature-table reasons (read-only)", SQL_FV_REASONS, ['[1,2]'], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\?\)/],
   ["filings: field readiness, ownership fields (read-only)", SQL_OWN_COVERAGE, ['[1,2]'], /SEARCH ownership_feature USING PRIMARY KEY \(security_id=\?\)/],

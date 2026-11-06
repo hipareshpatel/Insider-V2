@@ -75,3 +75,21 @@ export async function fieldReadiness(filings: Sql, market: Sql, sids: number[]) 
     price_feature: join(await market.all<Cov>(SQL_PRICE_COVERAGE, ids), await market.all<Why>(SQL_PRICE_REASONS, ids)),
   };
 }
+
+// Readiness defects 3–4 and the 13 without promoter holding (log #385/#386): read-only census of what is stored for
+// the affected companies at one quarter end, to decide each fix from evidence (D134).
+export const SQL_GAP_LINES = `SELECT statement, line FROM fin_value INDEXED BY ix_fin_value_period
+  WHERE security_id = ?1 AND period_end = ?2 AND +basis = 'consolidated' AND +dims = '' AND +statement IN ('pl','bs') GROUP BY statement, line`;
+export const SQL_GAP_SHP = "SELECT f.period_end, s.category FROM filing f JOIN shareholding s ON s.filing_id = f.filing_id AND s.holder_name = '' WHERE f.security_id = ?1 AND f.kind = 'shareholding' AND f.period_end = (SELECT max(period_end) FROM filing WHERE security_id = ?1 AND kind = 'shareholding')";
+export async function gapCensus(db: Sql, sids: { sid: number; symbol: string }[], period: string) {
+  const owners: { symbol: string; lines: string[] }[] = [], nci: { symbol: string; bs_lines: number; minority_interest: boolean; has_owners_equity: boolean }[] = [], promoter: { symbol: string; as_of: string | null; categories: string[] }[] = [];
+  for (const c of sids) {
+    const rows = await db.all<{ statement: string; line: string }>(SQL_GAP_LINES, [c.sid, period]);
+    const pl = rows.filter((r) => r.statement === "pl").map((r) => r.line), bs = rows.filter((r) => r.statement === "bs").map((r) => r.line);
+    if (pl.includes("pat") && !pl.includes("pat_owners") && !pl.includes("pat_after_minority")) owners.push({ symbol: c.symbol, lines: pl.filter((l) => !/^(revenue|other_income|total_income|total_expenses|materials|purchases|inventory|employee|finance|depreciation|other_expenses)/.test(l)).slice(0, 30) });
+    if (bs.length && !bs.includes("x:NonControllingInterest")) nci.push({ symbol: c.symbol, bs_lines: bs.length, minority_interest: bs.includes("minority_interest"), has_owners_equity: bs.includes("equity_owners") || bs.includes("x:EquityAttributableToOwnersOfParent") });
+    const sh = await db.all<{ period_end: string; category: string }>(SQL_GAP_SHP, [c.sid]);
+    if (!sh.some((r) => r.category === "promoter")) promoter.push({ symbol: c.symbol, as_of: sh[0]?.period_end ?? null, categories: [...new Set(sh.map((r) => r.category))] });
+  }
+  return { period, companies: sids.length, owners_missing: owners, nci_missing: nci, promoter_missing: promoter };
+}
