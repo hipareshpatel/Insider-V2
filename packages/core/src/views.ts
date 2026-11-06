@@ -156,7 +156,8 @@ const ownersLine = (layout: string) => (layout === "bank" ? "pat_after_minority"
 
 /** D171: every feature-table value of one company on one basis, from its filed quarters (`periods` with kind Q) and its
  *  balance sheets (`balanceSheets`, by date). `layout` as chosen by chooseLayout. Pure: the caller stores the rows. */
-export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string): FeatureRow[] {
+/** `cashFlows`: full-year cash-flow lines by year end (period kind FY), for capex and free cash flow. */
+export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string, cashFlows: Map<string, Record<string, string | null | undefined>> = new Map()): FeatureRow[] {
   const qs = periods.filter((p) => p.periodKind === QUARTER_KIND && p.basis === basis).sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
   const by = new Map(qs.map((q) => [q.periodEnd, q]));
   const out: FeatureRow[] = [];
@@ -205,8 +206,19 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       if (layout === "industrial") {
         put("roce", e, roce(ebitTtm(e), bsStart ?? null, bsEnd));
         put("debt_to_equity", e, debtToEquity(bsEnd, eq(bsEnd), e));
+        // field catalogue §7: working capital days on TTM revenue / TTM cost of goods (materials + purchases of stock
+        // in trade + change in inventories; a quarter needs materials or purchases filed), and CWIP as filed
+        const cogs = cogsTtm(qs, e, basis);
+        for (const w of workingCapital(bsEnd, rT, cogs, e)) put(w.field, e, w.view);
+        put("cwip", e, bsEnd["x:CapitalWorkInProgress"] != null ? ok(dec(bsEnd["x:CapitalWorkInProgress"]!), [`balance sheet ${e}`]) : no(`balance sheet ${e}: capital work in progress not filed`));
       } else { put("roce", e, no(`ROCE is not used for ${layout}`)); put("debt_to_equity", e, no(`debt to equity is not used for ${layout}`)); }
     }
+  }
+  // field catalogue §6/§7: capex and free cash flow for each filed full year (cash flow is filed year to date)
+  if (layout === "industrial") for (const [end, cf] of cashFlows) {
+    const capex = cf["x:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"], cfo = cf.cfo;
+    put("capex_fy", end, capex != null ? ok(abs(dec(capex)), [`cash flow FY to ${end}`]) : no(`cash flow FY to ${end}: purchase of property, plant and equipment not filed`));
+    put("fcf_fy", end, capex != null && cfo != null ? ok(sub(dec(cfo), abs(dec(capex))), [`cash flow FY to ${end}`]) : no(`cash flow FY to ${end}: operating cash flow or capex not filed`));
   }
   if (qs.length) put("layout", "latest", { value: layout, from: [] });
   return out;
@@ -228,6 +240,38 @@ export function debtToEquity(b: Record<string, string | null | undefined>, owner
   if (owners == null) return no(`balance sheet ${date}: equity to owners not filed`);
   if (dec(owners).units <= 0n) return no(`balance sheet ${date}: equity to owners is zero or negative`);
   return ok(div(add(dec(b["x:BorrowingsNoncurrent"]!), dec(b["x:BorrowingsCurrent"]!)), dec(owners), 2), [`balance sheet ${date}`]);
+}
+
+const abs = (d: Dec) => (d.units < 0n ? sub(dec("0"), d) : d);
+
+/** TTM cost of goods: four filed quarters of materials + purchases of stock in trade + change in inventories. */
+export function cogsTtm(qs: FiledPeriod[], end: string, basis: string): View {
+  const by = new Map(qs.filter((q) => q.basis === basis && q.periodKind === "Q").map((q) => [q.periodEnd, q]));
+  let s = dec("0"); const from: string[] = []; let k = end;
+  for (let i = 0; i < 4; i++) {
+    const q = by.get(k);
+    if (!q || (q.lines.materials == null && q.lines.purchases_stock_in_trade == null)) return no(`quarter ${k} (${basis}): materials or purchases of stock in trade must be filed`);
+    for (const l of ["materials", "purchases_stock_in_trade", "inventory_change"]) if (q.lines[l] != null) s = add(s, dec(q.lines[l]!));
+    from.push(k); k = previousQuarterEnd(k);
+  }
+  return ok(s, from.reverse());
+}
+
+/** Receivable, inventory and payable days and working-capital days at a balance-sheet date (365-day year, 1 place). */
+export function workingCapital(b: Record<string, string | null | undefined>, revenueTtm: View, cogs: View, date: string): { field: string; view: View }[] {
+  const line = (k: string, what: string): View => (b[k] != null ? ok(dec(b[k]!), [`balance sheet ${date}`]) : no(`balance sheet ${date}: ${what} not filed`));
+  const days = (x: View, base: View, what: string): View => {
+    if (x.value === null) return x;
+    if (base.value === null) return base;
+    if (dec(base.value).units <= 0n) return no(`${what}: TTM base is zero or negative`);
+    return ok(div(mul(dec(x.value), dec("365")), dec(base.value), 1), [...new Set([...x.from, ...base.from])]);
+  };
+  const rec = days(line("x:TradeReceivablesCurrent", "trade receivables"), revenueTtm, "receivable days");
+  const inv = days(line("x:Inventories", "inventories"), cogs, "inventory days");
+  const pay = days(line("x:TradePayablesCurrent", "trade payables"), cogs, "payable days");
+  const wc: View = rec.value === null ? rec : inv.value === null ? inv : pay.value === null ? pay
+    : ok(sub(add(dec(rec.value), dec(inv.value)), dec(pay.value)), [...new Set([...rec.from, ...inv.from, ...pay.from])]);
+  return [{ field: "receivable_days", view: rec }, { field: "inventory_days", view: inv }, { field: "payable_days", view: pay }, { field: "working_capital_days", view: wc }];
 }
 
 /** Net debt for EV (industrial only): borrowings (current + non-current) − cash and cash equivalents − other bank
