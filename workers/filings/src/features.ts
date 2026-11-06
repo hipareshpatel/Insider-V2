@@ -10,6 +10,7 @@ export const FEATURE_READ_FROM = "2021-03-31";
 export const FEATURE_STORE_FROM = "2024-01-01";
 const BS_LINES = ["x:EquityAttributableToOwnersOfParent", "x:Equity", "x:ShareholdersFunds", "x:ShareCapital", "x:ReservesAndSurplus", "x:ShareApplicationMoneyReceivedPendingAllotmentOfShares", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "equity_owners", "total_equity", "capital", "reserves", "total_assets", "x:Assets", // §6 ROA
   "advances", "deposits", "investments", "cash_rbi", "balances_banks", // bank pack
+  "x:Loans", "x:Investments", "x:DebtSecurities", "x:Borrowings", "x:Deposits", "x:SubordinatedLiabilities", "x:FinancialLiabilities", // NBFC pack (Division III)
   "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents", "x:NonControllingInterest", "x:MinorityInterest", "minority_interest",
   "x:TradeReceivablesCurrent", "x:Inventories", "x:TradePayablesCurrent", "x:CapitalWorkInProgress", // §7 working capital, CWIP
   "x:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities", "cfo"]; // §6/§7 capex, free cash flow (statement cf)
