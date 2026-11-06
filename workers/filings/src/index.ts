@@ -4,7 +4,7 @@ import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, insurerResultsLines, bankResultsLines, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
-import { tagProbe } from "./tagprobe.js";
+import { govProbe, tagProbe } from "./tagprobe.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS, isPitAnnouncement } from "./events.js";
 import { shpCoverage, pledgeCensus, pledgeDeclaredPass, promoterGroups, shpPromoterPass, shpPromoterHistory, storeGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
 import type { Sql } from "@disclo/core";
@@ -577,6 +577,12 @@ export default {
           pl_revenue_cr: pl.filter((r) => r.period_kind === k).map((r) => Number(r.value) / 1e7)[0] ?? null };
       });
       return Response.json({ symbol: sym, sid, period, basis, periods_stored: periods, kinds }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/gov-probe") {
+      // Read-only (G8, log #409): the structure of ≤ 4 stored governance XBRL files by job id; no identifier, no names
+      const ids = (new URL(req.url).searchParams.get("jobs") ?? "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 4);
+      if (!ids.length) return Response.json({ error: "jobs=a,b" }, { status: 400 });
+      return Response.json(await govProbe(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), ids), { headers: { "cache-control": "no-store" } });
     }
     if (path === "/tags") {
       // Read-only (G2, log #407): tags matching ?grep= in one company's latest ≤ 4 stored results files, with values

@@ -259,6 +259,9 @@ describe("/tags (G2, read-only)", async () => {
   const t = await import("../../workers/filings/src/tagprobe.js");
   it("one company's latest results files by symbol and kind", () => {
     expect(plan(F, t.SQL_TAG_FILES, ["BAJFINANCE", '["xbrl_results_quarterly"]', 2]).some((l) => /SEARCH fetch_job USING INDEX ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/.test(l))).toBe(true);
+    const g = plan(F, t.SQL_GOV_JOBS, ["[32002,32003]"]);
+    expect(g.some((l) => /SEARCH fetch_job USING INTEGER PRIMARY KEY/.test(l))).toBe(true);
+    expect(g.some((l) => /SCAN fetch_job|TEMP B-TREE/.test(l))).toBe(false);
   });
 });
 
