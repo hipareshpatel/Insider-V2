@@ -2,7 +2,7 @@
 // security's last ≈ 400 days of closes (primary-key range) and its applied factors; writes only values that changed.
 // Surveillance / F&O ban / price band / deals come from the stored market-structure tables (index or key ranges only).
 import {
-  type Sql, FOCUS_DEFAULT, SQL_FOCUS, batchAll, insertRows, priceFeatures, structureFeatures, dealsCoverage, dealsWindowFrom,
+  type Sql, FOCUS_DEFAULT, SQL_FOCUS, batchAll, insertRows, priceFeatures, structureFeatures, dealsCoverage, dealsWindowFrom, dividendYieldTtm,
   type DealRow, type LedgerDay, type Session,
 } from "@disclo/core";
 
@@ -12,6 +12,8 @@ export const SQL_SESSIONS = "SELECT d, series, close, volume, turnover_paise FRO
 export const SQL_DELIVERY = "SELECT d, series, deliverable_qty FROM delivery_daily WHERE security_id = ?1 AND d >= ?2 AND d <= ?3";
 export const SQL_NIFTY = "SELECT d, close FROM index_daily WHERE index_name IN ('Nifty 50', 'NIFTY 50') AND d >= ?1 AND d <= ?2 ORDER BY d";
 export const SQL_APPLIED_FACTORS = "SELECT ex_date, factor FROM adj_factor WHERE security_id = ?1 AND status IN ('auto','confirmed')";
+// §4 dividend yield: dividends of one security over a window (amount set also on combined actions, e.g. bonus + dividend)
+export const SQL_DIVIDENDS = "SELECT ex_date, amount FROM corp_action WHERE security_id = ?1 AND ex_date > ?2 AND ex_date <= ?3 AND amount IS NOT NULL AND status <> 'rejected'";
 // market structure: once per step (the as-of session's ledger and ban list), then per security (its symbols' rows)
 export const SQL_LEDGER_DAY = "SELECT source, d, rows, note FROM ms_day WHERE source IN ('fo_ban','price_band','surveillance') AND d = ?1";
 export const SQL_LEDGER_DEALS = "SELECT source, d, rows, note FROM ms_day WHERE source IN ('bulk','block') AND d >= ?1 AND d <= ?2";
@@ -51,6 +53,7 @@ async function securityStructure(m: Sql, sid: number, day: string, ctx: Structur
 }
 
 /** One security: features as of `day` (ISO). Returns rows offered. */
+const shiftYear = (iso: string) => `${Number(iso.slice(0, 4)) - 1}${iso.slice(4)}`;
 export async function securityPriceFeatures(m: Sql, sid: number, day: string, now: Date, nifty?: { date: string; close: number }[], structure?: StructureCtx): Promise<number> {
   const to = Number(day.replace(/-/g, "")), d0 = new Date(`${day}T00:00:00Z`); d0.setUTCDate(d0.getUTCDate() - 400);
   const rows = await m.all<{ d: number; series: string; close: number; volume: number; turnover_paise: number | null }>(SQL_SESSIONS, [sid, Number(d0.toISOString().slice(0, 10).replace(/-/g, "")), to]);
@@ -63,6 +66,9 @@ export async function securityPriceFeatures(m: Sql, sid: number, day: string, no
   const factors = (await m.all<{ ex_date: string; factor: string }>(SQL_APPLIED_FACTORS, [sid])).map((f) => ({ exDate: f.ex_date, factor: Number(f.factor) }));
   const { asOf, rows: out } = priceFeatures(sessions, factors, nifty);
   if (!asOf) return 0;
+  const divs = (await m.all<{ ex_date: string; amount: string }>(SQL_DIVIDENDS, [sid, shiftYear(asOf), asOf])).map((x) => ({ exDate: x.ex_date, amount: x.amount }));
+  const dy = dividendYieldTtm(asOf, sessions[sessions.length - 1]!.close, divs, factors);
+  out.push({ field: "dividend_yield_ttm", value: dy.value, reason: dy.reason });
   const at = now.toISOString();
   // structure flags are as of the last loaded session (`day`), which may be after a suspended stock's last close
   const st = structure ? await securityStructure(m, sid, day, structure) : [];

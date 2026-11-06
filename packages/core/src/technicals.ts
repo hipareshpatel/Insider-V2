@@ -186,3 +186,22 @@ export function structureFeatures(x: StructureInput): PriceFeature[] {
   put("ret_vs_sector_3m", null, "no sector index mapped for this company (stored classification has the broad sector only)");
   return out;
 }
+
+/** Field catalogue §4: dividend yield over the last twelve months, % of the latest unadjusted close. Dividends with an
+ *  ex-date in (asOf − 12 months, asOf] (D7: recorded, never price-adjusted); one paid before a split / bonus inside the
+ *  window is put on today's share basis by the applied factors after it ("multiply prices before ex_date by factor").
+ *  No dividend in the window gives 0 — corporate actions are loaded daily from 2024 (both official sources, D138). */
+export function dividendYieldTtm(asOf: string, closeRaw: number, dividends: readonly { exDate: string; amount: string }[],
+  factors: readonly { exDate: string; factor: number }[]): { value: string | null; reason: string | null; dps: number } {
+  const from = shift(asOf, 0, -12);
+  if (!(closeRaw > 0)) return { value: null, reason: "no close", dps: 0 };
+  let dps = 0;
+  for (const d of dividends) {
+    if (!(d.exDate > from && d.exDate <= asOf)) continue;
+    const amt = d.amount.split("+").reduce((a, x) => a + Number(x), 0);
+    if (!Number.isFinite(amt)) return { value: null, reason: `dividend amount not readable: ex ${d.exDate} "${d.amount}"`, dps: 0 };
+    const k = factors.filter((f) => f.exDate > d.exDate && f.exDate <= asOf).reduce((a, f) => a * f.factor, 1);
+    dps += amt * k;
+  }
+  return { value: r2(dps / closeRaw * 100), reason: null, dps };
+}
