@@ -174,3 +174,75 @@ describe("MCX / ABBOTINDIA: re-queue a focus company's per-company lists (lost a
     expect(await requeueCompanyLists(db, new Date("2026-11-06T11:00:00Z"), ["MCX"], ["MCX"])).toMatchObject({ queued: 0, requeued: 0 });
   });
 });
+
+describe("G19: all-company results lists by month (/maint/results_all_months), focus XBRL only", async () => {
+  const { resultsAllMonths, seedResultsAllMonths } = await import("../src/daily.js");
+  const { discover } = await import("../src/index.js");
+  const now = new Date("2026-11-06T12:00:00Z"); // 17:30 IST, 6 Nov 2026
+  it("bounds: floor 2024-01, current month at most, 15 months per call; the current month ends today", () => {
+    expect(resultsAllMonths("2023-12", "2024-03", now)).toMatch(/2024-01 or later/);
+    expect(resultsAllMonths("2026-10", "2026-12", now)).toMatch(/2026-11 or earlier/);
+    expect(resultsAllMonths("2025-05", "2025-04", now)).toMatch(/from after to/);
+    expect(resultsAllMonths("2024-01", "2025-04", now)).toMatch(/at most 15/);
+    expect(resultsAllMonths("2025-2", "2025-04", now)).toMatch(/YYYY-MM/);
+    const m = resultsAllMonths("2024-01", "2025-03", now) as [string, string][];
+    expect(m).toHaveLength(15);
+    expect(m[1]).toEqual(["2024-02-01", "2024-02-29"]);
+    expect(resultsAllMonths("2026-10", "2026-11", now)).toEqual([["2026-10-01", "2026-10-31"], ["2026-11-01", "2026-11-06"]]);
+  });
+  it("queues one all-company list per month (unique URLs, symbol NULL, per-company kinds); a repeat queues nothing", async () => {
+    const db = sqlite("filings");
+    expect(await seedResultsAllMonths(db, now, "2025-02", "2025-02", "Weekly")).toEqual({ error: "period: Quarterly or Annual" });
+    expect(await seedResultsAllMonths(db, now, "2023-01", "2023-02", "Quarterly")).toHaveProperty("error");
+    expect(await seedResultsAllMonths(db, now, "2025-02", "2025-02", "Quarterly")).toEqual({ months: 1, queued: 1, held: 0 });
+    const [j] = await db.all<{ kind: string; symbol: string | null; url: string; r2_key: string; status: string }>("SELECT kind, symbol, url, r2_key, status FROM fetch_job");
+    expect(j).toEqual({ kind: "results_quarterly", symbol: null, status: "todo", r2_key: "api/results_quarterly/all/2025-02-01_2025-02-28.json",
+      url: "https://www.nseindia.com/api/corporates-financial-results?index=equities&period=Quarterly&from_date=01-02-2025&to_date=28-02-2025" });
+    await db.run("UPDATE fetch_job SET status='done', discovered=1");
+    expect(await seedResultsAllMonths(db, now, "2024-12", "2026-02", "Quarterly")).toEqual({ months: 15, queued: 14, held: 1 });
+    expect(await seedResultsAllMonths(db, now, "2024-12", "2026-02", "Quarterly")).toEqual({ months: 15, queued: 0, held: 15 });
+    expect(await db.all("SELECT status FROM fetch_job WHERE r2_key LIKE '%2025-02-01%'")).toEqual([{ status: "done" }]); // held list untouched
+    expect(await seedResultsAllMonths(db, now, "2025-04", "2025-05", "Annual")).toEqual({ months: 2, queued: 2, held: 0 });
+    expect((await db.all("SELECT 1 FROM fetch_job WHERE kind='results_annual' AND url LIKE '%period=Annual%' AND r2_key LIKE 'api/results_annual/all/%'")).length).toBe(2);
+    expect(await db.all("SELECT slot, detail FROM daily_refresh WHERE day='once' ORDER BY slot")).toEqual([
+      { slot: "results_all_months:Annual:2025-04_2025-05", detail: '{"months":2,"queued":2,"held":0}' },
+      { slot: "results_all_months:Quarterly:2024-12_2026-02", detail: '{"months":15,"queued":0,"held":15}' },
+      { slot: "results_all_months:Quarterly:2025-02_2025-02", detail: '{"months":1,"queued":1,"held":0}' }]);
+  });
+  it("discover(): an all-company list queues the focus companies' XBRL under their row symbol; others and held files skipped", async () => {
+    const db = sqlite("filings");
+    const x = (n: string) => `https://nsearchives.nseindia.com/corporate/xbrl/${n}.xml`;
+    const listKey = "api/results_quarterly/all/2025-02-01_2025-02-28.json";
+    const list = [
+      { symbol: "SBILIFE", period: "Quarterly", toDate: "31-Dec-2024", consolidated: "Non-Consolidated", broadCastDate: "24-Jan-2025 16:10:00", xbrl: x("INS_SBILIFE_SA") },
+      { symbol: "SBILIFE", period: "Quarterly", toDate: "31-Dec-2024", consolidated: "Consolidated", broadCastDate: "24-Jan-2025 16:12:00", xbrl: x("INS_SBILIFE_CONS") },
+      { symbol: "ICICIGI", period: "Quarterly", toDate: "31-Dec-2024", consolidated: "Non-Consolidated", xbrl: x("INS_ICICIGI_SA") },
+      { symbol: "ZZSMALL", period: "Quarterly", toDate: "31-Dec-2024", xbrl: x("ZZ_1") },
+      { symbol: "HDFCLIFE", period: "Quarterly", toDate: "31-Mar-2019", xbrl: x("OLD") },
+    ];
+    await db.run("INSERT INTO fetch_job (job_id, kind, symbol, url, r2_key, status) VALUES (1, 'results_quarterly', NULL, 'https://www.nseindia.com/api/corporates-financial-results?index=equities&period=Quarterly&from_date=01-02-2025&to_date=28-02-2025', ?, 'done')", [listKey]);
+    // ICICIGI's file is already held (e.g. from another list): left as it is
+    await db.run("INSERT INTO fetch_job (job_id, kind, symbol, url, r2_key, parent_id, status, discovered) VALUES (9, 'xbrl_integrated_financials', 'ICICIGI', ?, 'att/xbrl/INS_ICICIGI_SA.xml', 7, 'done', 1)", [x("INS_ICICIGI_SA")]);
+    const raw = { async get(k: string) { return k === listKey ? { customMetadata: {}, text: async () => JSON.stringify(list) } : null; } } as unknown as R2Bucket;
+    // no focus list: the all-company list waits (not discovered, nothing queued)
+    expect(await discover({ RAW: raw }, db, async () => undefined)).toBe(0);
+    expect(await db.all("SELECT discovered FROM fetch_job WHERE job_id=1")).toEqual([{ discovered: 0 }]);
+    let asked = 0;
+    const focus = async () => { asked++; return ["SBILIFE", "ICICIGI", "HDFCLIFE"]; };
+    await discover({ RAW: raw }, db, focus);
+    expect(asked).toBe(1);
+    expect(await db.all("SELECT kind, symbol, url, r2_key, parent_id, status, discovered FROM fetch_job WHERE job_id <> 1 ORDER BY url")).toEqual([
+      { kind: "xbrl_integrated_financials", symbol: "ICICIGI", url: x("INS_ICICIGI_SA"), r2_key: "att/xbrl/INS_ICICIGI_SA.xml", parent_id: 7, status: "done", discovered: 1 },
+      { kind: "xbrl_results_quarterly", symbol: "SBILIFE", url: x("INS_SBILIFE_CONS"), r2_key: "att/xbrl/INS_SBILIFE_CONS.xml", parent_id: 1, status: "todo", discovered: 1 },
+      { kind: "xbrl_results_quarterly", symbol: "SBILIFE", url: x("INS_SBILIFE_SA"), r2_key: "att/xbrl/INS_SBILIFE_SA.xml", parent_id: 1, status: "todo", discovered: 1 },
+    ]);
+    expect(await db.all("SELECT discovered FROM fetch_job WHERE job_id=1")).toEqual([{ discovered: 1 }]);
+    // per-company lists are unchanged: every file, under the list's symbol; the focus list is not asked
+    await db.run("INSERT INTO fetch_job (job_id, kind, symbol, url, r2_key, status) VALUES (2, 'results_quarterly', 'INFY', 'https://www.nseindia.com/api/x', 'k/infy', 'done')");
+    const raw2 = { async get(k: string) { return k === "k/infy" ? { customMetadata: {}, text: async () => JSON.stringify([{ toDate: "31-Dec-2024", xbrl: x("INFY_Q3") }]) } : null; } } as unknown as R2Bucket;
+    asked = 0;
+    expect(await discover({ RAW: raw2 }, db, focus)).toBe(1);
+    expect(asked).toBe(0);
+    expect(await db.all("SELECT symbol, parent_id FROM fetch_job WHERE url=?", [x("INFY_Q3")])).toEqual([{ symbol: "INFY", parent_id: 2 }]);
+  });
+});

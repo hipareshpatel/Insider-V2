@@ -42,7 +42,11 @@ export function ifListSince(param: string | null): string | null | "bad" {
   return /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : "bad";
 }
 /** Keeps a list row when its own period end is on/after `since` (the list's fetch date or any other date never counts). */
-export const ifListKeeps = (r: Record<string, unknown>, since: string | null) => !since || (listRowPeriodEnd(r) ?? "") >= since;
+/** /if-list: one company's own results lists, and the all-company monthly results lists (symbol NULL, G19
+ *  /maint/results_all_months; a few dozen rows), both by ix_fetch_symbol_kind (INDEXED BY: without statistics SQLite took the status index, ~300k 'done' rows). */
+export const SQL_IF_LIST_OWN = "SELECT job_id, kind, url, r2_key, fetched_at FROM fetch_job INDEXED BY ix_fetch_symbol_kind WHERE symbol=?1 AND kind IN ('integrated_financials','results_quarterly','results_annual') AND status='done' ORDER BY job_id";
+export const SQL_IF_LIST_ALL = "SELECT job_id, kind, url, r2_key, fetched_at FROM fetch_job INDEXED BY ix_fetch_symbol_kind WHERE symbol IS NULL AND kind IN ('results_quarterly','results_annual') AND status='done' ORDER BY job_id";
+export const ifListKeeps =(r: Record<string, unknown>, since: string | null) => !since || (listRowPeriodEnd(r) ?? "") >= since;
 /** (quarter end, basis) pairs on NSE's own results lists for one company, from the stored lists (quarterly results only). */
 export function nseListed(listJsons: string[]): Set<string> {
   const out = new Set<string>();
