@@ -4,7 +4,7 @@ import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
-import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS, isPitAnnouncement } from "./events.js";
+import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_INSIDER_ROWS, cleanStoredInsider, type StoredInsiderRow, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS, isPitAnnouncement } from "./events.js";
 import { shpCoverage, promoterGroups, shpPromoterPass, shpPromoterHistory, storeGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
 import type { Sql } from "@disclo/core";
 import { ratingCoverage } from "./ratingcov.js";
@@ -609,6 +609,20 @@ export default {
         out.push({ job: j.job_id, url: j.url.replace(/^https:\/\/[^/]+\/api\//, ""), status: j.status, http: j.http_status, bytes: j.bytes, ...info });
       }
       return Response.json(out, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/insider-clean") {
+      // C53b (read-only): one company's stored insider trades through the cleaning rules (kind, side, role, holding check, flags,
+      // copies and replaced filings with a counted reason). ?symbol= (required), &from=YYYY-MM-DD (default 2026-01-01), &limit= (default 2000,
+      // max 5000), &rows=N (trades returned, default 25: market trades first, then held-back rows). Nothing is written or corrected.
+      const q = new URL(req.url).searchParams, symbol = (q.get("symbol") ?? "").toUpperCase(), from = q.get("from") ?? "2026-01-01";
+      if (!/^[A-Z0-9&-]{1,20}$/.test(symbol) || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return Response.json({ error: "?symbol=INFY (required) and &from=YYYY-MM-DD" }, { status: 400, headers: { "cache-control": "no-store" } });
+      const limit = Math.min(Math.max(Number(q.get("limit") ?? 2000) || 2000, 1), 5000), show = Math.min(Math.max(Number(q.get("rows") ?? 25) || 25, 0), 200);
+      const stored = (await env.DB_FILINGS.prepare(SQL_INSIDER_ROWS).bind(symbol, Number(from.replace(/-/g, "")), limit).all<StoredInsiderRow>()).results;
+      const res = cleanStoredInsider(stored, new Date().toISOString().slice(0, 10));
+      const rank = (t: (typeof res.trades)[number]) => (t.isMarket && !t.needsReview ? 0 : t.needsReview ? 1 : 2);
+      return Response.json({ symbol, from, stored_rows: stored.length, hit_limit: stored.length >= limit, counts: res.counts, removed: res.removed.slice(0, 50),
+        trades: [...res.trades].sort((a, b) => rank(a) - rank(b) || (b.disclosedAt ?? "").localeCompare(a.disclosedAt ?? "")).slice(0, show),
+        not_applied: ["revision marker rule (prevAppId / typeOfSubmission are not stored in insider_trade; a prevAppId revision is applied at load)", "price-range and market-cap checks (need the price and market-cap layers)", "Reg 7(2) deadlines (no trading-session list is passed)", "NSE/BSE copy linking (BSE insider data is not collected)"] }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/pit-files") {
       // Read-only diagnosis: every stored insider-trade (PIT) list for one company — request, status, rows, date range.
