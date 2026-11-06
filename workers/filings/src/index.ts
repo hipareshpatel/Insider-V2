@@ -10,7 +10,7 @@ import type { Sql } from "@disclo/core";
 import { ownershipStep } from "./ownership.js";
 import { eventStep } from "./eventfeatures.js";
 import { ratingCoverage } from "./ratingcov.js";
-import { fieldReadiness, gapCensus, readiness } from "./readiness.js";
+import { fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
 import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
@@ -310,6 +310,11 @@ export default {
       const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
       const sids = [...new Set((await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(focus ?? [])).all<{ security_id: number }>()).results.map((r) => r.security_id))].sort((a, b) => a - b);
       return Response.json({ total: sids.length, offset, ...(await pledgeCensus(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), sids.slice(offset, offset + limit))) }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/link-audit") {
+      // owner #388 (read-only): rows in symbol-keyed tables whose symbol links to no company
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      return Response.json(await linkAudit(d1Sql(env.DB_FILINGS), d1Sql(env.DB_MARKET), focus ?? []), { headers: { "cache-control": "no-store" } });
     }
     if (path === "/gap-census") {
       // log #385/#386 (read-only): what is stored where owners' profit, NCI or promoter holding is missing
