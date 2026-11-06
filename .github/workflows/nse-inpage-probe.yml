@@ -5,6 +5,11 @@ name: nse-inpage-probe
 # (PIT) filing list and up to a few of its XBRL files, and writes nothing to R2 or D1. If NSE refuses both routes the tool
 # stops at once (exit 2) and tries nothing else. Logs of a public repo are public: the tool prints counts and statuses only.
 on:
+  # TEMPORARY (6 Nov): manual dispatch is unavailable until this file is on the default branch, so the probe also runs once
+  # when this file is pushed to the PR branch. Remove the push trigger once the first result is read.
+  push:
+    branches: [ccr-e03ed666-9h1ii2]
+    paths: [".github/workflows/nse-inpage-probe.yml"]
   workflow_dispatch:
     inputs:
       max_xml: { description: "how many XBRL files to fetch after the list", default: "5" }
@@ -22,7 +27,7 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install playwright && python -m playwright install --with-deps chromium
       - name: Fetch (plain first, in-page if refused)
-        run: python3 tools/nse_pit_fetch.py out --max-xml "${{ github.event.inputs.max_xml }}"
+        run: python3 tools/nse_pit_fetch.py out --max-xml "${{ github.event.inputs.max_xml || '5' }}"
       - name: Keep the exact bytes (manifest + files)
         if: always()
         uses: actions/upload-artifact@v4
