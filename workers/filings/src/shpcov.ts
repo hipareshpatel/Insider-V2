@@ -108,11 +108,74 @@ export function promoterGroups(rows: { security_id: number; category: string; ho
     .sort((a, b) => b.companies.length - a.companies.length);
 }
 
+/** D40 stored groups: each grouped company with its group's name — the promoter entity shared by most of the group's
+ *  companies (ties: alphabetical) — the member symbols and the linking entities. */
+export function groupRows(rows: Parameters<typeof promoterGroups>[0], symbol: Map<number, string>, names?: Map<number, string>) {
+  const bySym = new Map([...symbol].map(([sid, sym]) => [sym, sid]));
+  const out: { sid: number; name: string; members: string[]; entities: string[] }[] = [];
+  for (const g of promoterGroups(rows, symbol, names)) {
+    const sids = g.companies.map((c) => bySym.get(c)!);
+    const reach = (e: string) => rows.filter((r) => sids.includes(r.security_id) && holderKey(r.holder_name) === e && r.promoter !== 0).length;
+    const all = promoterGroups(rows.filter((r) => sids.includes(r.security_id)), symbol, names)[0]?.shared_entities ?? g.shared_entities;
+    const name = [...all].sort((a, b) => reach(b) - reach(a) || a.localeCompare(b))[0] ?? g.companies[0]!;
+    for (const sid of sids) out.push({ sid, name, members: g.companies, entities: g.shared_entities });
+  }
+  return out;
+}
+
 /** D40 one-off (owner yes, 6 Nov): fill shareholding.promoter for each focus company's latest shareholding filing from
  *  its stored file (R2). Updates only named-holder rows whose flag differs; nothing deleted. Cursor: daily_refresh. */
 export const SQL_LATEST_SHP = "SELECT filing_id, source_url FROM filing WHERE security_id = ?1 AND kind = 'shareholding' ORDER BY period_end DESC LIMIT 1";
 export const SQL_JOB_BY_URL = "SELECT r2_key FROM fetch_job WHERE url = ?1";
 export const SQL_SET_PROMOTER = "UPDATE shareholding SET promoter = ?1 WHERE filing_id = ?2 AND category = ?3 AND holder_name = ?4 AND promoter IS NOT ?1";
+/** Older filings (owner yes, 6 Nov): every shareholding filing of a focus company from the floor, skipping files
+ *  whose named holders are already flagged. */
+export const SQL_SHP_FILINGS_FROM = "SELECT filing_id, source_url FROM filing WHERE security_id = ?1 AND kind = 'shareholding' AND period_end >= ?2 ORDER BY period_end";
+export const SQL_SHP_UNFLAGGED = "SELECT 1 FROM shareholding WHERE filing_id = ?1 AND category LIKE 'holder:%' AND promoter IS NULL LIMIT 1";
+export async function shpPromoterHistory(db: Sql, getText: (k: string) => Promise<string | null>, sids: number[], now: Date, floor: string, maxFiles = 25, restart = false) {
+  const [st] = restart ? [] : await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='shp_promoter_history'");
+  const cur = st ? JSON.parse(st.detail) as { after: number; files: number; skipped: number; missing: number } : { after: 0, files: 0, skipped: 0, missing: 0 };
+  let read = 0, done = true;
+  for (const sid of [...sids].sort((a, b) => a - b).filter((x) => x > cur.after)) {
+    const fs = await db.all<{ filing_id: number; source_url: string }>(SQL_SHP_FILINGS_FROM, [sid, floor]);
+    const todo = [];
+    for (const f of fs) { if ((await db.all(SQL_SHP_UNFLAGGED, [f.filing_id])).length) todo.push(f); else cur.skipped++; }
+    if (read + todo.length > maxFiles && read > 0) { done = false; break; } // whole companies per call
+    for (const f of todo) {
+      read++;
+      const [j] = await db.all<{ r2_key: string }>(SQL_JOB_BY_URL, [f.source_url]);
+      const xml = j ? await getText(j.r2_key) : null;
+      if (!xml) { cur.missing++; continue; }
+      let holders;
+      try { holders = parseShareholding(parseXbrl(xml), { totalOverride: 1 }).namedHolders; } catch { cur.missing++; continue; }
+      const seen = new Set<string>(), stmts = [];
+      for (const h of holders) { const k = `${h.group}|${h.name}`; if (seen.has(k)) continue; seen.add(k); stmts.push({ sql: SQL_SET_PROMOTER, params: [h.promoter ? 1 : 0, f.filing_id, `holder:${h.group}`, h.name] }); }
+      for (let i = 0; i < stmts.length; i += 50) await db.batch(stmts.slice(i, i + 50));
+      cur.files++;
+    }
+    cur.after = sid;
+  }
+  await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','shp_promoter_history',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [now.toISOString(), JSON.stringify(cur)]);
+  return { ...cur, read, done };
+}
+
+/** D40 stored groups (owner yes, 6 Nov): company_group rewritten once per IST day from the latest filings' flags; a
+ *  company that leaves its group keeps its row with group_name NULL (nothing deleted). */
+export const SQL_GROUP_UPSERT = `INSERT INTO company_group (security_id, group_name, members, entities, computed_at) VALUES (?1, ?2, ?3, ?4, ?5)
+  ON CONFLICT (security_id) DO UPDATE SET group_name = excluded.group_name, members = excluded.members, entities = excluded.entities, computed_at = excluded.computed_at
+  WHERE company_group.group_name IS NOT excluded.group_name OR company_group.members IS NOT excluded.members OR company_group.entities IS NOT excluded.entities`;
+export async function storeGroups(db: Sql, rows: Parameters<typeof promoterGroups>[0], symbol: Map<number, string>, names: Map<number, string>, now: Date) {
+  const g = new Map(groupRows(rows, symbol, names).map((r) => [r.sid, r]));
+  const at = now.toISOString(), stmts = [];
+  for (const sid of symbol.keys()) {
+    const r = g.get(sid);
+    stmts.push({ sql: SQL_GROUP_UPSERT, params: [sid, r?.name ?? null, JSON.stringify(r?.members ?? []), JSON.stringify(r?.entities ?? []), at] });
+  }
+  let n = 0;
+  for (let i = 0; i < stmts.length; i += 50) n += await db.batch(stmts.slice(i, i + 50));
+  return { companies: symbol.size, grouped: g.size, groups: new Set([...g.values()].map((r) => r.name)).size, rows_changed: n };
+}
+
 export async function shpPromoterPass(db: Sql, getText: (k: string) => Promise<string | null>, sids: number[], now: Date, limit = 25, restart = false) {
   const [st] = restart ? [] : await db.all<{ detail: string }>("SELECT detail FROM daily_refresh WHERE day='once' AND slot='shp_promoter'");
   const cur = st ? JSON.parse(st.detail) as { after: number; files: number; promoters: number; missing: number } : { after: 0, files: 0, promoters: 0, missing: 0 };

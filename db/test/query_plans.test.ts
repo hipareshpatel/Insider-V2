@@ -14,7 +14,7 @@ import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED,
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
-import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS, SQL_LATEST_SHP, SQL_JOB_BY_URL, SQL_SET_PROMOTER } from "../../workers/filings/src/shpcov.js";
+import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS, SQL_LATEST_SHP, SQL_JOB_BY_URL, SQL_SET_PROMOTER, SQL_SHP_FILINGS_FROM, SQL_SHP_UNFLAGGED } from "../../workers/filings/src/shpcov.js";
 import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
 import { SQL_FOCUS } from "../../packages/core/src/focus.js";
 
@@ -87,6 +87,8 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: download of one file by URL (D40 one-off)", SQL_JOB_BY_URL, ["u"], /sqlite_autoindex_fetch_job_1 \(url=\?\)/],
   ["filings: promoter flag of one named holder (D40 one-off)", SQL_SET_PROMOTER, [1, 1, "holder:x", "y"], /USING (PRIMARY KEY|INDEX sqlite_autoindex_shareholding_1) \(filing_id=\? AND category=\? AND holder_name=\?\)/],
   ["filings: stored announcement lists of one month (option 3, read-only)", SQL_ANNOUNCE_LISTS, ["announcements", "api/announcements/2026-01/", "api/announcements/2026-01/~"], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
+  ["filings: shareholding filings of one company from the floor (D40 history)", SQL_SHP_FILINGS_FROM, [1, "2024-01-01"], /ix_filing_sec \(security_id=\? AND kind=\? AND period_end>\?\)/],
+  ["filings: unflagged named holder in one filing (D40 history)", SQL_SHP_UNFLAGGED, [1], /USING (PRIMARY KEY|INDEX sqlite_autoindex_shareholding_1) \(filing_id=\?/],
   ["filings: remark pass lists (manual, bounded)", SQL_REMARK_LISTS, ["integrated_financials", 0, 10], /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
 ];
 
