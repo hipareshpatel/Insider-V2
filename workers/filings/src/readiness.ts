@@ -41,3 +41,37 @@ export async function readiness(db: Sql, companies: { sid: number; symbols: stri
   const features = !withFeatures ? [] : await db.all<{ field: string; companies: number; with_value: number; unavailable: number }>(SQL_FEATURE_COVERAGE, [JSON.stringify(companies.map((c) => c.sid))]);
   return { companies: companies.length, floor, statements_and_filings: { ...fin, ...sym }, missing_sample: missing, features };
 }
+
+// Field-level readiness (owner #384): every computed field across the focus companies, from the four tables that hold
+// them — feature_value (filings; per period and basis), ownership_feature and event_feature (filings; one current row
+// per company), price_feature (market; one current row per company). Read-only, one call (≈ 200 k rows read).
+export const SQL_FV_COVERAGE = `SELECT field, count(DISTINCT security_id) AS companies,
+  count(DISTINCT CASE WHEN value IS NOT NULL THEN security_id END) AS with_value,
+  count(DISTINCT CASE WHEN rn = 1 AND value IS NOT NULL THEN security_id END) AS latest_with_value
+  FROM (SELECT security_id, field, value, row_number() OVER (PARTITION BY security_id, basis, field ORDER BY period_end DESC) AS rn
+        FROM feature_value WHERE security_id IN (SELECT value FROM json_each(?1)) AND basis IN ('consolidated','standalone'))
+  GROUP BY field ORDER BY field`;
+export const SQL_FV_REASONS = `SELECT field, substr(reason, 1, 48) AS why, count(DISTINCT security_id) AS companies
+  FROM (SELECT security_id, field, value, reason, row_number() OVER (PARTITION BY security_id, basis, field ORDER BY period_end DESC) AS rn
+        FROM feature_value WHERE security_id IN (SELECT value FROM json_each(?1)) AND basis IN ('consolidated','standalone'))
+  WHERE rn = 1 AND value IS NULL GROUP BY field, why ORDER BY field, companies DESC`;
+const current = (t: string) => `SELECT field, count(*) AS companies, sum(value IS NOT NULL) AS with_value FROM ${t} WHERE security_id IN (SELECT value FROM json_each(?1)) GROUP BY field ORDER BY field`;
+const reasons = (t: string) => `SELECT field, substr(reason, 1, 48) AS why, count(*) AS companies FROM ${t} WHERE security_id IN (SELECT value FROM json_each(?1)) AND value IS NULL GROUP BY field, why ORDER BY field, companies DESC`;
+export const SQL_OWN_COVERAGE = current("ownership_feature"), SQL_OWN_REASONS = reasons("ownership_feature");
+export const SQL_EVT_COVERAGE = current("event_feature"), SQL_EVT_REASONS = reasons("event_feature");
+export const SQL_PRICE_COVERAGE = current("price_feature"), SQL_PRICE_REASONS = reasons("price_feature");
+
+type Cov = { field: string; companies: number; with_value: number; latest_with_value?: number };
+type Why = { field: string; why: string | null; companies: number };
+export async function fieldReadiness(filings: Sql, market: Sql, sids: number[]) {
+  const ids = [JSON.stringify(sids)];
+  const top = (rows: Why[]) => { const m: Record<string, { why: string | null; companies: number }[]> = {}; for (const r of rows) { const a = (m[r.field] ??= []); if (a.length < 3) a.push({ why: r.why, companies: r.companies }); } return m; };
+  const join = (cov: Cov[], why: Why[]) => { const t = top(why); return cov.map((c) => ({ ...c, missing_top: t[c.field] ?? [] })); };
+  return {
+    focus_companies: sids.length,
+    feature_value: join(await filings.all<Cov>(SQL_FV_COVERAGE, ids), await filings.all<Why>(SQL_FV_REASONS, ids)),
+    ownership_feature: join(await filings.all<Cov>(SQL_OWN_COVERAGE, ids), await filings.all<Why>(SQL_OWN_REASONS, ids)),
+    event_feature: join(await filings.all<Cov>(SQL_EVT_COVERAGE, ids), await filings.all<Why>(SQL_EVT_REASONS, ids)),
+    price_feature: join(await market.all<Cov>(SQL_PRICE_COVERAGE, ids), await market.all<Why>(SQL_PRICE_REASONS, ids)),
+  };
+}

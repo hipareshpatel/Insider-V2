@@ -10,7 +10,7 @@ import type { Sql } from "@disclo/core";
 import { ownershipStep } from "./ownership.js";
 import { eventStep } from "./eventfeatures.js";
 import { ratingCoverage } from "./ratingcov.js";
-import { readiness } from "./readiness.js";
+import { fieldReadiness, readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
 import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
@@ -299,6 +299,12 @@ export default {
         out[sym] = { security_id: sid, symbols: allSyms, gaps: detail, stored_pl: stored };
       }
       return Response.json(out, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/readiness-fields") {
+      // owner #384 (read-only): every computed field across the 250 — with a value, latest period with a value, top reasons
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      const sids = [...new Set((await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(focus ?? [])).all<{ security_id: number }>()).results.map((r) => r.security_id))];
+      return Response.json(await fieldReadiness(d1Sql(env.DB_FILINGS), d1Sql(env.DB_MARKET), sids), { headers: { "cache-control": "no-store" } });
     }
     if (path === "/readiness") {
       // D123 / D152 data-readiness map (read-only): companies of the 250 with each data area from the D168 floor, and
