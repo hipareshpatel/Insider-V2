@@ -412,9 +412,41 @@ describe("insurer pack (owner #389, Part 2 G3: IRDAI lines as filed)", () => {
     expect(g("expenses_of_management_ratio_computed_q").value).toBe("11.39");
     expect(g("gross_premium_yoy_q").reason).toMatch(/2025-09-30.*gross_premium/);
   });
+  it("filed ratios (G3 follow-up): SBILIFE Q2 FY27 as filed — fractions not rescaled, NPAs summed over the five funds, reasons when absent", () => {
+    const npa = Object.fromEntries(["nonlinked_par", "nonlinked_nonpar", "linked_par", "linked_nonpar", "shareholders"].flatMap((f) => [[`npa_gross_${f}`, "0"], [`npa_net_${f}`, "0"]]));
+    const sbi = { periodEnd: "2026-09-30", periodKind: "Q", basis: "standalone", lines: { gross_premium: "271151274000", expenses_of_management: "30874746000",
+      expenses_of_management_ratio_filed: "0.1139", persistency_13m: "0.8582", persistency_25m: "0.7775", persistency_37m: "0.7122", persistency_49m: "0.6885",
+      persistency_61m: "0.5801", conservation_ratio: "0.8171", investment_income_shareholders: "3558307000", ...npa, npa_gross_linked_par: "12500000", pat: "5492318000" } as Record<string, string | undefined> };
+    const r = insurerFeatures([sbi], new Map(), "standalone", "life_insurance");
+    const g = (f: string) => r.find((x) => x.field === f && x.periodEnd === "2026-09-30")!;
+    expect(g("expenses_of_management_ratio_filed_q")).toMatchObject({ value: "0.1139", inputs: ["2026-09-30"] });
+    expect(g("expenses_of_management_ratio_computed_q").value).toBe("11.39"); // the same ratio in %: 30,874.746 ÷ 2,71,151.274
+    expect(g("persistency_13m_filed_q").value).toBe("0.8582");
+    expect(g("persistency_25m_filed_q").value).toBe("0.7775");
+    expect(g("persistency_37m_filed_q").value).toBe("0.7122");
+    expect(g("persistency_49m_filed_q").value).toBe("0.6885");
+    expect(g("persistency_61m_filed_q").value).toBe("0.5801");
+    expect(g("conservation_ratio_filed_q").value).toBe("0.8171");
+    expect(g("investments_gross_npa_filed_q").value).toBe("12500000");  // 0 + 0 + 1.25 ₹ cr + 0 + 0 (hand-made: SBILIFE files 0)
+    expect(g("investments_net_npa_filed_q").value).toBe("0");
+    expect(g("investment_income_shareholders_ttm").reason).toMatch(/2026-06-30.*investment_income_shareholders/); // one quarter only
+    const four = ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"].map((e) => ({ ...sbi, periodEnd: e }));
+    expect(insurerFeatures(four, new Map(), "standalone", "life_insurance").find((x) => x.field === "investment_income_shareholders_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("14233228000"); // 4 × 3,558.307 ₹ m
+    // general-insurer filed ratios are not offered for a life insurer; solvency is never offered
+    for (const f of ["claims_ratio_filed_q", "combined_ratio_filed_q", "net_retention_ratio_filed_q", "solvency_ratio_filed_q"]) expect(r.some((x) => x.field === f)).toBe(false);
+    expect(unique(r)).toBe(true);
+    // absent: a reason, never a number
+    const gap = insurerFeatures([{ ...sbi, lines: { ...sbi.lines, persistency_13m: undefined, npa_net_shareholders: undefined } }], new Map(), "standalone", "life_insurance");
+    const h = (f: string) => gap.find((x) => x.field === f)!;
+    expect(h("persistency_13m_filed_q")).toMatchObject({ value: null, reason: "quarter 2026-09-30 (standalone) has no filed persistency_13m", inputs: [] });
+    expect(h("investments_net_npa_filed_q")).toMatchObject({ value: null, reason: expect.stringMatching(/2026-09-30.*net NPA of investments of every fund/) });
+    expect(h("investments_gross_npa_filed_q").value).toBe("12500000");
+  });
   // general: GODIGIT Q1 FY27 standalone as filed (₹), repeated over four quarters; the year-ago quarter's gross premium 2,500 ₹ cr
   const digit = { gross_premium: "27308600000", net_premium: "20941900000", premium_earned: "20069600000", claims_incurred: "14718700000", commission: "6151200000",
-    operating_expenses: "2019800000", underwriting_result: "-2820100000", investment_income_policyholders: "3518300000", investment_income_shareholders: "682300000", pat: "863900000" };
+    operating_expenses: "2019800000", underwriting_result: "-2820100000", investment_income_policyholders: "3518300000", investment_income_shareholders: "682300000", pat: "863900000",
+    claims_ratio_filed: "0.733", combined_ratio_filed: "1.123", expenses_of_management_ratio_filed: "0.39", net_retention_ratio_filed: "0.767",
+    npa_gross_policyholders: "0", npa_net_policyholders: "0" };
   const gi = ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30"].map((e, i) => ({ periodEnd: e, periodKind: "Q", basis: "standalone",
     lines: { ...digit, ...(i === 0 ? { gross_premium: "25000000000" } : {}) } as Record<string, string | undefined> }));
   // ICICIGI Sep 2026 standalone B-BS lines (filed), placed at the GI test's quarter end; a year before: hand-made
@@ -443,7 +475,14 @@ describe("insurer pack (owner #389, Part 2 G3: IRDAI lines as filed)", () => {
     expect(g("shareholders_funds_yoy").value).toBe("17.65");           // 18,823.34 vs 499.61 + 15,000 + 500 ₹ cr
     expect(g("investments_total").value).toBe("643316800000");         // = ICICIGI's filed "Investments"
     expect(g("investments_yoy").value).toBe("16.97");
-    for (const f of ["new_business_premium_q", "expenses_of_management_ratio_computed_q", "solvency_ratio", "vnb", "persistency_13m"]) expect(r.some((x) => x.field === f)).toBe(false);
+    // the company's own ratios as filed (fractions, not rescaled), next to the computed ones in %
+    expect(g("claims_ratio_filed_q")).toMatchObject({ value: "0.733", inputs: ["2026-06-30"] });       // computed 73.34 %
+    expect(g("combined_ratio_filed_q").value).toBe("1.123");                                          // computed 112.36 %
+    expect(g("expenses_of_management_ratio_filed_q").value).toBe("0.39");
+    expect(g("net_retention_ratio_filed_q").value).toBe("0.767");                                     // computed 76.69 %
+    expect(g("investments_gross_npa_filed_q").value).toBe("0");
+    expect(g("investments_net_npa_filed_q").value).toBe("0");
+    for (const f of ["new_business_premium_q", "expenses_of_management_ratio_computed_q", "solvency_ratio", "solvency_ratio_filed_q", "vnb", "persistency_13m", "persistency_13m_filed_q", "conservation_ratio_filed_q"]) expect(r.some((x) => x.field === f)).toBe(false);
     expect(unique(r)).toBe(true);
   });
   it("a missing line or balance sheet gives a reason, never a number", () => {

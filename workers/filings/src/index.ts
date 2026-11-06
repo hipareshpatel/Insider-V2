@@ -2,7 +2,7 @@
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
-import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, insurerResultsLines, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS, isPitAnnouncement } from "./events.js";
 import { shpCoverage, pledgeCensus, pledgeDeclaredPass, promoterGroups, shpPromoterPass, shpPromoterHistory, storeGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
@@ -175,6 +175,8 @@ export default {
       else if (name === "ins_bs") r = await insurerBalanceSheets(ldeps, 40, 20_000); // item 5: insurers' IRDAI balance sheet
       // second run after general insurers got their own groups (B-BS); life rows already stored are left as they are
       else if (name === "ins_bs_gi") r = await insurerBalanceSheets(ldeps, 40, 20_000, "ins_bs_gi");
+      // G3 follow-up: the new insurer results lines (filed ratios, NPAs, life shareholders' investment income), stored files
+      else if (name === "ins_rev") r = await insurerResultsLines(ldeps, 25, 20_000);
       else if (name === "features") r = await buildFeatures(ldeps, 25, new URL(req.url).searchParams.get("restart") === "1"); // D171 feature table
       else if (name === "valuations") {
         // D171: today's valuations again (e.g. after a fix); ?restart=1 resets today's cursor first, then 50 per call
@@ -346,7 +348,7 @@ export default {
       // lists, by month (lists listed / loaded / stored-but-not-listed), with the first 40 missing.
       const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
       const issuers = await focusIssuers(d1Sql(env.DB_MARKET), focus ?? []);
-      return Response.json({ issuers: issuers.size, ...(await ratingCoverage(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), focus ?? [], COVERAGE_FLOOR, issuers)) }, { headers: { "cache-control": "no-store" } });
+      return Response.json({ issuers: issuers.issuer.size, names: issuers.names.size, ...(await ratingCoverage(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), focus ?? [], COVERAGE_FLOOR, issuers)) }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/shp-coverage") {
       // Work list 2.8 (read-only): shareholding filings NSE lists for the focus companies (from the D168 floor) vs those

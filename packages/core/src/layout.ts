@@ -175,7 +175,19 @@ export const PL_LIFE: LayoutNode[] = [
   n("total_expenses_policyholders", "Total expenses (policyholders' account)"),
   n("surplus", "Net surplus / (deficit)"),
   n("transfer_to_shareholders", "Transferred to shareholders' account"),
+  n("investment_income_shareholders", "Income from investments (shareholders' account)"),
   n("pbt", "Profit before tax"), n("tax", "Provision for tax"), n("pat", "Profit after tax"),
+  // filed ratios (fractions as filed: 0.8582 = 85.82 %) and NPAs of investments by fund
+  n("expenses_of_management_ratio_filed", "Expenses of management ratio (filed, fraction)"),
+  n("persistency_13m", "Persistency, 13th month (filed, fraction)"), n("persistency_25m", "Persistency, 25th month (filed, fraction)"),
+  n("persistency_37m", "Persistency, 37th month (filed, fraction)"), n("persistency_49m", "Persistency, 49th month (filed, fraction)"),
+  n("persistency_61m", "Persistency, 61st month (filed, fraction)"), n("conservation_ratio", "Conservation ratio (filed, fraction)"),
+  n("npa_gross_nonlinked_par", "Gross NPA – non-linked participating fund"), n("npa_gross_nonlinked_nonpar", "Gross NPA – non-linked non-participating fund"),
+  n("npa_gross_linked_par", "Gross NPA – linked participating fund"), n("npa_gross_linked_nonpar", "Gross NPA – linked non-participating fund"),
+  n("npa_gross_shareholders", "Gross NPA – shareholders' fund"),
+  n("npa_net_nonlinked_par", "Net NPA – non-linked participating fund"), n("npa_net_nonlinked_nonpar", "Net NPA – non-linked non-participating fund"),
+  n("npa_net_linked_par", "Net NPA – linked participating fund"), n("npa_net_linked_nonpar", "Net NPA – linked non-participating fund"),
+  n("npa_net_shareholders", "Net NPA – shareholders' fund"),
 ];
 /** General insurer (IRDAI revenue account + profit and loss account; canonical keys of GI_TAGS). */
 export const PL_GENERAL: LayoutNode[] = [
@@ -197,6 +209,10 @@ export const PL_GENERAL: LayoutNode[] = [
   n("non_operating_expenses", "Other expenses (non-operating)"),
   n("pbt_before_extraordinary", "Profit before extraordinary items"), n("extraordinary_items", "Extraordinary items"),
   n("pbt", "Profit before tax"), n("tax", "Provision for tax"), n("pat", "Profit after tax"), n("eps_basic", "EPS basic and diluted (₹)"),
+  // filed ratios (fractions as filed: 0.733 = 73.3 %) and NPAs of investments (policyholders' fund)
+  n("claims_ratio_filed", "Incurred claims ratio (filed, fraction)"), n("combined_ratio_filed", "Combined ratio (filed, fraction)"),
+  n("expenses_of_management_ratio_filed", "Expenses of management ratio (filed, fraction)"), n("net_retention_ratio_filed", "Net retention ratio (filed, fraction)"),
+  n("npa_gross_policyholders", "Gross NPA – policyholders' fund"), n("npa_net_policyholders", "Net NPA – policyholders' fund"),
 ];
 
 /** The layout for one company-period, chosen by what was stored (fin_value.template, then the lines themselves):

@@ -9,7 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
 import { SQL_REQUEUE_LISTS } from "../../workers/prefetch/src/daily.js";
-import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, SQL_ORPHAN_RESTATED } from "../../workers/filings/src/load.js";
+import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_FILING_PERIOD_LOADED_PAT, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, SQL_ORPHAN_RESTATED } from "../../workers/filings/src/load.js";
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS } from "../../workers/filings/src/events.js";
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM, SQL_PE_LATEST, SQL_PRIMARY_BASIS_OF, SQL_SECTOR_LATEST } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
@@ -86,6 +86,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: one company's feature-table values (read-only page)", SQL_FEATURES_OF, [1, ""], /SEARCH feature_value USING PRIMARY KEY \(security_id=\?\)/],
   ["filings: one company's stored P&L template (bank / insurer cash-flow pass, item 5)", SQL_SID_TEMPLATE, [1], /ix_fin_value_period \(security_id=\? AND period_end>\?\)/],
   ["filings: one company's filings with a given cash-flow line (D167 b pass)", SQL_CF_TOTALS_FILINGS, [1, "cfo"], /USING (PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\? AND line=\?\)/],
+  ["filings: is this period loaded from this filing (insurer results-lines pass ins_rev, G3)", SQL_FILING_PERIOD_LOADED_PAT, [1, "2026-09-30", "Q", "standalone", 9], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
   ["filings: is this period loaded from this filing (NBFC revenue pass, item 5)", SQL_FILING_PERIOD_LOADED, [1, "2026-09-30", "Q", "consolidated", 9], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
   ["filings: one company's stored segments for one period (D47 live check, read-only)", SQL_SEGMENT_ROWS, [1, "2026-09-30", "consolidated"], /USING (PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\?\)/],
   ["filings: one company's periods with stored segments (D47 live check, read-only)", SQL_SEGMENT_PERIODS, [1], /USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\? AND line=\?\)/],
@@ -151,6 +152,23 @@ describe("market: the focus list (every filings run) starts from the index membe
   });
 });
 
+describe("market: one security's name and ISINs to label how its latest rating was linked (§12, daily; G11)", () => {
+  it("security by primary key, its ISINs by ix_sid_security", async () => {
+    const { SQL_LINK_OF_SID } = await import("../../workers/filings/src/eventfeatures.js");
+    const p = plan(M, SQL_LINK_OF_SID, [1]);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /SEARCH s USING INTEGER PRIMARY KEY \(rowid=\?\)/.test(l)), p.join("\n")).toBe(true);
+    expect(p.some((l) => /ix_sid_security \(security_id=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
+describe("filings: stored credit-rating lists after the relink cursor (maint ratings_relink v4, G11)", () => {
+  it("by the (kind, job_id) range", async () => {
+    const { SQL_RATING_LISTS_AFTER } = await import("../../workers/filings/src/events.js");
+    const p = plan(F, SQL_RATING_LISTS_AFTER, [0, 12]);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
 describe("market: the focus companies' ISINs for the credit-rating issuer match (every filings run, item 7)", () => {
   it("identifiers by symbol (ix_sid_lookup), then that security's ISINs (ix_sid_security)", async () => {
     const { SQL_FOCUS_ISSUERS } = await import("../../workers/filings/src/events.js");
