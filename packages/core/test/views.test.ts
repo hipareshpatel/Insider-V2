@@ -104,6 +104,40 @@ describe("item 6: feature-table values for one company (D171)", () => {
     expect(g("fcf_fy", "2026-03-31").value).toBe("70");
     expect(companyFeatures(qs, bs2, "consolidated", "industrial").find((x) => x.field === "inventory_days")!.reason).toMatch(/materials or purchases/);
   });
+  it("§5 EPS growth with the share-count guard; growth vs the 8 quarters before", () => {
+    // 13 quarters 2023-09 … 2026-09; revenue grows 10 % a year until the last quarter (+30 %: 157.3 vs 121)
+    const ends: string[] = []; let e = "2026-09-30";
+    for (let i = 0; i < 13; i++) { ends.unshift(e); e = previousQuarterEnd(e); }
+    const lines = (i: number, eps: string) => ({ revenue: i === 12 ? "157.3" : ["100", "110", "121"][Math.floor(i / 4)]!, pat: "10", pat_owners: "10", eps_basic: eps });
+    const series = ends.map((en, i) => q(en, lines(i, i >= 4 ? "2" : "1")));
+    const r = companyFeatures(series, new Map(), "consolidated", "industrial");
+    const g = (f: string, en: string) => r.find((x) => x.field === f && x.periodEnd === en)!;
+    expect(g("revenue_vs_trend_q", "2026-09-30").value).toBe("20"); // 30 % now vs 10 % average
+    expect(g("revenue_vs_trend_q", "2026-06-30").reason).toMatch(/8 quarters before/); // not enough history
+    // EPS doubled while profit stayed 10: the share count halved (×0.5) → withheld, never shown as +100 %
+    expect(g("eps_yoy_q", "2024-09-30").reason).toMatch(/share count changed ×0.50/);
+    // same share count: plain growth
+    const ok2 = companyFeatures(ends.map((en, i) => q(en, { ...lines(i, "1"), pat: String(10 + i), pat_owners: String(10 + i), eps_basic: String((10 + i) / 10) })), new Map(), "consolidated", "industrial");
+    expect(ok2.find((x) => x.field === "eps_yoy_q" && x.periodEnd === "2026-09-30")!.value).toBe("22.22"); // EPS 2.2 vs 1.8, share count 10 both
+  });
+  it("§6 tax rate, other-income share, exceptional items, ROA and OCF ÷ PAT", () => {
+    const qs6 = ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"].map((en) => q(en, { revenue: "100", pat: "30", pbt: "40", tax: "10", other_income: "4" }));
+    qs6[1]!.lines.exceptional_items = "-2";
+    const bs6 = new Map([["2025-09-30", { total_assets: "1000" }], ["2026-09-30", { total_assets: "1400" }]]);
+    const cf = new Map([["2026-03-31", { cfo: "90" }]]);
+    const fy = { periodEnd: "2026-03-31", periodKind: "FY", basis: "consolidated", lines: { pat: "120" } };
+    const r = companyFeatures([...qs6, fy], bs6, "consolidated", "industrial", cf);
+    const g = (f: string, en: string) => r.find((x) => x.field === f && x.periodEnd === en)!;
+    expect(g("effective_tax_rate_ttm", "2026-09-30").value).toBe("25");
+    expect(g("other_income_share_pbt_ttm", "2026-09-30").value).toBe("10");
+    expect(g("exceptional_items_ttm", "2026-09-30").value).toBe("-2");
+    expect(g("roa", "2026-09-30").value).toBe("10"); // 120 ÷ 1,200
+    expect(g("ocf_to_pat_fy", "2026-03-31").value).toBe("0.75");
+    const bank = companyFeatures(qs6, new Map(), "consolidated", "bank");
+    expect(bank.find((x) => x.field === "other_income_share_pbt_ttm")!.reason).toMatch(/industrial companies only/);
+    const loss = companyFeatures(qs6.map((x) => ({ ...x, lines: { ...x.lines, pbt: "-5" } })), new Map(), "consolidated", "industrial");
+    expect(loss.find((x) => x.field === "effective_tax_rate_ttm" && x.periodEnd === "2026-09-30")!.reason).toMatch(/zero or a loss/);
+  });
   it("a bank gets no EBITDA or ROCE (reasons stored) and uses total income as revenue", () => {
     const bank = qs.map((q) => ({ ...q, lines: { total_income: q.lines.revenue, pat: q.lines.pat, pat_after_minority: q.lines.pat_owners } }));
     const b = companyFeatures(bank, new Map(), "consolidated", "bank");

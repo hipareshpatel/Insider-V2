@@ -4,11 +4,11 @@
 import { batchAll, chooseLayout, companyFeatures, dec, div, insertRows, toText, valuationFeatures, type FiledPeriod, type View } from "@disclo/core";
 import type { Deps } from "./load.js";
 
-/** Rows read reach back far enough for a TTM year-on-year of the first stored quarter (2024-03: TTM to 2023-03, whose
- *  quarters start 2022-06); values are stored from the D168 floor on. */
-export const FEATURE_READ_FROM = "2022-06-30";
+/** Rows read reach back far enough for the growth-vs-trend fields of the first stored quarter (2024-03: its YoY and the
+ *  8 quarters' YoY before it need quarters from 2021-03 on); values are stored from the D168 floor on. */
+export const FEATURE_READ_FROM = "2021-03-31";
 export const FEATURE_STORE_FROM = "2024-01-01";
-const BS_LINES = ["x:EquityAttributableToOwnersOfParent", "x:Equity", "x:ShareholdersFunds", "x:ShareCapital", "x:ReservesAndSurplus", "x:ShareApplicationMoneyReceivedPendingAllotmentOfShares", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "equity_owners", "total_equity", "capital", "reserves",
+const BS_LINES = ["x:EquityAttributableToOwnersOfParent", "x:Equity", "x:ShareholdersFunds", "x:ShareCapital", "x:ReservesAndSurplus", "x:ShareApplicationMoneyReceivedPendingAllotmentOfShares", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "equity_owners", "total_equity", "capital", "reserves", "total_assets", "x:Assets", // §6 ROA
   "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents", "x:NonControllingInterest",
   "x:TradeReceivablesCurrent", "x:Inventories", "x:TradePayablesCurrent", "x:CapitalWorkInProgress", // §7 working capital, CWIP
   "x:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities", "cfo"]; // §6/§7 capex, free cash flow (statement cf)
