@@ -11,7 +11,7 @@ import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetc
 import { SQL_REQUEUE_LISTS } from "../../workers/prefetch/src/daily.js";
 import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, SQL_ORPHAN_RESTATED } from "../../workers/filings/src/load.js";
 import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS } from "../../workers/filings/src/events.js";
-import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
+import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM, SQL_PE_LATEST, SQL_PRIMARY_BASIS_OF, SQL_SECTOR_LATEST } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
 import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS, SQL_LATEST_SHP, SQL_JOB_BY_URL, SQL_SET_PROMOTER, SQL_SHP_FILINGS_FROM, SQL_SHP_UNFLAGGED } from "../../workers/filings/src/shpcov.js";
@@ -67,6 +67,8 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: one company's filed figures for the feature table (D171)", SQL_FEATURE_ROWS, [1, "2022-06-30", '["x:Equity"]'], /ix_fin_value_period \(security_id=\? AND period_end>\?\)/],
   ["filings: results filings since the feature cursor (cron, D171)", SQL_FEATURE_NEW, [0, 2000], /SEARCH filing USING INTEGER PRIMARY KEY \(rowid>\?\)/],
   ["filings: latest TTM values for valuations (D171)", SQL_LATEST_TTM, [1, "consolidated"], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\? AND field=\?\)/],
+  ["filings: latest P/E of the 250 for the sector median (§4, daily)", SQL_PE_LATEST, ['[1,2]'], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\? AND field=\? AND period_end=\?\)/],
+  ["filings: primary basis of the 250 (§4, daily)", SQL_PRIMARY_BASIS_OF, ['[1,2]'], /SEARCH primary_basis USING INTEGER PRIMARY KEY \(rowid=\?\)/],
   ["filings: one company's feature-table values (read-only page)", SQL_FEATURES_OF, [1, ""], /SEARCH feature_value USING PRIMARY KEY \(security_id=\?\)/],
   ["filings: one company's stored P&L template (bank / insurer cash-flow pass, item 5)", SQL_SID_TEMPLATE, [1], /ix_fin_value_period \(security_id=\? AND period_end>\?\)/],
   ["filings: one company's filings with a given cash-flow line (D167 b pass)", SQL_CF_TOTALS_FILINGS, [1, "cfo"], /USING (PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\? AND line=\?\)/],
@@ -98,6 +100,13 @@ const cases: [string, string, unknown[], RegExp][] = [
 ];
 
 const M = schema("market");
+describe("market: latest sector of the 250 (§4 P/E vs sector median, daily)", () => {
+  it("classification by primary key", () => {
+    const p = plan(M, SQL_SECTOR_LATEST, ['[1,2]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /SEARCH classification USING (PRIMARY KEY|INDEX sqlite_autoindex_classification_1) \(security_id=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
 describe("market: the focus list (every filings run) starts from the index members", () => {
   it("index_membership by index, then identifiers by security (not every identifier)", () => {
     const p = plan(M, SQL_FOCUS, ['["NIFTY 50"]']);

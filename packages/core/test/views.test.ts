@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, marginFlags, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
+import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, marginFlags, peVsSectorMedian, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
 
 const q = (periodEnd: string, lines: Record<string, string>, basis = "consolidated"): FiledPeriod => ({ periodEnd, periodKind: "Q", basis, lines });
 const four = [q("2025-12-31", { revenue: "100" }), q("2026-03-31", { revenue: "110" }), q("2026-06-30", { revenue: "120" }), q("2026-09-30", { revenue: "130" })];
@@ -228,5 +228,18 @@ describe("owners' equity by layout", () => {
     expect(ownersEquity({}, "standalone", "life_insurance")).toBeNull();
     expect(ownersEquity({ "x:Equity": "5" }, "consolidated", "industrial")).toBeNull();
     expect(ownersEquity({ capital: "1", reserves: "2" }, "consolidated", "bank")).toBe("3");
+  });
+});
+
+describe("§4 P/E vs the sector median", () => {
+  it("median of positive P/Es per sector, at least 5; a loss or a small sector gives a reason", () => {
+    const rows = [10, 20, 30, 40, 50].map((pe, i) => ({ sid: i + 1, sector: "IT", pe: String(pe) }))
+      .concat([{ sid: 6, sector: "IT", pe: null as unknown as string }, { sid: 7, sector: "Power", pe: "15" }, { sid: 8, sector: null as unknown as string, pe: "9" }]);
+    const r = peVsSectorMedian(rows);
+    expect(r.get(1)!.value).toBe("-66.67"); // 10 vs median 30
+    expect(r.get(5)!.value).toBe("66.67");
+    expect(r.get(6)!.value).toBeNull();
+    expect((r.get(7) as { reason: string }).reason).toMatch(/only 1 companies/);
+    expect((r.get(8) as { reason: string }).reason).toMatch(/no sector/);
   });
 });
