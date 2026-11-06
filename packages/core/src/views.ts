@@ -351,6 +351,9 @@ export function bankFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Recor
     put("gnpa_pct_q", e, npaZeros ? NPA_SA : filedPct("gnpa_pct", e));
     put("nnpa_pct_q", e, npaZeros ? NPA_SA : filedPct("nnpa_pct", e));
     put("cet1_ratio_q", e, filedPct("cet1_ratio", e));
+    // G1 (log #407): Tier 1 = CET1 + AT1, both filed (as fractions, like CET1); total CRAR (Tier 2) is not in the XBRL
+    { const c = v(q, "cet1_ratio"), a = v(q, "at1_ratio");
+      put("tier1_ratio_q", e, c && a ? ok(add(c, a), [e], "computed: CET1 ratio + additional Tier 1 ratio, both as filed") : no(`quarter ${e} (${basis}): CET1 and additional Tier 1 ratios must both be filed`)); }
     const g = v(q, "gross_npa"), nn = v(q, "net_npa");
     put("pcr_q", e, npaZeros ? NPA_SA : g && nn ? (g.units > 0n ? ok(div(mul(sub(g, nn), dec("100")), g, 2), [e], "provision coverage = (gross NPA − net NPA) ÷ gross NPA; excludes technical write-offs") : no(`quarter ${e}: gross NPA is zero`)) : no(`quarter ${e} (${basis}): gross and net NPA amounts must be filed`));
     const niiT = sum4(nii, e), oiT = sum4(lineQ("other_income"), e), opexT = sum4(lineQ("operating_expenses"), e), provT = sum4(lineQ("provisions"), e);
@@ -617,6 +620,8 @@ export function solvencyMultiple(filed: View): View {
   if (filed.value === null) return filed;
   const x = dec(filed.value);
   if (x.units <= 0n) return no(`solvency ratio filed as ${filed.value} (zero or negative): not shown`);
+  // a filer giving a percentage (197 for 197 %): no insurer is near 50× (log #407)
+  if (cmp(x, dec("50")) > 0) return ok(div(x, dec("100"), 4), filed.from, "filed as a percentage (value > 50×, beyond any insurer's solvency); shown ÷ 100");
   if (cmp(x, dec("0.5")) >= 0) return ok(x, filed.from, "filed: solvency ratio as stated by the company, a multiple (×) as filed");
   return ok(mul(x, dec("100")), filed.from, SOLVENCY_SCALED_NOTE);
 }

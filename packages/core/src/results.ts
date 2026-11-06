@@ -116,6 +116,7 @@ export const BANK_TAGS: Record<string, string> = {
   gnpa_pct: "PercentageOfGrossNpa",
   nnpa_pct: "PercentageOfNpa",
   cet1_ratio: "CET1Ratio",
+  at1_ratio: "AdditionalTier1Ratio",
   roa: "ReturnOnAssets",
 };
 

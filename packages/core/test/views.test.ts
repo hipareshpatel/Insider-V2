@@ -260,7 +260,7 @@ describe("bank pack (owner 6 Nov)", () => {
     const ends = ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"];
     const qs = ends.map((e) => ({ periodEnd: e, periodKind: "Q", basis: "standalone", lines: {
       interest_earned: "100", interest_expended: "60", other_income: "10", operating_expenses: "25", operating_profit: "25", provisions: "5",
-      pat: "15", total_income: "110", gnpa_pct: "2.1", nnpa_pct: "0.5", cet1_ratio: "14.2", gross_npa: "200", net_npa: "50" } }));
+      pat: "15", total_income: "110", gnpa_pct: "2.1", nnpa_pct: "0.5", cet1_ratio: "14.2", at1_ratio: "1.3", gross_npa: "200", net_npa: "50" } }));
     const bs = new Map([["2025-09-30", { advances: "800", deposits: "1000", investments: "300", cash_rbi: "50", balances_banks: "50", total_assets: "1300", capital: "10", reserves: "140" }],
       ["2026-09-30", { advances: "1000", deposits: "1200", investments: "300", cash_rbi: "50", balances_banks: "50", total_assets: "1500", capital: "10", reserves: "160" }]]);
     const r = companyFeatures(qs, bs, "standalone", "bank");
@@ -272,6 +272,7 @@ describe("bank pack (owner 6 Nov)", () => {
     expect(g("nim_computed_ttm").value).toBe("12.31");   // 160 ÷ avg(1200, 1400) = 160 ÷ 1300
     expect(g("pcr_q").value).toBe("75");
     expect(g("gnpa_pct_q").value).toBe("2.1");
+    expect(g("tier1_ratio_q").value).toBe("15.5"); // CET1 14.2 + AT1 1.3
     expect(g("advances_yoy").value).toBe("25");
     expect(g("deposits_yoy").value).toBe("20");
     expect(g("cd_ratio").value).toBe("83.33");
@@ -552,6 +553,8 @@ describe("insurer pack (owner #389, Part 2 G3: IRDAI lines as filed)", () => {
     expect(m("0")).toMatchObject({ value: null, reason: expect.stringMatching(/zero or negative/) });
     expect(m("-1.2")).toMatchObject({ value: null });
     expect(solvencyMultiple({ value: null, reason: "absent" })).toEqual({ value: null, reason: "absent" });
+    expect(m("197")).toMatchObject({ value: "1.97", note: expect.stringContaining("percentage") }); // a filer giving 197 for 197 %
+    expect(m("50").value).toBe("50");
   });
   it("a missing line or balance sheet gives a reason, never a number", () => {
     const gap = gi.map((q) => (q.periodEnd === "2026-03-31" ? { ...q, lines: { ...q.lines, claims_incurred: undefined, commission: undefined } } : q));

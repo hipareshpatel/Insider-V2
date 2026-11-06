@@ -2,7 +2,7 @@
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
-import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, insurerResultsLines, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, insurerResultsLines, bankResultsLines, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { tagProbe } from "./tagprobe.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS, isPitAnnouncement } from "./events.js";
@@ -181,6 +181,8 @@ export default {
       else if (name === "ins_rev") r = await insurerResultsLines(ldeps, 25, 20_000);
       // G3 solvency: ins_rev is done, so a second pass in its own slot re-reads the stored files for the solvency ratio only
       else if (name === "ins_rev2") r = await insurerResultsLines(ldeps, 25, 20_000, "ins_rev2", INSURER_LINES_SOLVENCY);
+      // G1 (log #407): the additional Tier 1 ratio for the banks' stored results files
+      else if (name === "bank_rev") r = await bankResultsLines(ldeps, 25, 20_000);
       else if (name === "features") r = await buildFeatures(ldeps, 25, new URL(req.url).searchParams.get("restart") === "1"); // D171 feature table
       else if (name === "valuations") {
         // D171: today's valuations again (e.g. after a fix); ?restart=1 resets today's cursor first, then 50 per call

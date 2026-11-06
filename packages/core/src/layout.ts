@@ -95,7 +95,7 @@ export const PL_BANK: LayoutNode[] = [
   n("pat_after_minority", "Net profit after minority interest and share of associates"),
   n("eps_basic", "EPS basic (₹)"), n("eps_diluted", "EPS diluted (₹)"),
   n("gross_npa", "Gross NPA"), n("net_npa", "Net NPA"), n("gnpa_pct", "Gross NPA %"), n("nnpa_pct", "Net NPA %"),
-  n("cet1_ratio", "CET1 ratio"), n("roa", "Return on assets"),
+  n("cet1_ratio", "CET1 ratio"), n("at1_ratio", "Additional Tier 1 ratio"), n("roa", "Return on assets"),
 ];
 /** Bank balance sheet (Third Schedule, Form A; the named lines the loader checks). */
 export const BS_BANK: LayoutNode[] = [

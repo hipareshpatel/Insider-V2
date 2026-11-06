@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
 import { buildFeatures, featuresStep, valuationsStep } from "../src/features.js";
-import { backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, insurerResultsLines, nbfcBalanceSheets, nbfcRevenueLines, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
+import { backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, insurerResultsLines, bankResultsLines, nbfcBalanceSheets, nbfcRevenueLines, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 function sqlite(domain: string): Sql & { raw: DatabaseSync } {
@@ -957,6 +957,22 @@ describe("item 5 leftover 3: NBFC revenue lines pass", () => {
     const { r, got } = await run(false);
     expect(got).toEqual([]);
     expect(r.notes.join(" ")).toContain("period not loaded from this filing");
+  });
+});
+
+describe("G1: bank results lines pass (bank_rev, additional Tier 1 ratio)", () => {
+  it("HDFCBANK Q2 FY27 (real file): adds only at1_ratio as filed; a second call reads nothing", async () => {
+    const name = "INTEGRATED_FILING_BANK_1_WEB.xml", url = `https://nsearchives.nseindia.com/corporate/xbrl/${name}`;
+    const { filings, deps } = setup({ [`att/xbrl/${name}`]: readFileSync(join(ROOT, "packages/core/test/fixtures/nse", "xbrl_HDFCBANK_IF_Q2FY27_full.xml"), "utf8") });
+    filings.raw.exec(`INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (41, 7, 'integrated_financials', '2026-09-30', 'Q', 'standalone', '2026-10-28T00:00:00Z', '${url}')`);
+    filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'bank','pl','pat','','2026-09-30','Q','standalone','original','1',NULL,'2026-10-28T00:00:00Z',41,'t','reported','results-v1')`);
+    const r = await bankResultsLines({ ...deps, focus: ["INFY"] });
+    const got = filings.raw.prepare("SELECT line, value FROM fin_value WHERE line <> 'pat'").all() as { line: string; value: string }[];
+    expect(r).toMatchObject({ done: true, files: 1 });
+    expect(got.map((x) => x.line)).toEqual(expect.arrayContaining(["at1_ratio"]));
+    expect(got.every((x) => x.line === "at1_ratio")).toBe(true);
+    expect(await bankResultsLines({ ...deps, focus: ["INFY"] })).toMatchObject({ done: true });
   });
 });
 
