@@ -255,6 +255,13 @@ describe("recurring queries read only what they need (C56)", () => {
   });
 });
 
+describe("/tags (G2, read-only)", async () => {
+  const t = await import("../../workers/filings/src/tagprobe.js");
+  it("one company's latest results files by symbol and kind", () => {
+    expect(plan(F, t.SQL_TAG_FILES, ["BAJFINANCE", '["xbrl_results_quarterly"]', 2]).some((l) => /SEARCH fetch_job USING INDEX ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/.test(l))).toBe(true);
+  });
+});
+
 describe("/gap-census late_start (G19, read-only): index-backed per company", async () => {
   const r = await import("../../workers/filings/src/readiness.js");
   it.each([
