@@ -401,7 +401,7 @@ export function nbfcSubtype(symbols: readonly string[]): NbfcSubtype {
   return "lender";
 }
 /** Lending fields of the NBFC pack, given only for lenders; the rest (net total income, opex, debt ratios) for all. */
-export const NBFC_LENDING_FIELDS = ["nii_q", "nii_yoy_q", "nii_ttm", "cost_to_income_ttm", "credit_cost_ttm", "nim_computed_ttm", "loans_yoy", "borrowings_yoy"];
+export const NBFC_LENDING_FIELDS = ["nii_q", "nii_yoy_q", "nii_ttm", "credit_cost_ttm", "nim_computed_ttm", "loans_yoy", "borrowings_yoy"];
 
 /** NBFC pack (owner #389, Part 2 G2). Schedule III Division III lines as filed: P&L interest income (`interest_earned`),
  *  finance costs (`finance_cost`), impairment on financial instruments (`impairment_financial_instruments`, an expense

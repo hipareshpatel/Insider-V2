@@ -326,7 +326,7 @@ describe("NBFC pack (owner #389, Division III lines as filed)", () => {
     expect(nbfcSubtype([])).toBe("lender");
     expect(nbfcSubtype(["OLDSYM", "nam-india"])).toBe("amc"); // any symbol it traded under
   });
-  const lending = ["nii_q", "nii_yoy_q", "nii_ttm", "cost_to_income_ttm", "credit_cost_ttm", "nim_computed_ttm", "loans_yoy", "borrowings_yoy"];
+  const lending = ["nii_q", "nii_yoy_q", "nii_ttm", "credit_cost_ttm", "nim_computed_ttm", "loans_yoy", "borrowings_yoy"];
   for (const [subtype, label] of [["holding", "holding company"], ["amc", "asset manager"], ["lessor", "lessor"]] as const) {
     it(`G18: a ${label} gets the lending fields as a reason, keeps net total income, opex and the debt ratios`, () => {
       const r = companyFeatures(qs, bs, "standalone", "nbfc", new Map(), subtype);
@@ -335,6 +335,7 @@ describe("NBFC pack (owner #389, Division III lines as filed)", () => {
       for (const f of lending) expect(r.filter((x) => x.field === f).every((x) => x.value === null), f).toBe(true);
       expect(g("net_total_income_ttm").value).toBe("480");
       expect(g("opex_ttm").value).toBe("136");
+      expect(g("cost_to_income_ttm").value).toBe("28.33"); // kept: opex ÷ net total income is meaningful for non-lenders too
       expect(g("debt_to_equity").value).toBe("3.6");
       expect(g("debt_equity_filed_q").value).toBe("4.1");
       expect(r.find((x) => x.field === "nbfc_subtype")).toMatchObject({ periodEnd: "latest", value: subtype });
