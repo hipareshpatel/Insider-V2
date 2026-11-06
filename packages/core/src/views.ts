@@ -1,7 +1,7 @@
 // Item 6: computed views (D49, D52, D66). Every value here is worked out from filed figures when it is shown and is
 // never stored (owner #350, D170). Each answer says what it was built from, or why it is unavailable (no sentinel
 // values, D52). Inputs are the stored filed figures exactly as loaded (exact decimals in rupees).
-import { type Dec, add, cmp, dec, div, mul, sub, toText } from "./decimal.js";
+import { type Dec, add, cmp, dec, div, mul, round, sub, toText } from "./decimal.js";
 
 /** One filed period of one company on one basis: the canonical P&L lines (and, where filed, balance-sheet lines). */
 export interface FiledPeriod { periodEnd: string; periodKind: string; basis: string; lines: Record<string, string | null | undefined> }
@@ -313,6 +313,7 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
   }
   if (layout === "bank") out.push(...bankFeatures(qs, balanceSheets, basis));
   if (layout === "nbfc") out.push(...nbfcFeatures(qs, balanceSheets, basis));
+  if (layout === "life_insurance" || layout === "general_insurance") out.push(...insurerFeatures(qs, balanceSheets, basis, layout));
   if (filledFromIdentity && qs.length) put("owners_profit_identity", "latest", { value: String(filledFromIdentity), from: [], note: "quarter(s) with no owners' figure: profit to owners = net profit − profit to NCI (both filed)" });
   if (noMinority && qs.length) put("owners_profit_source", "latest", { value: "net profit", from: [], note: `${filledFromPat} quarter(s) with no owners' figure and no minority on the balance sheet: profit to owners = net profit` });
   if (qs.length) put("layout", "latest", { value: layout, from: [] });
@@ -425,6 +426,124 @@ export function nbfcFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Recor
       const eo = ownersEquity(bsEnd, basis, "nbfc");
       put("debt_to_equity", e, f1.value === null ? f1 : eo == null ? no(`balance sheet ${e}: equity to owners not filed`) : dec(eo).units <= 0n ? no(`balance sheet ${e}: equity to owners is zero or negative`)
         : ok(div(dec(f1.value), dec(eo), 2), [`balance sheet ${e}`], `computed: (debt securities + borrowings + deposits + subordinated liabilities) ÷ equity to owners${f1.note ? `; ${f1.note}` : ""}`));
+    }
+  }
+  return out;
+}
+
+/** IRDAI application-of-funds investment lines per insurer layout: shareholders' and policyholders' investments, and for a
+ *  life insurer the assets held to cover linked liabilities (unit-linked funds). */
+export const INSURER_INVESTMENT_LINES: Record<string, string[]> = {
+  life_insurance: ["x:InvestmentsShareholders", "x:InvestmentsPolicyholders", "x:AssetsHeldToCoverLinkLiabilities"],
+  general_insurance: ["x:InvestmentsShareholders", "x:InvestmentsPolicyholders"],
+};
+/** Investments at one IRDAI balance sheet = the INSURER_INVESTMENT_LINES of the layout. The detail is stored only when
+ *  every group adds up and sources = application of funds (D154), so with application of funds stored a part that is not
+ *  filed is none (noted); without it, unavailable. */
+export function insurerInvestments(b: Record<string, string | null | undefined> | undefined, date: string, layout: string): View {
+  const keys = INSURER_INVESTMENT_LINES[layout];
+  if (!keys) return no(`no investment lines are defined for ${layout}`);
+  if (!b || b["x:ApplicationOfFunds"] == null) return no(`balance sheet ${date}: IRDAI application of funds not filed`);
+  const filed = keys.filter((k) => b[k] != null);
+  if (!filed.length) return no(`balance sheet ${date}: none of ${keys.map((k) => k.slice(2)).join(", ")} filed`);
+  const none = keys.filter((k) => b[k] == null).map((k) => k.slice(2));
+  return ok(filed.reduce((a, k) => add(a, dec(b[k]!)), dec("0")), [`balance sheet ${date}`], none.length ? `not filed, taken as none (application of funds adds up without them): ${none.join(", ")}` : undefined);
+}
+
+/** Insurer pack (owner #389, Part 2 G3). IRDAI lines as filed (LIFE_TAGS / GI_TAGS; balance sheet BS_GROUPS_INS /
+ *  BS_GROUPS_GI, stored as "x:<tag>"). Life: gross / net premium, first-year / renewal / single premium, expenses of
+ *  management, policyholders' investment income. General: gross premium written, net premium written, premium earned,
+ *  claims incurred, net commission, operating expenses, underwriting result, investment income in both accounts. The
+ *  claims, expense and combined ratios here are COMPUTED from those lines (IRDAI definitions) and are not the company's
+ *  own filed ratios. Profit to shareholders growth is the generic pat_yoy_q / pat_ttm_yoy (IRDAI net profit is the
+ *  shareholders' account) and premium income as revenue is revenue_* (owner #360), so neither is repeated here.
+ *  Not offered (not stored from the results files): solvency ratio, persistency, conservation ratio, filed claims /
+ *  combined / expense-of-management ratios (in the files, not read by LIFE_TAGS / GI_TAGS); VNB, VNB margin, embedded
+ *  value and APE (not in the results files). */
+export function insurerFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string): FeatureRow[] {
+  const out: FeatureRow[] = [];
+  if (layout !== "life_insurance" && layout !== "general_insurance") return out;
+  const life = layout === "life_insurance";
+  const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
+  const by = new Map(qs.map((q) => [q.periodEnd, q]));
+  // a quarter value: the sum of filed lines, every one filed
+  const sumQ = (keys: string[], what: string) => (e: string): View => {
+    const q = by.get(e), xs = keys.map((k) => v(q, k));
+    if (xs.some((x) => !x)) return no(`quarter ${e} (${basis}): ${what} must be filed`);
+    return ok(xs.reduce<Dec>((a, x) => add(a, x!), dec("0")), [e]);
+  };
+  const lineQ = (k: string) => (e: string): View => { const x = v(by.get(e), k); return x ? ok(x, [e]) : no(`quarter ${e} (${basis}) has no filed ${k}`); };
+  const sum4 = (f: (e: string) => View, end: string): View => { let s = dec("0"), e = end; const from: string[] = []; for (let i = 0; i < 4; i++) { const x = f(e); if (x.value === null) return x; s = add(s, dec(x.value)); from.push(e); e = previousQuarterEnd(e); } return ok(s, from.reverse()); };
+  const note = (x: View, n: string): View => (x.value === null ? x : { ...x, note: x.note ? `${n}; ${x.note}` : n });
+  // a ratio in % to 6 places (rounded to 2 when shown); the divisor must be positive
+  const ratio6 = (a: View, b: View, what: string): View => {
+    if (a.value === null) return a;
+    if (b.value === null) return b;
+    if (dec(b.value).units <= 0n) return no(`${what}: divisor is zero or negative`);
+    return ok(div(mul(dec(a.value), dec("100")), dec(b.value), 6), [...new Set([...a.from, ...b.from])]);
+  };
+  const r2 = (x: View, n: string): View => (x.value === null ? x : note(ok(round(dec(x.value), 2), x.from), n));
+  const plus = (a: View, b: View): View => (a.value === null ? a : b.value === null ? b : ok(add(dec(a.value), dec(b.value)), [...new Set([...a.from, ...b.from])]));
+  const gross = lineQ("gross_premium"), net = lineQ("net_premium");
+  const newBusiness = sumQ(["premium_first_year", "premium_single"], "first-year and single premium");
+  const invPh = lineQ("investment_income_policyholders"), invSh = lineQ("investment_income_shareholders");
+  // general insurers (IRDAI): claims ratio on net premium earned, expense ratio on net premium written
+  const claims = lineQ("claims_incurred"), earned = lineQ("premium_earned");
+  const expenses = sumQ(["commission", "operating_expenses"], "net commission and operating expenses");
+  const eom = lineQ("expenses_of_management");
+  const NB = "computed: first-year + single premium (individual and group, as filed); not APE";
+  const CLAIMS = "computed: claims incurred ÷ net premium earned; not the company's filed ratio";
+  const EXPENSE = "computed: (net commission + operating expenses related to insurance business) ÷ net premium written; not the company's filed ratio";
+  const COMBINED = "computed: claims ratio (on net premium earned) + expense ratio (on net premium written); premium deficiency not included; not the company's filed ratio";
+  const EOM = "computed: expenses of management (commission + operating expenses) ÷ gross premium; not the company's filed ratio";
+  for (const q of qs) {
+    const e = q.periodEnd, ya = yearBefore(e);
+    put("gross_premium_yoy_q", e, growth(gross(e), gross(ya), "gross premium YoY"));
+    put("net_premium_yoy_q", e, growth(net(e), net(ya), "net premium YoY"));
+    const gT = sum4(gross, e), nT = sum4(net, e);
+    put("gross_premium_ttm", e, gT);
+    put("net_premium_ttm", e, nT);
+    put("gross_premium_ttm_yoy", e, growth(gT, sum4(gross, ya), "gross premium TTM YoY"));
+    put("net_premium_ttm_yoy", e, growth(nT, sum4(net, ya), "net premium TTM YoY"));
+    const phT = note(sum4(invPh, e), "policyholders' account investment income, as filed (net of losses; can be negative)");
+    put("investment_income_policyholders_ttm", e, phT);
+    if (life) {
+      const nb = newBusiness(e), nbT = sum4(newBusiness, e);
+      put("new_business_premium_q", e, note(nb, NB));
+      put("new_business_premium_yoy_q", e, note(growth(nb, newBusiness(ya), "new business premium YoY"), NB));
+      put("new_business_premium_ttm", e, note(nbT, NB));
+      put("renewal_premium_yoy_q", e, growth(lineQ("premium_renewal")(e), lineQ("premium_renewal")(ya), "renewal premium YoY"));
+      put("expenses_of_management_ratio_computed_q", e, r2(ratio6(eom(e), gross(e), "expenses of management ratio"), EOM));
+      put("expenses_of_management_ratio_computed_ttm", e, r2(ratio6(sum4(eom, e), gT, "expenses of management ratio"), EOM));
+    } else {
+      const shT = sum4(invSh, e);
+      put("investment_income_shareholders_ttm", e, shT);
+      put("investment_income_ttm", e, note(plus(phT, shT), "computed: policyholders' (revenue account) + shareholders' account investment income"));
+      const cQ = ratio6(claims(e), earned(e), "claims ratio"), xQ = ratio6(expenses(e), net(e), "expense ratio");
+      const cT = ratio6(sum4(claims, e), sum4(earned, e), "claims ratio"), xT = ratio6(sum4(expenses, e), nT, "expense ratio");
+      put("claims_ratio_computed_q", e, r2(cQ, CLAIMS));
+      put("expense_ratio_computed_q", e, r2(xQ, EXPENSE));
+      put("combined_ratio_computed_q", e, r2(plus(cQ, xQ), COMBINED));
+      put("claims_ratio_computed_ttm", e, r2(cT, CLAIMS));
+      put("expense_ratio_computed_ttm", e, r2(xT, EXPENSE));
+      put("combined_ratio_computed_ttm", e, r2(plus(cT, xT), COMBINED));
+      put("retention_ratio_computed_ttm", e, r2(ratio6(nT, gT, "retention ratio"), "computed: net premium written ÷ gross premium written"));
+      put("underwriting_result_ttm", e, note(sum4(lineQ("underwriting_result"), e), "filed underwriting profit or loss, four quarters (a loss is negative)"));
+    }
+    // balance-sheet dates (half-year and year end): shareholders' funds and investments a year apart
+    const bsEnd = balanceSheets.get(e);
+    if (bsEnd) {
+      const bs0 = balanceSheets.get(ya);
+      const sf = (b: Record<string, string | null | undefined> | undefined, d: string): View => {
+        const x = b ? ownersEquity(b, basis, layout) : null;
+        return x != null ? ok(dec(x), [`balance sheet ${d}`]) : no(`balance sheet ${d}: shareholders' funds not filed`);
+      };
+      put("shareholders_funds_yoy", e, note(growth(sf(bsEnd, e), sf(bs0, ya), "shareholders' funds YoY"), life ? "filed shareholders' funds (IRDAI L-3)"
+        : "computed: share capital + share application money + reserves and surplus + fair value change account (IRDAI B-BS)"));
+      const i1 = insurerInvestments(bsEnd, e, layout), i0 = insurerInvestments(bs0, ya, layout);
+      const INV = life ? "computed: shareholders' + policyholders' investments + assets held to cover linked liabilities" : "computed: shareholders' + policyholders' investments";
+      put("investments_total", e, note(i1, INV));
+      put("investments_yoy", e, note(growth(i1, i0, "investments YoY"), INV));
     }
   }
   return out;
