@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
+import { adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, marginFlags, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
 
 const q = (periodEnd: string, lines: Record<string, string>, basis = "consolidated"): FiledPeriod => ({ periodEnd, periodKind: "Q", basis, lines });
 const four = [q("2025-12-31", { revenue: "100" }), q("2026-03-31", { revenue: "110" }), q("2026-06-30", { revenue: "120" }), q("2026-09-30", { revenue: "130" })];
@@ -119,6 +119,20 @@ describe("item 6: feature-table values for one company (D171)", () => {
     // same share count: plain growth
     const ok2 = companyFeatures(ends.map((en, i) => q(en, { ...lines(i, "1"), pat: String(10 + i), pat_owners: String(10 + i), eps_basic: String((10 + i) / 10) })), new Map(), "consolidated", "industrial");
     expect(ok2.find((x) => x.field === "eps_yoy_q" && x.periodEnd === "2026-09-30")!.value).toBe("22.22"); // EPS 2.2 vs 1.8, share count 10 both
+  });
+  it("§6 margin flags: erosion at 200 bps below the 8-quarter peak or two falls; recovery from a 4-quarter low", () => {
+    const ends: string[] = ["2026-09-30"]; for (let i = 0; i < 10; i++) ends.push(previousQuarterEnd(ends[ends.length - 1]!));
+    const flags = (ms: (number | null)[]) => Object.fromEntries(marginFlags([], ends[0]!, (k) => {
+      const x = ms[ends.indexOf(k)];
+      return x == null ? { value: null, reason: "not filed" } : { value: String(x), from: [k] };
+    }).map((f) => [f.field, f.view.value ?? f.view.reason]));
+    // newest first: 18 now vs a 20.5 peak → 250 bps below → erosion; not two rises → no recovery
+    expect(flags([18, 19, 18.5, 20.5, 19, 19, 19, 19, 19])).toMatchObject({ margin_erosion: "1", margin_recovery: "0" });
+    // 150 bps below the peak, no two falls → no erosion
+    expect(flags([19, 18, 18.5, 20.5, 19, 19, 19, 19, 19]).margin_erosion).toBe("0");
+    // rose twice from 15, the low of its trailing four → recovery
+    expect(flags([17, 16, 15, 18, 19, 20, 20, 20, 20]).margin_recovery).toBe("1");
+    expect(flags([17, 16, 15, null, 19, 20, 20, 20, 20]).margin_recovery).toMatch(/not available/);
   });
   it("§6 tax rate, other-income share, exceptional items, ROA and OCF ÷ PAT", () => {
     const qs6 = ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"].map((en) => q(en, { revenue: "100", pat: "30", pbt: "40", tax: "10", other_income: "4" }));

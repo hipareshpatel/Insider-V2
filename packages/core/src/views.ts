@@ -211,6 +211,8 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
     put("other_income_share_pbt_ttm", e, layout === "industrial" ? ttmRatio("other_income", "pbt", e, "other income share of PBT")
       : no(`other income is operating income for ${layout}; the share is used for industrial companies only`));
     put("exceptional_items_ttm", e, exceptionalTtm(qs, e, basis));
+    // §6 margin flags (D70; owner 6 Nov: 200 bps), on the quarterly EBITDA margin (industrial companies)
+    if (layout === "industrial") for (const f of marginFlags(qs, e, (k) => { const p = by.get(k); return p ? pct(ebitda(p, layout), line(p, rev, k), "EBITDA margin") : no(`quarter ${k} (${basis}) not filed`); })) put(f.field, e, f.view);
     const r = line(q, rev, e), p = line(q, "pat", e), po = line(q, owners, e), eb = ebitda(q, layout);
     put("revenue_q", e, r); put("pat_q", e, p); put("pat_owners_q", e, po); put("ebitda_q", e, eb);
     put("ebitda_margin_q", e, pct(eb, r, "EBITDA margin"));
@@ -278,6 +280,35 @@ export function epsYoy(now: FiledPeriod, ago: FiledPeriod | undefined, ownersLin
   const s1 = Number(toText(p1)) / Number(toText(e1)), s0 = Number(toText(p0)) / Number(toText(e0)), r = s1 / s0;
   if (!(r > 0.8 && r < 1.25)) return no(`implied share count changed ×${r.toFixed(2)} between ${agoEnd} and ${end} (split, bonus or consolidation likely; the earlier EPS is not restated)`);
   return growth(ok(e1, [end]), ok(e0, [agoEnd]), "EPS YoY");
+}
+
+/** Field catalogue §6 / D70 margin flags (1 = yes, 0 = no), owner 6 Nov: 200 bps.
+ *  erosion: the margin is ≥ 2.00 percentage points below the peak of the 8 quarters before it, or it fell in each of the
+ *  last two quarters. recovery: the margin rose in each of the last two quarters from a quarter that was the low of its
+ *  own trailing four. Quarter-on-quarter, so seasonal businesses can trip them; every quarter used must be filed. */
+export const MARGIN_EROSION_BPS = 200;
+export function marginFlags(_qs: FiledPeriod[], end: string, marginAt: (end: string) => View): { field: string; view: View }[] {
+  const ends: string[] = [end]; for (let i = 0; i < 10; i++) ends.push(previousQuarterEnd(ends[ends.length - 1]!));
+  const m = ends.map((k) => marginAt(k)); // m[0] = this quarter, m[i] = i quarters back
+  const n = (i: number) => (m[i]!.value === null ? null : Number(m[i]!.value));
+  const need = (idx: number[], what: string): View | null => { const bad = idx.find((i) => n(i) === null); return bad === undefined ? null : no(`${what}: margin for ${ends[bad]} not available (${(m[bad] as { reason: string }).reason})`); };
+  const from = (idx: number[]) => idx.map((i) => ends[i]!).sort();
+  const twoDown = () => n(0)! < n(1)! && n(1)! < n(2)!;
+  // erosion
+  const ei = [0, 1, 2, 3, 4, 5, 6, 7, 8], eMiss = need(ei, "margin erosion");
+  const erosion: View = eMiss ?? (() => {
+    const peak = Math.max(...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => n(i)!));
+    const yes = (peak - n(0)!) * 100 >= MARGIN_EROSION_BPS || twoDown();
+    return ok(dec(yes ? "1" : "0"), from(ei), `peak of the 8 quarters before: ${peak.toFixed(2)} %; threshold ${MARGIN_EROSION_BPS} bps or two falls in a row`);
+  })();
+  // recovery: m2 is the low of m2..m5 and m2 < m1 < m0
+  const ri = [0, 1, 2, 3, 4, 5], rMiss = need(ri, "margin recovery");
+  const recovery: View = rMiss ?? (() => {
+    const low = n(2)! <= Math.min(n(3)!, n(4)!, n(5)!);
+    const yes = low && n(2)! < n(1)! && n(1)! < n(0)!;
+    return ok(dec(yes ? "1" : "0"), from(ri), "rose in each of the last two quarters from a trailing-4-quarter low");
+  })();
+  return [{ field: "margin_erosion", view: erosion }, { field: "margin_recovery", view: recovery }];
 }
 
 /** Field catalogue §6: exceptional items over four filed quarters. A quarter that files no exceptional line but files
