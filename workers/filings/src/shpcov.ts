@@ -201,3 +201,34 @@ export async function shpPromoterPass(db: Sql, getText: (k: string) => Promise<s
   await db.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','shp_promoter',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail", [now.toISOString(), JSON.stringify(cur)]);
   return { ...cur, done };
 }
+
+/** Readiness map defect 2 (log #385), read-only census before any reader change (D134): for each focus company's latest
+ *  shareholding file, what pledge / encumbrance facts the file actually carries, against what the reader stored.
+ *  Classes: parsed (a pledge figure was read), no_tags (the file has no pledge or encumbrance fact at all), zero_only
+ *  (such facts exist but are all zero or nil), missed (a non-zero pledge / encumbrance fact the reader did not use). */
+export async function pledgeCensus(db: Sql, getText: (k: string) => Promise<string | null>, sids: number[]) {
+  const out = { files: 0, unreadable: 0, parsed: 0, parsed_zero: 0, no_tags: 0, zero_only: 0, missed: 0, tags: {} as Record<string, { files: number; nonzero: number }>, missed_sample: [] as { sid: number; as_of: string; facts: string[] }[] };
+  for (const sid of sids) {
+    const [f] = await db.all<{ filing_id: number; source_url: string; period_end?: string }>(SQL_LATEST_SHP, [sid]);
+    const [j] = f ? await db.all<{ r2_key: string }>(SQL_JOB_BY_URL, [f.source_url]) : [];
+    const xml = j ? await getText(j.r2_key) : null;
+    if (!f || !xml) { out.unreadable++; continue; }
+    let inst, pledged: number | null;
+    try { inst = parseXbrl(xml); pledged = parseShareholding(inst, { totalOverride: 1 }).promoterEncumbrance.pledged; } catch { out.unreadable++; continue; }
+    out.files++;
+    const facts = inst.facts.filter((x) => /pledg|encumb/i.test(x.tag));
+    const seen = new Set<string>();
+    let nonzero: string[] = [];
+    for (const x of facts) {
+      const name = x.tag.split(":").pop()!, v = Number(x.value ?? "0");
+      const t = (out.tags[name] ??= { files: 0, nonzero: 0 });
+      if (!seen.has(name)) { t.files++; seen.add(name); }
+      if (!x.nil && Number.isFinite(v) && v !== 0) { t.nonzero++; nonzero.push(`${name}@${x.contextRef}=${x.value}`); }
+    }
+    if (pledged != null) { out.parsed++; if (pledged === 0) out.parsed_zero++; }
+    else if (!facts.length) out.no_tags++;
+    else if (!nonzero.length) out.zero_only++;
+    else { out.missed++; if (out.missed_sample.length < 25) out.missed_sample.push({ sid, as_of: f.period_end ?? "", facts: nonzero.slice(0, 6) }); }
+  }
+  return out;
+}

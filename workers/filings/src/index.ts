@@ -5,7 +5,7 @@ import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./
 import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS, isPitAnnouncement } from "./events.js";
-import { shpCoverage, promoterGroups, shpPromoterPass, shpPromoterHistory, storeGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
+import { shpCoverage, pledgeCensus, promoterGroups, shpPromoterPass, shpPromoterHistory, storeGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
 import type { Sql } from "@disclo/core";
 import { ownershipStep } from "./ownership.js";
 import { eventStep } from "./eventfeatures.js";
@@ -299,6 +299,13 @@ export default {
         out[sym] = { security_id: sid, symbols: allSyms, gaps: detail, stored_pl: stored };
       }
       return Response.json(out, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/pledge-census") {
+      // log #385 defect 2 (read-only): pledge / encumbrance facts in the focus companies' latest shareholding files
+      const u = new URL(req.url), offset = Math.max(0, Number(u.searchParams.get("offset") ?? 0)), limit = Math.min(60, Math.max(1, Number(u.searchParams.get("limit") ?? 50)));
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      const sids = [...new Set((await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(focus ?? [])).all<{ security_id: number }>()).results.map((r) => r.security_id))].sort((a, b) => a - b);
+      return Response.json({ total: sids.length, offset, ...(await pledgeCensus(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), sids.slice(offset, offset + limit))) }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/readiness-fields") {
       // owner #384 (read-only): every computed field across the 250 — with a value, latest period with a value, top reasons

@@ -122,6 +122,9 @@ describe("item 6: feature-table values for one company (D171)", () => {
     expect(g("revenue_vs_trend_q", "2026-06-30").reason).toMatch(/8 quarters before/); // not enough history
     // EPS doubled while profit stayed 10: the share count halved (×0.5) → withheld, never shown as +100 %
     expect(g("eps_yoy_q", "2024-09-30").reason).toMatch(/share count changed ×0.50/);
+    // zero profit to owners in both quarters: 0 ÷ 0 — a reason, never "NaN"
+    const z = companyFeatures(ends.map((en, i) => q(en, { ...lines(i, "1"), pat_owners: "0" })), new Map(), "consolidated", "industrial");
+    expect(z.find((x) => x.field === "eps_yoy_q" && x.periodEnd === "2026-09-30")!.reason).toMatch(/share-count check not possible/);
     // same share count: plain growth
     const ok2 = companyFeatures(ends.map((en, i) => q(en, { ...lines(i, "1"), pat: String(10 + i), pat_owners: String(10 + i), eps_basic: String((10 + i) / 10) })), new Map(), "consolidated", "industrial");
     expect(ok2.find((x) => x.field === "eps_yoy_q" && x.periodEnd === "2026-09-30")!.value).toBe("22.22"); // EPS 2.2 vs 1.8, share count 10 both
