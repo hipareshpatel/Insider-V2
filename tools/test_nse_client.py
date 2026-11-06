@@ -121,7 +121,10 @@ class Pit(unittest.TestCase):
                 with open(os.path.join(d, name), mode) as fh:
                     return fh.read()
             self.assertEqual(len(read("manifest.jsonl").splitlines()), 2)
-            self.assertIn(listing, [read(f, "rb") for f in os.listdir(d) if f.endswith(".bin")])
+            bodies = [read(f, "rb") for f in os.listdir(d) if f.endswith(".bin")]
+            self.assertIn(listing, bodies)
+            self.assertNotIn(b"<xml/>", bodies)                           # an XBRL body (PAN/DIN/CIN inside) is never written
+            self.assertEqual(len(bodies), 1)
         with tempfile.TemporaryDirectory() as d:
             c = client(FakeSession([(403, b"")]), FakeInPage([(403, b"")]))
             out = io.StringIO()

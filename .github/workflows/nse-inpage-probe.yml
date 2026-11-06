@@ -23,7 +23,7 @@ jobs:
       - run: pip install playwright && python -m playwright install --with-deps chromium
       - name: Fetch (plain first, in-page if refused)
         run: python3 tools/nse_pit_fetch.py out --max-xml "${{ github.event.inputs.max_xml || '0' }}" --symbols HDFCBANK,TCS,ICICIBANK,KOTAKBANK,RELIANCE
-      - name: Keep the exact bytes (manifest + files)
+      - name: Keep the manifest and the filing list (no XBRL bodies are ever written; they carry PAN / DIN / CIN)
         if: always()
         uses: actions/upload-artifact@v4
-        with: { name: nse-inpage-probe, path: out, if-no-files-found: ignore, retention-days: 7 }
+        with: { name: nse-inpage-probe, path: out, if-no-files-found: ignore, retention-days: 3 }

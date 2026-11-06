@@ -10,7 +10,7 @@ The summary on stdout carries counts and statuses only (workflow logs are public
 import argparse, hashlib, json, os, sys, time
 from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from nse_client import Blocked, Failed, NseClient
+from nse_client import Blocked, Failed, NseClient, is_api
 
 LIST_URL = "https://www.nseindia.com/api/corporates-pit-gg?index=equities"
 
@@ -53,10 +53,14 @@ def main(argv=None, client=None):
     os.makedirs(a.out, exist_ok=True)
     manifest = open(os.path.join(a.out, "manifest.jsonl"), "a", encoding="utf-8")
 
-    def keep(f):  # raw is write-once: the bytes are on disk before anything reads them
-        name = f"{f.sha256[:16]}.bin"
-        with open(os.path.join(a.out, name), "wb") as fh:
-            fh.write(f.body)
+    def keep(f):
+        # Only the filing LIST is kept (filing-level fields, no person data). An XBRL file carries the filer's PAN / DIN / CIN
+        # (IdentificationNumberOfDirectorOrCompany), so its body is never written: the manifest holds only its status, size and hash.
+        name = None
+        if is_api(f.url):
+            name = f"{f.sha256[:16]}.bin"
+            with open(os.path.join(a.out, name), "wb") as fh:
+                fh.write(f.body)
         manifest.write(json.dumps({"url": f.url, "status": f.status, "via": f.via, "bytes": len(f.body), "sha256": f.sha256,
                                    "file": name, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}) + "\n")
         manifest.flush()
