@@ -22,3 +22,5 @@ jobs:
         run: npm run typecheck
       - name: Test
         run: npm test
+      - name: Test NSE client (tools/)
+        run: python3 -m unittest discover -s tools -p 'test_*.py'  # real-browser test is skipped here (no Playwright)
