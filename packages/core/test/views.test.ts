@@ -286,6 +286,13 @@ describe("gap census fixes (6 Nov)", () => {
     const withNci = companyFeatures(qs, new Map([["2026-09-30", { "x:Equity": "520", "x:EquityAttributableToOwnersOfParent": "500", "x:NonControllingInterest": "20" }]]), "consolidated", "industrial");
     expect(withNci.find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBeNull();
   });
+  it("owners' line filed in older quarters (equal to net profit) then dropped: gaps filled; a different owners' figure blocks it", () => {
+    const mixed = qs.map((q, i) => (i < 2 ? { ...q, lines: { ...q.lines, pat_owners: "10" } } : q));
+    const bs = new Map([["2026-09-30", { "x:Equity": "500", "x:EquityAttributableToOwnersOfParent": "500" }]]);
+    expect(companyFeatures(mixed, bs, "consolidated", "industrial").find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("40");
+    const differs = qs.map((q, i) => (i < 2 ? { ...q, lines: { ...q.lines, pat_owners: "9" } } : q));
+    expect(companyFeatures(differs, bs, "consolidated", "industrial").find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBeNull();
+  });
   it("NCI = total equity − equity to owners when no NCI line is filed", () => {
     const r = companyFeatures(qs.map((q) => ({ ...q, lines: { ...q.lines, pat_owners: "9" } })), new Map([["2026-09-30", { "x:Equity": "520", "x:EquityAttributableToOwnersOfParent": "500" }]]), "consolidated", "industrial");
     expect(r.find((x) => x.field === "nci" && x.periodEnd === "2026-09-30")!.value).toBe("20");
