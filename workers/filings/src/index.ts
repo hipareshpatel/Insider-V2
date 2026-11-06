@@ -10,6 +10,7 @@ import type { Sql } from "@disclo/core";
 import { ownershipStep } from "./ownership.js";
 import { eventStep } from "./eventfeatures.js";
 import { parseSymbolsParam, ratingCoverage, ratingsOfSymbols } from "./ratingcov.js";
+import { GOV_CENSUS_MAX, governanceCensus } from "./governance.js";
 import { SQL_LINES_OF, fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, SQL_IF_LIST_ALL, SQL_IF_LIST_OWN, basisLists, classifyGaps, ifListKeeps, ifListSince, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
@@ -348,6 +349,24 @@ export default {
       const u = new URL(req.url), offset = Math.max(0, Number(u.searchParams.get("offset") ?? 0)), limit = Math.min(60, Math.max(1, Number(u.searchParams.get("limit") ?? 60)));
       const all = [...bySid].map(([sid, symbols]) => ({ sid, symbols }));
       return Response.json({ companies_total: all.length, offset, ...(await readiness(d1Sql(env.DB_FILINGS), all.slice(offset, offset + limit), COVERAGE_FLOOR, offset === 0)) }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/governance-census") {
+      // G8 phase 1 (read-only): stored governance lists / XBRL and results files naming their auditors, for a page of the
+      // focus companies (?offset=&limit= ≤ 5, sorted by symbol) or named ones (?symbols=, ≤ 5); &shapes=0 skips the
+      // field-name samples of one governance file per kind.
+      const q = new URL(req.url).searchParams, sp = q.get("symbols"), meter: D1Meter = { rows: 0, reads: 0 };
+      const limit = Math.min(GOV_CENSUS_MAX, Math.max(1, Number(q.get("limit") ?? 3) || 3)), offset = Math.max(0, Number(q.get("offset") ?? 0) || 0);
+      let symbols: string[], total: number | null = null;
+      if (sp !== null) {
+        const s = parseSymbolsParam(sp);
+        if (typeof s === "string" || s.length > GOV_CENSUS_MAX) return Response.json({ error: typeof s === "string" ? s : `symbols: at most ${GOV_CENSUS_MAX}` }, { status: 400, headers: { "cache-control": "no-store" } });
+        symbols = s;
+      } else {
+        const all = [...((await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES, meter)) ?? [])].sort();
+        total = all.length; symbols = all.slice(offset, offset + limit);
+      }
+      const r = await governanceCensus(d1Sql(env.DB_FILINGS, meter), (k) => getText(env.RAW, k), symbols, { shapes: q.get("shapes") !== "0" });
+      return Response.json({ companies_total: total, offset: sp === null ? offset : null, next_offset: total !== null && offset + limit < total ? offset + limit : null, ...r, rows_read: meter.reads }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/ratings-coverage") {
       // Work list 2.10 (item 7, read-only): credit ratings of the focus companies from the D168 floor vs NSE's stored

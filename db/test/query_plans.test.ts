@@ -285,3 +285,13 @@ describe("market: /maint/listed_on (log #402, one-off): security.listed_on from 
     expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
   });
 });
+describe("/governance-census (G8 phase 1, read-only, ≤ 5 companies per call)", () => {
+  it("filings: stored governance / results jobs of named companies by ix_fetch_symbol_kind (counts and files)", async () => {
+    const { SQL_GOV_COUNTS, SQL_GOV_FILES } = await import("../../workers/filings/src/governance.js");
+    for (const sql of [SQL_GOV_COUNTS, SQL_GOV_FILES]) {
+      const p = plan(F, sql, ['["INFY"]', '["governance","xbrl_integrated_financials"]']);
+      expect(p.filter(bad), p.join("\n")).toEqual([]);
+      expect(p.some((l) => /SEARCH fetch_job USING INDEX ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/.test(l)), p.join("\n")).toBe(true);
+    }
+  });
+});
