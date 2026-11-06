@@ -350,10 +350,13 @@ export function bankFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Recor
     const NPA_SA = no(`quarter ${e}: asset quality is reported on the standalone basis (the consolidated file carries zeros)`);
     put("gnpa_pct_q", e, npaZeros ? NPA_SA : filedPct("gnpa_pct", e));
     put("nnpa_pct_q", e, npaZeros ? NPA_SA : filedPct("nnpa_pct", e));
-    put("cet1_ratio_q", e, filedPct("cet1_ratio", e));
+    // a CET1 ratio filed as 0 is not reported for this basis (HDFCBANK consolidated carries zeros, log #408)
+    const capZero = (() => { const c = v(q, "cet1_ratio"); return c !== null && c.units === 0n; })();
+    const CAP_NA = no(`quarter ${e} (${basis}): capital ratios filed as 0 — reported on the other basis`);
+    put("cet1_ratio_q", e, capZero ? CAP_NA : filedPct("cet1_ratio", e));
     // G1 (log #407): Tier 1 = CET1 + AT1, both filed (as fractions, like CET1); total CRAR (Tier 2) is not in the XBRL
     { const c = v(q, "cet1_ratio"), a = v(q, "at1_ratio");
-      put("tier1_ratio_q", e, c && a ? ok(add(c, a), [e], "computed: CET1 ratio + additional Tier 1 ratio, both as filed") : no(`quarter ${e} (${basis}): CET1 and additional Tier 1 ratios must both be filed`)); }
+      put("tier1_ratio_q", e, capZero ? CAP_NA : c && a ? ok(add(c, a), [e], "computed: CET1 ratio + additional Tier 1 ratio, both as filed") : no(`quarter ${e} (${basis}): CET1 and additional Tier 1 ratios must both be filed`)); }
     const g = v(q, "gross_npa"), nn = v(q, "net_npa");
     put("pcr_q", e, npaZeros ? NPA_SA : g && nn ? (g.units > 0n ? ok(div(mul(sub(g, nn), dec("100")), g, 2), [e], "provision coverage = (gross NPA − net NPA) ÷ gross NPA; excludes technical write-offs") : no(`quarter ${e}: gross NPA is zero`)) : no(`quarter ${e} (${basis}): gross and net NPA amounts must be filed`));
     const niiT = sum4(nii, e), oiT = sum4(lineQ("other_income"), e), opexT = sum4(lineQ("operating_expenses"), e), provT = sum4(lineQ("provisions"), e);
@@ -440,13 +443,21 @@ export function nbfcFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Recor
   const sum4 = (f: (e: string) => View, end: string): View => { let s = dec("0"), e = end; const from: string[] = []; for (let i = 0; i < 4; i++) { const x = f(e); if (x.value === null) return x; s = add(s, dec(x.value)); from.push(e); e = previousQuarterEnd(e); } return ok(s, from.reverse()); };
   const bsv = (d: string, k: string) => { const x = balanceSheets.get(d)?.[k]; return x != null ? dec(x) : null; };
   const note = (x: View, n: string): View => (x.value === null ? x : { ...x, note: x.note ? `${n}; ${x.note}` : n });
+  // computed debt to equity at the latest balance sheet on or before a quarter end (≤ 200 days), for the filed-ratio check
+  const deAt = (d: string): Dec | null => { const b = balanceSheets.get(d); if (!b) return null; const f = nbfcBorrowedFunds(b, d), eo = ownersEquity(b, basis, "nbfc");
+    return f.value === null || eo == null || dec(eo).units <= 0n ? null : div(dec(f.value), dec(eo), 4); };
+  const bsDates = [...balanceSheets.keys()].sort();
+  const computedDe = (e: string): { de: Dec; at: string } | null => {
+    for (let i = bsDates.length - 1; i >= 0; i--) { const d = bsDates[i]!; if (d > e) continue; if ((Date.parse(e) - Date.parse(d)) / 864e5 > 200) return null; const de = deAt(d); return de ? { de, at: d } : null; }
+    return null; };
   for (const q of qs) {
     const e = q.periodEnd, ya = yearBefore(e);
     const n = nii(e);
     put("nii_q", e, note(n, "computed: interest income − finance costs"));
     put("nii_yoy_q", e, growth(n, nii(ya), "NII YoY"));
-    // filed ratio (SEBI LODR Reg 52(4) for listed debt): as the company states it
-    put("debt_equity_filed_q", e, note(lineQ("debt_equity_ratio")(e), "filed: debt-equity ratio as stated by the company"));
+    // filed ratio (SEBI LODR Reg 52(4) for listed debt): its scale is checked against the balance sheet (log #408:
+    // CHOLAFIN files 0.074, SHRIRAMFIN 0.0416, against ≈ 7× and 4× computed) — shown only when it agrees
+    put("debt_equity_filed_q", e, filedDebtEquity(lineQ("debt_equity_ratio")(e), computedDe(e)));
     const niiT = sum4(nii, e), ntiT = sum4(nti, e), opexT = sum4(opex, e), impT = sum4(lineQ("impairment_financial_instruments"), e);
     put("nii_ttm", e, note(niiT, "computed: interest income − finance costs, four filed quarters"));
     put("net_total_income_ttm", e, note(ntiT, "computed: total income − finance costs, four filed quarters"));
@@ -624,6 +635,19 @@ export function solvencyMultiple(filed: View): View {
   if (cmp(x, dec("50")) > 0) return ok(div(x, dec("100"), 4), filed.from, "filed as a percentage (value > 50×, beyond any insurer's solvency); shown ÷ 100");
   if (cmp(x, dec("0.5")) >= 0) return ok(x, filed.from, "filed: solvency ratio as stated by the company, a multiple (×) as filed");
   return ok(mul(x, dec("100")), filed.from, SOLVENCY_SCALED_NOTE);
+}
+
+/** NBFC filed debt-equity ratio (Reg 52(4)), shown only when its scale agrees with the balance sheet: within ±25 % of the
+ *  computed debt to equity → as filed; filed × 100 within ±25 % → × 100 (filed scaled by 1/100); otherwise not shown. */
+export function filedDebtEquity(filed: View, computed: { de: Dec; at: string } | null): View {
+  if (filed.value === null) return filed;
+  if (!computed) return no("filed debt-equity ratio not shown: no balance sheet within 200 days to check its scale against");
+  const f = dec(filed.value), c = computed.de;
+  const near = (x: Dec) => cmp(x, mul(c, dec("0.75"))) >= 0 && cmp(x, mul(c, dec("1.25"))) <= 0;
+  if (c.units > 0n && near(f)) return ok(f, filed.from, `filed: debt-equity ratio as stated by the company (agrees with the balance sheet ${computed.at})`);
+  const x100 = mul(f, dec("100"));
+  if (c.units > 0n && near(x100)) return ok(x100, filed.from, `filed scaled by 1/100 (${filed.value} filed; balance sheet ${computed.at} gives ${toText(div(c, dec("1"), 2))}×); shown × 100`);
+  return no(`filed debt-equity ratio ${filed.value} does not match the balance sheet ${computed.at} (${toText(div(c, dec("1"), 2))}×): not shown`);
 }
 
 /** Field catalogue §5: EPS growth year on year (basic EPS, 2 places). Guard: the implied share count (profit to owners ÷
