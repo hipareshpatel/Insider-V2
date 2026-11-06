@@ -433,3 +433,22 @@ export function valuationFeatures(basis: string, x: ValuationInputs): FeatureRow
   }
   return rows;
 }
+
+/** Field catalogue §4: P/E against the median P/E of the company's sector among the companies compared (%: +20 = 20 %
+ *  above). "Industry" is NSE's broad sector (D121): the finer industry text leaves most groups of the 250 with one or two
+ *  companies. Only positive P/Es count (a loss has none); a sector needs at least `minN` of them, else no median. */
+export function peVsSectorMedian(rows: readonly { sid: number; sector: string | null; pe: string | null }[], minN = 5): Map<number, View & { median?: string; n?: number }> {
+  const bySector = new Map<string, number[]>();
+  for (const r of rows) if (r.sector && r.pe != null && Number(r.pe) > 0) (bySector.get(r.sector) ?? bySector.set(r.sector, []).get(r.sector)!).push(Number(r.pe));
+  const med = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b), k = s.length >> 1; return s.length % 2 ? s[k]! : (s[k - 1]! + s[k]!) / 2; };
+  const out = new Map<number, View & { median?: string; n?: number }>();
+  for (const r of rows) {
+    if (!r.sector) { out.set(r.sid, no("no sector stored for this company")); continue; }
+    if (r.pe == null || !(Number(r.pe) > 0)) { out.set(r.sid, no("no P/E (a loss or a missing figure)")); continue; }
+    const xs = bySector.get(r.sector)!;
+    if (xs.length < minN) { out.set(r.sid, no(`sector ${r.sector}: only ${xs.length} companies with a P/E (needs ${minN})`)); continue; }
+    const m = med(xs);
+    out.set(r.sid, { value: (Math.round((Number(r.pe) / m - 1) * 10000) / 100).toFixed(2), from: [`sector ${r.sector}: median P/E ${m.toFixed(2)} of ${xs.length} companies`], median: m.toFixed(2), n: xs.length });
+  }
+  return out;
+}

@@ -1,7 +1,7 @@
 // D171 (owner #358): the feature table — computed values (TTM, EBITDA, adjusted figures, growth, ROE/ROCE) stored in
 // feature_value, never in fin_value. Built company by company from the filed figures; a rebuild writes only values that
 // changed (the upsert's WHERE), so a nightly run over the 250 writes little once the table is filled.
-import { batchAll, chooseLayout, companyFeatures, dec, div, insertRows, toText, valuationFeatures, type FiledPeriod, type View } from "@disclo/core";
+import { batchAll, chooseLayout, companyFeatures, dec, div, insertRows, peVsSectorMedian, toText, valuationFeatures, type FiledPeriod, type View } from "@disclo/core";
 import type { Deps } from "./load.js";
 
 /** Rows read reach back far enough for the growth-vs-trend fields of the first stored quarter (2024-03: its YoY and the
@@ -149,7 +149,30 @@ export async function valuationsStep(deps: Deps, focusSids: Set<number>, limit =
   const sids = [...focusSids].filter((x) => x > after).sort((a, b) => a - b).slice(0, limit);
   for (const sid of sids) await companyValuations(deps, sid);
   const done = sids.length < limit;
+  if (done) await sectorPeStep(deps, focusSids); // §4: once all of the day's P/Es are in
   await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','valuations',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail",
     [deps.now().toISOString(), JSON.stringify({ day, after: sids.length ? sids[sids.length - 1] : after, done })]);
   return { day, companies: sids.length, done };
+}
+
+// §4 P/E vs the sector median: each company's latest reported P/E on its primary basis ('both' = consolidated), its
+// latest stored sector (market.classification), one median per sector over the focus companies. ≈ 3 primary-key reads
+// per company once a trading day.
+export const SQL_PE_LATEST = "SELECT security_id, basis, value FROM feature_value WHERE security_id IN (SELECT value FROM json_each(?1)) AND basis IN ('consolidated','standalone') AND field = 'pe_ttm_rep' AND period_end = 'latest'";
+export const SQL_PRIMARY_BASIS_OF = "SELECT security_id, basis FROM primary_basis WHERE security_id IN (SELECT value FROM json_each(?1))";
+export const SQL_SECTOR_LATEST = "SELECT security_id, sector FROM classification WHERE security_id IN (SELECT value FROM json_each(?1)) ORDER BY security_id, as_of";
+export async function sectorPeStep(deps: Deps, focusSids: Set<number>): Promise<number> {
+  const ids = JSON.stringify([...focusSids]);
+  const pe = await deps.filings.all<{ security_id: number; basis: string; value: string | null }>(SQL_PE_LATEST, [ids]);
+  const pb = new Map((await deps.filings.all<{ security_id: number; basis: string }>(SQL_PRIMARY_BASIS_OF, [ids])).map((r) => [r.security_id, r.basis === "standalone" ? "standalone" : "consolidated"]));
+  const sector = new Map<number, string | null>();
+  for (const r of await deps.market.all<{ security_id: number; sector: string | null }>(SQL_SECTOR_LATEST, [ids])) sector.set(r.security_id, r.sector); // latest as_of wins
+  const rows = [...focusSids].map((sid) => {
+    const basis = pb.get(sid) ?? "consolidated";
+    return { sid, basis, sector: sector.get(sid) ?? null, pe: pe.find((r) => r.security_id === sid && r.basis === basis)?.value ?? null };
+  });
+  const res = peVsSectorMedian(rows), now = deps.now().toISOString();
+  const out = rows.map((r) => { const v = res.get(r.sid)!; return [r.sid, r.basis, "pe_vs_industry_median", "latest", v.value, v.value === null ? v.reason : null, JSON.stringify(v.value === null ? [] : v.from), now]; });
+  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 8, out, SQL_FEATURE_UPSERT_TAIL));
+  return out.length;
 }

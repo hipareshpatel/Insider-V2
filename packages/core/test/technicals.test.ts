@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustCloses, ema, priceFeatures, rsi, type Session } from "../src/index.js";
+import { adjustCloses, dividendYieldTtm, ema, priceFeatures, rsi, type Session } from "../src/index.js";
 
 // 300 sessions on weekdays from 2025-07-01, close rising 1 a day from 100; a 1:1 bonus (factor 0.5) on 2026-01-05
 function series(): Session[] {
@@ -56,5 +56,17 @@ describe("field catalogue §3: price features on adjusted closes", () => {
     expect(ema([1, 2], 3)).toBeNull();
     expect(rsi([1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1], 14)).toBeCloseTo(50, 6);
     expect(rsi([1, 2], 14)).toBeNull();
+  });
+});
+
+describe("§4 dividend yield (TTM)", () => {
+  it("sums dividends in the last 12 months on today's share basis, over the latest unadjusted close", () => {
+    // ₹10 before a 1:2 split (factor 0.5) counts as ₹5; ₹4 + ₹1 combined purpose; one outside the window ignored
+    const r = dividendYieldTtm("2026-11-05", 300, [
+      { exDate: "2025-11-05", amount: "50" }, { exDate: "2026-01-10", amount: "10" }, { exDate: "2026-08-01", amount: "4+1" }],
+      [{ exDate: "2026-03-01", factor: 0.5 }]);
+    expect(r).toMatchObject({ value: "3.33", reason: null }); // (5 + 5) ÷ 300
+    expect(dividendYieldTtm("2026-11-05", 300, [], []).value).toBe("0.00");
+    expect(dividendYieldTtm("2026-11-05", 300, [{ exDate: "2026-06-01", amount: "abc" }], []).reason).toMatch(/not readable/);
   });
 });
