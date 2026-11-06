@@ -214,6 +214,16 @@ export const GI_TAGS: Record<string, string> = {
   npa_net_policyholders: "NetNPAsPolicyholdersFund",
 };
 
+/** The insurer lines added to LIFE_TAGS / GI_TAGS by the G3 follow-up (filed ratios, NPAs of investments, life
+ *  shareholders' investment income): the only lines the one-off `ins_rev` pass offers for stored files. */
+export const INSURER_LINES_NEW: Record<"life_insurance" | "general_insurance", string[]> = {
+  life_insurance: ["investment_income_shareholders", "expenses_of_management_ratio_filed", "persistency_13m", "persistency_25m", "persistency_37m",
+    "persistency_49m", "persistency_61m", "conservation_ratio",
+    ...["nonlinked_par", "nonlinked_nonpar", "linked_par", "linked_nonpar", "shareholders"].flatMap((f) => [`npa_gross_${f}`, `npa_net_${f}`])],
+  general_insurance: ["claims_ratio_filed", "combined_ratio_filed", "expenses_of_management_ratio_filed", "net_retention_ratio_filed",
+    "npa_gross_policyholders", "npa_net_policyholders"],
+};
+
 /** Old Indian GAAP (non-Ind AS) results file: its schema is not an Ind AS entry point and it isn't an Integrated Filing.
  *  Seen: "other_than_banks_entry_point_2019-09-30.xsd" (old GAAP) vs "Ind-AS_entry_point_2020-03-31.xsd". */
 export function isOldGaap(inst: XbrlInstance): boolean {

@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
 import { buildFeatures, featuresStep, valuationsStep } from "../src/features.js";
-import { backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
+import { backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, insurerResultsLines, nbfcBalanceSheets, nbfcRevenueLines, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 function sqlite(domain: string): Sql & { raw: DatabaseSync } {
@@ -911,6 +911,42 @@ describe("item 5 leftover 3: NBFC revenue lines pass", () => {
   it("adds nothing when the period was loaded from another filing", async () => {
     const { r, got } = await run(false);
     expect(got).toEqual([]);
+    expect(r.notes.join(" ")).toContain("period not loaded from this filing");
+  });
+});
+
+describe("G3 follow-up: insurer results lines pass (ins_rev)", () => {
+  const run = async (file: string, name: string, patFromThisFiling: boolean, end: string) => {
+    const url = `https://nsearchives.nseindia.com/corporate/xbrl/${name}`;
+    const { filings, deps } = setup({ [`att/xbrl/${name}`]: readFileSync(join(ROOT, "packages/core/test/fixtures/nse", file), "utf8") });
+    filings.raw.exec(`INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (41, 7, 'integrated_financials', '${end}', 'Q', 'standalone', '2026-10-28T00:00:00Z', '${url}'),
+      (99, 7, 'results_quarterly', '${end}', 'Q', 'standalone', '2026-10-28T00:00:00Z', 'other')`);
+    filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'insurance','pl','pat','','${end}','Q','standalone','original','1',NULL,'2026-10-28T00:00:00Z',${patFromThisFiling ? 41 : 99},'t','reported','results-v1')`);
+    const r = await insurerResultsLines({ ...deps, focus: ["INFY"] });
+    const got = Object.fromEntries((filings.raw.prepare("SELECT line, value FROM fin_value WHERE line <> 'pat'").all() as { line: string; value: string }[]).map((x) => [x.line, x.value]));
+    const kinds = filings.raw.prepare("SELECT DISTINCT period_kind, version, extractor_version FROM fin_value WHERE line <> 'pat'").all();
+    return { r, got, kinds, again: await insurerResultsLines({ ...deps, focus: ["INFY"] }) };
+  };
+  it("life (SBILIFE Q2 FY27, real file): adds only the new lines as filed, for the quarter this filing loaded", async () => {
+    const { r, got, kinds, again } = await run("xbrl_SBILIFE_IF_Q2FY27_trim.xml", "INTEGRATED_FILING_LI_1_WEB.xml", true, "2026-09-30");
+    expect(r).toMatchObject({ done: true, companies: 1, files: 1, rows: 18 });
+    expect(got).toMatchObject({ expenses_of_management_ratio_filed: "0.1139", persistency_13m: "0.8582", persistency_61m: "0.5801", conservation_ratio: "0.8171",
+      investment_income_shareholders: "3558307000", npa_gross_shareholders: "0", npa_net_linked_nonpar: "0" });
+    expect(Object.keys(got)).toHaveLength(18);           // nothing but INSURER_LINES_NEW (gross premium etc. not re-offered)
+    expect(got.gross_premium).toBeUndefined();
+    expect(kinds).toEqual([{ period_kind: "Q", version: "original", extractor_version: "results-v1" }]);
+    expect(again).toMatchObject({ done: true, rows: 18 });   // the cursor is done: a second call reads nothing
+  });
+  it("general (GODIGIT Q1 FY27, real file): the four filed ratios and the two NPA lines", async () => {
+    const { r, got } = await run("xbrl_GODIGIT_Q1FY27_gi.xml", "INTEGRATED_FILING_GI_1_WEB.xml", true, "2026-06-30");
+    expect(r).toMatchObject({ done: true, files: 1, rows: 6 });
+    expect(got).toEqual({ claims_ratio_filed: "0.733", combined_ratio_filed: "1.123", expenses_of_management_ratio_filed: "0.39", net_retention_ratio_filed: "0.767",
+      npa_gross_policyholders: "0", npa_net_policyholders: "0" });
+  });
+  it("adds nothing when the period was loaded from another filing", async () => {
+    const { r, got } = await run("xbrl_SBILIFE_IF_Q2FY27_trim.xml", "INTEGRATED_FILING_LI_1_WEB.xml", false, "2026-09-30");
+    expect(got).toEqual({});
     expect(r.notes.join(" ")).toContain("period not loaded from this filing");
   });
 });

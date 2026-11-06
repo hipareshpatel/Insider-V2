@@ -1,7 +1,7 @@
 // M2 results loader: canonical results from XBRL kept in R2 (D132) -> filings.filing + fin_value.
 // FMEA: B5 basis in every key; B6 period from the filing's own dates; B7 scale guard vs own history;
 // B8 version 'original' (never overwritten); B9 unknown layout / failed checks -> review, nothing loaded.
-import { type CanonicalResult, CF_UNTAGGED_OK, segmentResults, NBFC_REVENUE_NEW, statementDetail, type Sql, type XbrlInstance, add, balanceAndCash, batchAll, cmp, sub, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
+import { type CanonicalResult, CF_UNTAGGED_OK, segmentResults, NBFC_REVENUE_NEW, INSURER_LINES_NEW, statementDetail, type Sql, type XbrlInstance, add, balanceAndCash, batchAll, cmp, sub, byKindAfter, markFresh, canonicalResult, dec, div, insertRows, parseShareholding, parseXbrl, toText } from "@disclo/core";
 
 export interface Deps {
   filings: Sql;
@@ -731,6 +731,46 @@ const byTemplate = (deps: Deps, want: string[]) => async (focus: number[] | null
 export async function bankInsurerCashFlows(deps: Deps, limit = 40, budgetMs = 20_000) {
   return rereadPass(deps, "bank_ins_cf", byTemplate(deps, ["bank", "insurance"]), limit, budgetMs);
 }
+/** G3 follow-up (ins_rev): the insurer lines added to LIFE_TAGS / GI_TAGS (INSURER_LINES_NEW: filed ratios, NPAs of
+ *  investments, life shareholders' investment income) for the stored results files from 2024 of the focus insurers (same
+ *  selection as ins_bs). As nbfc_rev: only the new lines (inserts only, ON CONFLICT DO NOTHING), only for a period this
+ *  filing already loaded (its profit-after-tax row is there), only when every check of the file passes — the quarter
+ *  (for a half-year file, its own 3-month column, as loadQuarterOfHalf reads it), the file's own period and, in a
+ *  year-end file, the full year — then the version pass for each period written. A line not filed is not written (no
+ *  null row: the loader's missing rows are for lines read at load time). */
+export const SQL_FILING_PERIOD_LOADED_PAT = "SELECT 1 AS ok FROM fin_value INDEXED BY ix_fin_value_period WHERE security_id = ?1 AND period_end = ?2 AND statement = 'pl' AND line = 'pat' AND period_kind = ?3 AND basis = ?4 AND filing_id = ?5 LIMIT 1";
+export async function insurerResultsLines(deps: Deps, limit = 25, budgetMs = 20_000) {
+  return rereadPass(deps, "ins_rev", byTemplate(deps, ["insurance"]), limit, budgetMs,
+    async (inst, f, sid) => {
+      const out: unknown[][] = [], notes: string[] = [], periods: [string, string][] = [];
+      const offer = async (r: CanonicalResult, kind: string, ver: string) => {
+        if (r.template !== "life_insurance" && r.template !== "general_insurance") { notes.push(`${kind}: not an insurer file (${r.template})`); return; }
+        const keys = INSURER_LINES_NEW[r.template].filter((k) => r.lines[k] !== undefined);
+        if (!keys.length) return;
+        if (r.checks.length < 2 || r.checks.some((c) => !c.ok)) { notes.push(`${kind}: checks failed`); return; }
+        const [ok] = await deps.filings.all<{ ok: number }>(SQL_FILING_PERIOD_LOADED_PAT, [sid, r.periodEnd, kind, r.basis, f.filing_id]);
+        if (!ok) { notes.push(`${kind} ${r.periodEnd}: period not loaded from this filing`); return; }
+        for (const k of keys) out.push([sid, TEMPLATE[r.template], "pl", k, "", r.periodEnd, kind, r.basis, "original", r.lines[k], null, f.disclosed_at, f.filing_id, k, "reported", ver]);
+        periods.push([r.periodEnd, kind]);
+      };
+      const q = canonicalResult(inst);
+      await offer(q, q.periodKind, "results-v1");
+      if (q.periodKind === "H") {
+        let qq: CanonicalResult | null = null;
+        try { qq = canonicalResult(inst, { periodStart: quarterBounds(q.periodEnd).start }); } catch { qq = null; }
+        if (qq && qq.periodKind === "Q") await offer(qq, "Q", "results-q-in-h-v1");
+      }
+      const fyStart = inst.facts.find((x) => /:DateOfStartOfFinancialYear$/.test(x.tag))?.value ?? null;
+      if ((q.periodKind === "Q" || q.periodKind === "H") && fyStart && months(fyStart, q.periodEnd) === 12) {
+        try { const fy = canonicalResult(inst, { span: "ytd", undefinedYtd: true }); if (fy.periodKind === "FY") await offer(fy, "FY", "results-fy-v1"); } catch { notes.push("FY: not read"); }
+      }
+      if (out.length) await batchAll(deps.filings, insertRows(
+        "INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)", 16, out, "ON CONFLICT DO NOTHING"));
+      for (const [end, kind] of periods) await versionPeriod(deps.filings, sid, end, kind, q.basis);
+      return { rows: out.length, note: notes.length ? `; ${notes.join("; ")}`.slice(0, 200) : "" };
+    });
+}
+
 /** Item 5: insurers' IRDAI balance sheet (read since this change) for their stored results files from 2024. */
 export async function insurerBalanceSheets(deps: Deps, limit = 40, budgetMs = 20_000, slot = "ins_bs") {
   return rereadPass(deps, slot, byTemplate(deps, ["insurance"]), limit, budgetMs);
