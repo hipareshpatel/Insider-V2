@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { auditorEvents, auditorKey, auditorSnapshot, opinionKind, parseXbrl } from "../src/index.js";
+import { GOV_DENY, activeAt, auditorEvents, auditorKey, auditorSnapshot, boardSnapshot, directorKey, isIndependent, opinionKind, parseXbrl } from "../src/index.js";
 
 const fx = (n: string) => readFileSync(join(import.meta.dirname, "fixtures", "nse", n), "utf8");
 const snap = (n: string) => auditorSnapshot(parseXbrl(fx(n)));
@@ -72,5 +72,63 @@ describe("auditorEvents (consecutive filings of one company)", () => {
   it("a modified opinion is its own event", () => {
     const q = { ...q2, opinion: { kind: "other" as const, value: "Statement on impact of audit qualification", source: "x" } };
     expect(auditorEvents([q])).toEqual([{ type: "audit_opinion_modified", symbol: "INFY", basis: "consolidated", periodEnd: "2026-09-30", boardDate: "2026-10-23", value: "Statement on impact of audit qualification", source: "x", ref: "q2" }]);
+  });
+});
+
+// G8 phase 2: board composition. The governance fixture is SYNTHETIC (fictitious company and directors, tag names of
+// log #405); no PAN / DIN / date-of-birth fact is in any fixture — the exclusion test adds sentinel facts at run time.
+describe("boardSnapshot (synthetic in-bse-cg governance XBRL)", () => {
+  const cg = fx("xbrl_SYNTH_CG_Q2FY27.xml");
+  it("directors per CompositionOfBoardOfDirectorsAxis member: name, key, category, status, dates; complaints pending at the end", () => {
+    const b = boardSnapshot(parseXbrl(cg));
+    expect(b).toMatchObject({ schema: "in-bse-cg", symbol: "SYNTHCO", periodEnd: "2026-09-30", complaintsPending: 3,
+      complaintsSource: "in-bse-cg:NoOfInvestorComplaintsRemainingUnresolvedAtTheEndOfThePeriod@OneD" });
+    expect(b.directors.map((d) => [d.name, d.key, d.category, d.status, d.appointedOn, d.ceasedOn])).toEqual([
+      ["Asha Rao", "asha rao", "Executive Director / Chairperson / Promoter", "Active", "2015-04-01", null],
+      ["Vikram Sen", "vikram sen", "Non-Executive - Independent Director", "Active", "2021-08-01", null],
+      ["Meera Iyer", "meera iyer", "Non-Executive - Independent Director", "Active", "2026-08-15", null],
+      ["Rohan Das", "rohan das", "Non-Executive - Non Independent Director", "Ceased", "2019-01-10", "2026-09-01"],
+      ["Karan Shah", "karan shah", "Non-Executive - Independent Director", "Active", "2022-02-01", null]]);
+    const on = b.directors.filter((d) => activeAt(d, b.periodEnd!));
+    expect(on.length).toBe(4);
+    expect(on.filter((d) => isIndependent(d.category)).length).toBe(3);
+  });
+  it("Integrated Filing – Governance (in-capmkt) spelling variants read the same way", () => {
+    const x = cg.replace(/in-bse-cg:/g, "in-capmkt:").replace(/NameOftheDirector/g, "NameOfTheDirector").replace(/DateOfCessation\b/g, "DateOfCessationOfDirector")
+      .replace(/PositionOfDirectorInBoardOne/g, "CategoryOfDirector1");
+    const b = boardSnapshot(parseXbrl(x));
+    expect(b.schema).toBe("in-capmkt");
+    expect(b.directors.length).toBe(5);
+    expect(b.directors[3]).toMatchObject({ key: "rohan das", ceasedOn: "2026-09-01", category: "Non-Executive - Non Independent Director" });
+  });
+  it("HARD RULE: PAN, DIN and date of birth facts are never read or returned; identifier-shaped text leaves the name", () => {
+    // sentinel values (not real identifiers), added to every director context at run time
+    const pii = ["SENTINEL-PAN-VALUE", "SENTINEL-DIN-VALUE", "SENTINEL-DOB-VALUE", "SENTINEL-PAN2-VALUE"];
+    let x = cg;
+    for (let i = 1; i <= 5; i++) x = x.replace("</xbrli:xbrl>", `<in-bse-cg:PermanentAccountNumberOfDirector contextRef="D_Dir${i}">${pii[0]}</in-bse-cg:PermanentAccountNumberOfDirector>
+<in-bse-cg:DirectorIdentificationNumberOfDirector contextRef="D_Dir${i}">${pii[1]}</in-bse-cg:DirectorIdentificationNumberOfDirector>
+<in-bse-cg:DateOfBirthOfDirector contextRef="D_Dir${i}">${pii[2]}</in-bse-cg:DateOfBirthOfDirector>
+<in-bse-cg:PANOfDirector contextRef="D_Dir${i}">${pii[3]}</in-bse-cg:PANOfDirector>
+</xbrli:xbrl>`);
+    // a filer that typed identifiers into the name field (dummy shapes: AAAAA0000A, 00000000)
+    x = x.replace(">Karan Shah<", ">Karan Shah (AAAAA0000A) 00000000<");
+    const out = JSON.stringify(boardSnapshot(parseXbrl(x)));
+    for (const s of [...pii, "AAAAA0000A", "00000000", "PermanentAccountNumber", "DirectorIdentificationNumber", "DateOfBirth"]) expect(out).not.toContain(s);
+    expect(boardSnapshot(parseXbrl(x)).directors[4]).toMatchObject({ name: "Karan Shah", key: "karan shah" });
+    expect(GOV_DENY.test("PermanentAccountNumberOfDirector") && GOV_DENY.test("DirectorIdentificationNumberOfDirector") && GOV_DENY.test("DateOfBirthOfDirector") && GOV_DENY.test("PANOfDirector")).toBe(true);
+    expect(GOV_DENY.test("NameOftheDirector") || GOV_DENY.test("DateOfAppointmentOfDirector") || GOV_DENY.test("CurrentStatusDirector")).toBe(false);
+  });
+  it("directorKey: honorifics, case, spacing and punctuation ignored", () => {
+    expect(directorKey("Dr. Meera  IYER")).toBe("meera iyer");
+    expect(directorKey("Shri N. R. Murthy")).toBe("n r murthy");
+    expect(directorKey("Mrs. Asha Rao")).toBe(directorKey("ASHA RAO"));
+  });
+  it("real Integrated Filing – Financials files (INFY, HDFCBANK, GODIGIT) name no director: empty board, own period end", () => {
+    for (const [n, end] of [["xbrl_INFY_IF_Q2FY27_cons_full.xml", "2026-09-30"], ["xbrl_HDFCBANK_IF_Q2FY27_full.xml", "2026-09-30"], ["xbrl_GODIGIT_Q1FY27_gi.xml", "2026-06-30"]] as const) {
+      const b = boardSnapshot(parseXbrl(fx(n)));
+      expect(b.directors, n).toEqual([]);
+      expect(b.periodEnd, n).toBe(end);
+      expect(b.schema, n).toBe("in-capmkt");
+    }
   });
 });

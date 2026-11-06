@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SOLVENCY_SCALED_NOTE, canonicalResult, parseXbrl, solvencyMultiple, adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, nbfcSubtype, insurerFeatures, insurerInvestments, marginFlags, peVsSectorMedian, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
+import { SOLVENCY_SCALED_NOTE, filedDebtEquity, canonicalResult, parseXbrl, solvencyMultiple, adjustedPat, adjustedPbt, capitalEmployed, companyFeatures, nbfcSubtype, insurerFeatures, insurerInvestments, marginFlags, peVsSectorMedian, valuationFeatures, ebitda, isLargeOrder, ownersEquity, previousQuarterEnd, roce, roe, trend, ttm, type FiledPeriod } from "../src/index.js";
 
 const q = (periodEnd: string, lines: Record<string, string>, basis = "consolidated"): FiledPeriod => ({ periodEnd, periodKind: "Q", basis, lines });
 const four = [q("2025-12-31", { revenue: "100" }), q("2026-03-31", { revenue: "110" }), q("2026-06-30", { revenue: "120" }), q("2026-09-30", { revenue: "130" })];
@@ -285,8 +285,21 @@ describe("bank pack (owner 6 Nov)", () => {
     const g = (f: string) => r.find((x) => x.field === f && x.periodEnd === "2026-09-30")!;
     for (const f of ["gnpa_pct_q", "nnpa_pct_q", "pcr_q"]) expect(g(f), f).toMatchObject({ value: null, reason: expect.stringContaining("reported on the standalone basis") });
     expect(g("cet1_ratio_q").value).toBe("0.14");
+    const zc = companyFeatures(qs.map((q) => ({ ...q, lines: { ...q.lines, cet1_ratio: "0", at1_ratio: "0" } })), new Map(), "consolidated", "bank").find((x) => x.field === "tier1_ratio_q" && x.periodEnd === "2026-09-30")!;
+    expect(zc).toMatchObject({ value: null, reason: expect.stringContaining("filed as 0") });
     const sa = companyFeatures(qs.map((q) => ({ ...q, basis: "standalone" })), new Map(), "standalone", "bank").find((x) => x.field === "gnpa_pct_q" && x.periodEnd === "2026-09-30")!;
     expect(sa.value).toBe("0");
+  });
+});
+
+describe("filed NBFC debt-equity ratio checked against the balance sheet (log #408)", () => {
+  it("as filed when it agrees; × 100 when filed scaled by 1/100 (CHOLAFIN 0.074 vs ≈ 7.4×); not shown otherwise", async () => {
+    const { dec } = await import("../src/decimal.js");
+    const cc = { de: dec("7.4"), at: "2026-09-30" };
+    expect(filedDebtEquity({ value: "7.1", from: ["q"] }, cc)).toMatchObject({ value: "7.1", note: expect.stringContaining("agrees") });
+    expect(filedDebtEquity({ value: "0.074", from: ["q"] }, cc)).toMatchObject({ value: "7.4", note: expect.stringContaining("scaled by 1/100") });
+    expect(filedDebtEquity({ value: "1.9", from: ["q"] }, cc)).toMatchObject({ value: null, reason: expect.stringContaining("does not match") });
+    expect(filedDebtEquity({ value: "0.074", from: ["q"] }, null)).toMatchObject({ value: null, reason: expect.stringContaining("no balance sheet") });
   });
 });
 

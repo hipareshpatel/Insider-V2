@@ -131,6 +131,11 @@ describe("revised filing of a half year: balance sheet and cash flow versioned a
     const flags = await filings.all<{ statement: string; period_kind: string; change_pct: string }>("SELECT statement, period_kind, change_pct FROM restatement_flag WHERE statement='bs'");
     expect(flags.length).toBeGreaterThan(5);
     expect(flags.every((f) => f.period_kind === "H" && Math.abs(Math.abs(Number(f.change_pct)) - 2) < 0.1)).toBe(true);
+    // G8 phase 2: each loaded filing stores the auditor it names and its audit opinion (inserts only)
+    expect(await filings.all("SELECT filing_id, security_id, basis, period_end, seq, firm FROM auditor_filing ORDER BY filing_id")).toEqual([
+      { filing_id: 1, security_id: 7, basis: "consolidated", period_end: "2026-09-30", seq: 1, firm: "Deloitte Haskins and Sells LLP" },
+      { filing_id: 2, security_id: 7, basis: "consolidated", period_end: "2026-09-30", seq: 1, firm: "Deloitte Haskins and Sells LLP" }]);
+    expect(await filings.all("SELECT filing_id, value FROM governance_fact WHERE key = 'audit_opinion' ORDER BY filing_id")).toEqual([{ filing_id: 1, value: "unmodified" }, { filing_id: 2, value: "unmodified" }]);
   });
 });
 

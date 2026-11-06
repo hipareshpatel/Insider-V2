@@ -11,7 +11,7 @@ import type { Sql } from "@disclo/core";
 import { ownershipStep } from "./ownership.js";
 import { eventStep } from "./eventfeatures.js";
 import { parseSymbolsParam, ratingCoverage, ratingsOfSymbols } from "./ratingcov.js";
-import { GOV_CENSUS_MAX, governanceCensus } from "./governance.js";
+import { GOV_CENSUS_MAX, auditorsBackfill, boardPass, governanceCensus } from "./governance.js";
 import { SQL_LINES_OF, fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
 import { SQL_BASIS_LISTS, SQL_IF_LIST_ALL, SQL_IF_LIST_OWN, basisLists, classifyGaps, ifListKeeps, ifListSince, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
@@ -109,7 +109,10 @@ export default {
           });
           // §11: ownership and pledge fields, once per IST day, 50 companies a run (after the groups, for the group pledge)
           await step("ownership", () => ownershipStep(ldeps.filings, [...sids], new Date(), 50));
-          // §12/§13: results timing, filing timeliness, credit rating — once per IST day, 50 companies a run
+          // G8 phase 2: newly arriving governance XBRL → board_member (≤ 10 files a run, same cursor as
+          // /maint/board_backfill; does nothing until that backfill has caught up)
+          await step("board", () => boardPass(ldeps, { files: 10, scan: 200, budgetMs: 10_000, cron: true }));
+          // §12/§13: results timing, filing timeliness, credit rating, G8 governance — once per IST day, 50 companies a run
           await step("event_features", () => eventStep(ldeps.filings, market, [...sids], new Date(), 50));
         }
       } finally {
@@ -183,6 +186,10 @@ export default {
       else if (name === "ins_rev2") r = await insurerResultsLines(ldeps, 25, 20_000, "ins_rev2", INSURER_LINES_SOLVENCY);
       // G1 (log #407): the additional Tier 1 ratio for the banks' stored results files
       else if (name === "bank_rev") r = await bankResultsLines(ldeps, 25, 20_000);
+      // G8 phase 2 (owner, log #405): auditor firm(s) + audit opinion of the stored results files from 2024 (40 files a
+      // call), and board composition of the stored governance XBRL from 2024 (30 files a call); inserts only
+      else if (name === "auditors_backfill") r = await auditorsBackfill(ldeps, 40, 20_000);
+      else if (name === "board_backfill") r = await boardPass(ldeps, { files: 30, scan: 400, budgetMs: 20_000 });
       else if (name === "features") r = await buildFeatures(ldeps, 25, new URL(req.url).searchParams.get("restart") === "1"); // D171 feature table
       else if (name === "valuations") {
         // D171: today's valuations again (e.g. after a fix); ?restart=1 resets today's cursor first, then 50 per call
