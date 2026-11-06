@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustCloses, dividendYieldTtm, ema, priceFeatures, rsi, type Session } from "../src/index.js";
+import { adjustCloses, dividendYieldTtm, ema, priceFeatures, rsi, SECTOR_INDEX, SECTORAL_INDICES, sectorIndexNames, sectorIndexOf, type SectorInput, type Session } from "../src/index.js";
 
 // 300 sessions on weekdays from 2025-07-01, close rising 1 a day from 100; a 1:1 bonus (factor 0.5) on 2026-01-05
 function series(): Session[] {
@@ -50,6 +50,47 @@ describe("field catalogue §3: price features on adjusted closes", () => {
     expect(v("delivery_pct_20d").value).toBe("40.00");
     const stale = priceFeatures(s, f, flat.slice(0, -1)).rows.find((r) => r.field === "ret_vs_nifty_3m")!;
     expect(stale.reason).toMatch(/Nifty 50 closes end/);
+  });
+  it("return vs the sector index (G5): hand-checked, the sector map and a stored constituent membership", () => {
+    // stock: 2026-08-03 close 100, 2026-11-05 close 115 → +15.00 %; base date = 2026-11-05 − 3 months = 2026-08-05,
+    // last close on or before it is 2026-08-03 (no session on 4–5 Aug in this series)
+    const st: Session[] = [["2026-07-31", 98], ["2026-08-03", 100], ["2026-08-06", 103], ["2026-11-04", 112], ["2026-11-05", 115]]
+      .map(([date, close]) => ({ date: date as string, close: close as number, volume: 1, turnoverRs: 1 }));
+    // Nifty IT 2026-08-03 40000 → 2026-11-05 42000 = +5.00 % → 15.00 − 5.00 = 10.00 pp
+    // Nifty Bank 2026-08-03 50000 → 2026-11-05 47500 = −5.00 % → 15.00 − (−5.00) = 20.00 pp
+    const it3 = [{ date: "2026-08-03", close: 40000 }, { date: "2026-08-06", close: 41000 }, { date: "2026-11-05", close: 42000 }];
+    const bank = [{ date: "2026-08-03", close: 50000 }, { date: "2026-11-05", close: 47500 }];
+    const closes = new Map([["NIFTY IT", it3], ["NIFTY BANK", bank], ["NIFTY FINANCIAL SERVICES", it3.slice(0, -1)]]);
+    const get = (x: SectorInput | undefined) => { const r = priceFeatures(st, [], undefined, x).rows; return (k: string) => r.find((f) => f.field === k)!; };
+    const viaMap = get({ sector: "Information Technology", members: [], closes });
+    expect(viaMap("ret_3m").value).toBe("15.00");
+    expect(viaMap("ret_vs_sector_3m")).toEqual({ field: "ret_vs_sector_3m", value: "10.00", reason: null });
+    expect(viaMap("ret_vs_sector_3m_inputs").value).toBe("Nifty IT; sector map: NSE sector Information Technology (no sectoral index membership stored); company 15.00%, index 5.00% from 2026-08-05");
+    // a stored membership wins over the sector map, matched in any case ("NIFTY BANK" as the index lists spell it)
+    const viaMember = get({ sector: "Information Technology", members: ["NIFTY BANK"], closes });
+    expect(viaMember("ret_vs_sector_3m").value).toBe("20.00");
+    expect(viaMember("ret_vs_sector_3m_inputs").value).toMatch(/^Nifty Bank; constituent of Nifty Bank; company 15.00%, index -5.00%/);
+    // narrowest sectoral index first: a member of both Nifty Financial Services and Nifty Bank uses Nifty Bank
+    expect(get({ sector: "Financial Services", members: ["NIFTY FINANCIAL SERVICES", "Nifty Bank"], closes })("ret_vs_sector_3m").value).toBe("20.00");
+    // nulls, each with its reason (and the inputs row with the same reason)
+    const why = (x: SectorInput | undefined) => get(x)("ret_vs_sector_3m");
+    expect(why({ sector: "Capital Goods", members: [], closes })).toMatchObject({ value: null, reason: "NSE publishes no sectoral index for the sector Capital Goods" });
+    expect(get({ sector: "Capital Goods", members: [], closes })("ret_vs_sector_3m_inputs")).toMatchObject({ value: null, reason: "NSE publishes no sectoral index for the sector Capital Goods" });
+    expect(why({ sector: null, members: [], closes }).reason).toMatch(/^company is Unclassified/);
+    expect(why({ sector: undefined, members: [], closes }).reason).toMatch(/^no sector stored/);
+    expect(why(undefined).reason).toBe("sector index closes not read");
+    expect(why({ sector: "Healthcare", members: [], closes }).reason).toBe("no Nifty Healthcare Index closes stored (sector map: NSE sector Healthcare (no sectoral index membership stored))");
+    expect(why({ sector: "Financial Services", members: [], closes }).reason).toMatch(/^Nifty Financial Services closes end 2026-08-06, the stock's 2026-11-05/);
+    expect(why({ sector: "Information Technology", members: [], closes: new Map([["NIFTY IT", it3.slice(1)]]) }).reason).toMatch(/^no Nifty IT close on or before 2026-08-05/);
+    // a stock without 3 months of closes: the company's own reason first
+    expect(priceFeatures(st.slice(2), [], undefined, { sector: "Information Technology", members: [], closes }).rows.find((f) => f.field === "ret_vs_sector_3m")!.reason).toMatch(/^no stored close on or before 2026-08-05/);
+  });
+  it("sector → index map: only sectors NSE publishes a sectoral index for; every name is read in both spellings", () => {
+    expect(sectorIndexOf({ sector: "Power", members: [], closes: new Map() })).toMatchObject({ index: "Nifty Energy" });
+    for (const s of ["Capital Goods", "Construction", "Construction Materials", "Consumer Services", "Telecommunication", "Services", "Textiles", "Diversified", "Forest Materials"])
+      expect(sectorIndexOf({ sector: s, members: [], closes: new Map() })).toHaveProperty("why");
+    for (const n of Object.values(SECTOR_INDEX)) expect(SECTORAL_INDICES as readonly string[]).toContain(n);
+    expect(sectorIndexNames()).toEqual(expect.arrayContaining(["Nifty IT", "NIFTY IT", "Nifty Oil & Gas", "NIFTY OIL & GAS"]));
   });
   it("EMA seeded by the simple average; RSI needs n + 1 closes", () => {
     expect(ema([1, 2, 3], 3)).toBeCloseTo(2, 9);

@@ -211,6 +211,9 @@ describe("market: price features of the focus companies (field catalogue §3, on
     ["applied factors of one security", t.SQL_APPLIED_FACTORS, [1], /USING (PRIMARY KEY|INDEX sqlite_autoindex_adj_factor_1) \(security_id=\?\)/],
     ["delivery of one security in a date range", t.SQL_DELIVERY, [1, 20250101, 20260101], /SEARCH delivery_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
     ["Nifty 50 closes in a date range", t.SQL_NIFTY, [20250101, 20260101], /SEARCH index_daily USING PRIMARY KEY \(index_name=\? AND d>\? AND d<\?\)/],
+    ["sectoral index closes over the 3-month window (G5, once per step)", t.SQL_SECTOR_CLOSES, ['["Nifty IT","NIFTY IT"]', 20260718, 20261105], /SEARCH index_daily USING PRIMARY KEY \(index_name=\? AND d>\? AND d<\?\)/],
+    ["stored sectoral index memberships (G5, once per step)", t.SQL_SECTORAL_MEMBERS, ['["Nifty Bank","NIFTY BANK"]'], /SEARCH index_membership USING (PRIMARY KEY|INDEX sqlite_autoindex_index_membership_1) \(index_name=\?\)/],
+    ["latest sectors of the step's companies (G5, once per step)", t.SQL_SECTORS_OF, ["[1,2]"], /SEARCH classification USING (PRIMARY KEY|INDEX sqlite_autoindex_classification_1) \(security_id=\?\)/],
     ["focus symbols to securities", t.SQL_FOCUS_SIDS, ['["INFY"]'], /ix_sid_lookup \(id_type=\? AND value=\?\)/],
     ["structure ledger of the as-of session", t.SQL_LEDGER_DAY, [20261105], /SEARCH ms_day USING PRIMARY KEY \(source=\? AND d=\?\)/],
     ["deal ledger over the 90-day window", t.SQL_LEDGER_DEALS, [20260808, 20261105], /SEARCH ms_day USING PRIMARY KEY \(source=\? AND d>\? AND d<\?\)/],
@@ -263,6 +266,20 @@ describe("/gap-census late_start (G19, read-only): index-backed per company", as
     const p = plan(db, sql, params);
     expect(p.filter(bad), p.join("\n")).toEqual([]);
     expect(p.some((l) => /TEMP B-TREE/.test(l)), p.join("\n")).toBe(false);
+    expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
+  });
+});
+
+describe("market: /maint/listed_on (log #402, one-off): security.listed_on from the stored EQUITY_L", async () => {
+  const l = await import("../../workers/market/src/listedon.js");
+  it.each([
+    ["listed ISINs to securities by ix_sid_lookup", l.SQL_IDS_BY_ISIN, ['["INE009A01021"]'], /SEARCH security_identifier USING INDEX ix_sid_lookup \(id_type=\? AND value=\?\)/],
+    ["listed symbols to current securities by ix_sid_lookup", l.SQL_IDS_BY_SYMBOL, ['["INFY"]'], /SEARCH security_identifier USING INDEX ix_sid_lookup \(id_type=\? AND value=\?\)/],
+    ["stored listing dates by primary key", l.SQL_LISTED_CUR, ["[1,2]"], /SEARCH security USING INTEGER PRIMARY KEY \(rowid=\?\)/],
+    ["set changed listing dates by primary key", l.SQL_SET_LISTED, ['[[1,"1995-02-08"]]'], /SEARCH security USING INTEGER PRIMARY KEY \(rowid=\?\)/],
+  ] as [string, string, unknown[], RegExp][])("%s", (_n, sql, params, want) => {
+    const p = plan(M, sql, params);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
     expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
   });
 });
