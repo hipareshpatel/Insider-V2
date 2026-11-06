@@ -131,6 +131,24 @@ class Pit(unittest.TestCase):
             self.assertEqual(json.loads(out.getvalue())["stopped"]["kind"], "blocked")
 
 
+class ListStats(unittest.TestCase):
+    def test_newest_is_chronological_not_alphabetical(self):
+        # '31-Oct-2026' sorts after '03-Nov-2026' as text; the probe's first run reported 31 Oct as newest for that reason
+        import nse_pit_fetch as m
+        rows = [{"symbol": "AAA", "broadcastDateTime": "31-Oct-2026 16:48:46"}, {"symbol": "aaa", "broadcastDateTime": "03-Nov-2026 22:09:12"},
+                {"symbol": "BBB", "broadcastDateTime": "05-Nov-2026 09:00:00"}, {"symbol": "", "broadcastDateTime": "junk"}]
+        st = m.list_stats(rows, ["AAA", "ccc"])
+        self.assertEqual((st["oldest"], st["newest"]), ("2026-10-31T16:48:46", "2026-11-05T09:00:00"))
+        self.assertEqual(st["distinct_symbols"], 2)                      # blank symbol not counted, case folded
+        self.assertEqual(st["unparsed_times"], 1)
+        self.assertEqual(st["asked_symbols"], {"AAA": {"filings": 2, "newest": "2026-11-03T22:09:12"}, "CCC": {"filings": 0, "newest": None}})
+
+    def test_stats_carry_no_person_fields(self):
+        import nse_pit_fetch as m
+        st = m.list_stats([{"symbol": "AAA", "broadcastDateTime": "03-Nov-2026", "acqName": "Some Person", "xmlFileName": "u"}], ["AAA"])
+        self.assertNotIn("Some Person", json.dumps(st))
+
+
 try:
     import playwright.sync_api  # noqa: F401
     HAVE_PW = True

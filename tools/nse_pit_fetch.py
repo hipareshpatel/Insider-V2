@@ -8,16 +8,45 @@ Read-only: it only GETs public NSE files. It does not parse, load or change anyt
 The summary on stdout carries counts and statuses only (workflow logs are public): no bodies, no names.
 """
 import argparse, hashlib, json, os, sys, time
+from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from nse_client import Blocked, Failed, NseClient
 
 LIST_URL = "https://www.nseindia.com/api/corporates-pit-gg?index=equities"
 
 
+def broadcast_time(v):
+    """NSE's 'dd-Mon-yyyy HH:MM:SS' as a datetime (a string maximum is NOT chronological: '31-Oct' sorts after '03-Nov')."""
+    for fmt in ("%d-%b-%Y %H:%M:%S", "%d-%b-%Y %H:%M", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(str(v or "").strip(), fmt)
+        except ValueError:
+            pass
+    return None
+
+
+def list_stats(rows, symbols=()):
+    """Aggregates only (company-level counts, no person fields): date range, distinct symbols, filings per asked symbol."""
+    times = [t for t in (broadcast_time(r.get("broadcastDateTime")) for r in rows) if t]
+    want = {s.upper() for s in symbols}
+    by = {s: {"filings": 0, "newest": None} for s in sorted(want)}
+    for r in rows:
+        sym = str(r.get("symbol") or "").strip().upper()
+        if sym in by:
+            by[sym]["filings"] += 1
+            t = broadcast_time(r.get("broadcastDateTime"))
+            if t and (by[sym]["newest"] is None or t > datetime.fromisoformat(by[sym]["newest"])):
+                by[sym]["newest"] = t.isoformat()
+    return {"filings": len(rows), "distinct_symbols": len({str(r.get("symbol") or "").strip().upper() for r in rows} - {""}),
+            "unparsed_times": len(rows) - len(times), "oldest": min(times).isoformat() if times else None,
+            "newest": max(times).isoformat() if times else None, "asked_symbols": by}
+
+
 def main(argv=None, client=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
     ap.add_argument("--max-xml", type=int, default=5)
+    ap.add_argument("--symbols", default="", help="comma list: report filings per symbol (counts only)")
     ap.add_argument("--from", dest="from_date")
     ap.add_argument("--to", dest="to_date")
     a = ap.parse_args(argv)
@@ -44,8 +73,8 @@ def main(argv=None, client=None):
         if lst.status == 200:
             d = json.loads(lst.body)
             rows = d.get("data", []) if isinstance(d, dict) else d
-        summary["list"] = {"status": lst.status, "via": lst.via, "bytes": len(lst.body), "filings": len(rows),
-                           "newest_broadcast": max((str(r.get("broadcastDateTime") or "") for r in rows), default=None)}
+        summary["list"] = {"status": lst.status, "via": lst.via, "bytes": len(lst.body),
+                           **list_stats(rows, [x for x in a.symbols.split(",") if x.strip()])}
         for r in rows[: a.max_xml]:
             u = r.get("xmlFileName")
             if not u:
