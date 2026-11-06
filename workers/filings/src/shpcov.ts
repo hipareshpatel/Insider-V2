@@ -72,6 +72,8 @@ export const isEntity = (key: string) => /\b(LIMITED|LLP|PRIVATE|TRUST|CORPORATI
 const INSTITUTIONAL = /MutualFund|Insurance|ForeignPortfolio|InstitutionsForeign|ForeignInstitutions|Banks|FinancialInstitutions|ProvidentFund|AlternativeInvestment|InvestorEducation|Custodian|OverseasDepositor|Government|InstitutionsDomestic|EmployeeBenefit/;
 /** Smallest stake (share of all shares, our own count ÷ total) that links two companies as one group. */
 export const MIN_STAKE = 0.05;
+/** Smallest promoter-entity stake (share of all shares) that links two companies (D40, exact flag). */
+export const MIN_LINK_STAKE = 0.01;
 /** D40: promoter groups = companies whose latest shareholding names the same promoter entity (union of shared
  *  entities). Pure: input rows of SQL_PROMOTER_HOLDERS, symbol per security. */
 export function promoterGroups(rows: { security_id: number; category: string; holder_name: string; pct: string | null; promoter?: number | null }[], symbol: Map<number, string>, names?: Map<number, string>) {
@@ -80,6 +82,9 @@ export function promoterGroups(rows: { security_id: number; category: string; ho
     // exact (owner yes, 6 Nov): the promoter flag read from the file; rows not re-read yet (NULL) fall back to the
     // probable rule — a ≥ 5 % stake held by a company or trust outside funds, banks, insurers and government
     if (r.promoter === 0) continue;
+    // a promoter-group entity links companies only with a real stake: promoter tables also list group entities holding
+    // 0 % or a sliver, which chained unrelated groups (Tata ↔ SBI Card / Yes Bank, L&T ↔ Torrent; 6 Nov run)
+    if (r.promoter === 1 && !(Number(r.pct ?? 0) >= MIN_LINK_STAKE)) continue;
     if (r.promoter == null && (INSTITUTIONAL.test(r.category) || !(Number(r.pct ?? 0) >= MIN_STAKE))) continue;
     const k = holderKey(r.holder_name);
     if (!k || !isEntity(k)) continue;

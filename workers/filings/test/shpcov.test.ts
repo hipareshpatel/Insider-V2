@@ -46,3 +46,16 @@ describe("D40: exact promoter flag and parent companies", () => {
     expect(g).toEqual([{ companies: ["LT", "LTIM", "LTTS"], shared_entities: ["LARSEN AND TOUBRO LIMITED"] }]);
   });
 });
+
+describe("D40: a sliver held by a group entity does not chain groups", () => {
+  it("an entity under 1 % in one company does not link it", async () => {
+    const { promoterGroups } = await import("../src/shpcov.js");
+    const rows = [
+      { security_id: 1, category: "holder:OthersIndianShareholders", holder_name: "Tata Sons Private Limited", pct: "0.72", promoter: 1 },
+      { security_id: 2, category: "holder:OthersIndianShareholders", holder_name: "Tata Sons Private Limited", pct: "0.44", promoter: 1 },
+      { security_id: 2, category: "holder:OthersIndianShareholders", holder_name: "Some Shared LLP", pct: "0.0001", promoter: 1 },
+      { security_id: 3, category: "holder:OthersIndianShareholders", holder_name: "Some Shared LLP", pct: "0.30", promoter: 1 },
+    ];
+    expect(promoterGroups(rows, new Map([[1, "TCS"], [2, "TATAMOTORS"], [3, "OTHER"]]))).toEqual([{ companies: ["TATAMOTORS", "TCS"], shared_entities: ["TATA SONS PRIVATE LIMITED"] }]);
+  });
+});
