@@ -763,7 +763,7 @@ dossier            computed current-state view per stock, rebuilt after each eve
 ```
 - **Claim types:** reported · guidance · target · aspiration · analyst question · third-party. Only reported + guidance count when comparing delivery against promises (D33).
 - **"Silently dropped":** not mentioned in 2 consecutive *commentary* events where outlook was discussed. Annual-only guidance patterns are respected. "Commentary stopped" is a separate flag (D33).
-- **KPI dictionary:** shared metrics + sector packs for the 15 Nifty 50 industries; unmatched → `other` + review (D31). Drafted in `docs/field-catalogue.md` §8.
+- **KPI dictionary:** shared metrics + sector packs for the 15 Nifty 50 industries; unmatched → `other` + review (D31). Sector packs: Part 5, Field Catalogue §8 (built: banks, NBFCs, insurers).
 - **Vectorize:** unstructured commentary with `{security_id, type, period, disclosed_at}`, always filtered by stock and time.
 
 #### 5.6 `graph`
@@ -3216,7 +3216,7 @@ Status: ✅ recorded · 🔶 recorded, partly open · ❓ OPEN (needs owner answ
 4. Every decision is reflected (by ID) in the design sections §1–§16, not only in Appendix A.
 5. Open items in this log match §16 of the plan.
 6. Conflicting owner answers are flagged ⚠ in both documents until resolved.
-*Last run 2026-11-06 after entry #398 (audit): checks 1 and 6 pass; check 3 fails (D172–D173 on the unmerged branch); check 4 fails (D164, D167, D168 not placed in §1–§16); check 5 fails (open items #206/#224, #240, #241, #284 stale); check 2 as before — entries #376–#378 and D172–D173 are on the unmerged branch `ccr-e03ed666-9h1ii2` (gap closes when it merges; else renumber #379–#397) (171 decisions here, 395 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in Part 4 §11).*
+*Last run 2026-11-06 after entry #398 (audit): checks 1 and 6 pass; check 3 fails (D172–D173 on the unmerged branch); check 4 passes after the Part 5 alignment (D164 in §11, D167 and D168 in §5.3); check 5 fails (open items #206/#224, #240, #241, #284 stale); check 2 as before — entries #376–#378 and D172–D173 are on the unmerged branch `ccr-e03ed666-9h1ii2` (gap closes when it merges; else renumber #379–#397) (171 decisions here, 395 entries); owner reference files in `docs/` (not part of this document, not checked): the ProwessIQ data dictionary PDF (owner #341); no open ⚠ in the decision log (website conflicts listed in Part 4 §11).*
 
 ### Open items from this log
 *(Mirrors PLAN §16; aligned 2026-11-02, #237.)*
