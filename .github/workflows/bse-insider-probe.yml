@@ -6,10 +6,6 @@ name: bse-insider-probe
 # tried). robots.txt is not read (owner decision D172, 6 Nov). 7 requests in all. Prints company-level counts only: no person
 # names, and NOTHING is uploaded or stored. Terms of use are not checked by the tool; that reading is the owner's.
 on:
-  # TEMPORARY (6 Nov, second run under D172): runs once when this file is pushed to the PR branch. Remove after the result is read.
-  push:
-    branches: [ccr-e03ed666-9h1ii2]
-    paths: [".github/workflows/bse-insider-probe.yml"]
   workflow_dispatch:
 
 permissions:
