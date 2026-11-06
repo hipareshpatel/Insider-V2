@@ -6,11 +6,6 @@ name: bse-insider-probe
 # refusal or challenge. 9 requests in all. Prints company-level counts only: no person names, and NOTHING is uploaded or stored.
 # Terms of use are not checked by the tool; that reading is the owner's.
 on:
-  # TEMPORARY (6 Nov): runs once when this file is pushed to the PR branch (manual dispatch needs the default branch).
-  # Remove this push trigger after the first result is read.
-  push:
-    branches: [ccr-e03ed666-9h1ii2]
-    paths: [".github/workflows/bse-insider-probe.yml"]
   workflow_dispatch:
 
 permissions:
