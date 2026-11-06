@@ -17,6 +17,7 @@ import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
 import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS, SQL_LATEST_SHP, SQL_JOB_BY_URL, SQL_SET_PROMOTER, SQL_SHP_FILINGS_FROM, SQL_SHP_UNFLAGGED } from "../../workers/filings/src/shpcov.js";
 import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
 import { SQL_FOCUS } from "../../packages/core/src/focus.js";
+import { SQL_FV_COVERAGE, SQL_FV_REASONS, SQL_OWN_COVERAGE, SQL_EVT_COVERAGE, SQL_PRICE_COVERAGE } from "../../workers/filings/src/readiness.js";
 import { SQL_RESULTS_FIRST, SQL_MEETINGS_FROM, SQL_RATINGS_OF, SQL_SYMBOLS_OF_SID } from "../../workers/filings/src/eventfeatures.js";
 import { SQL_TWO_LATEST_SHP, SQL_SHP_CATEGORIES, SQL_SHP_PLEDGE, SQL_GROUP_PLEDGES } from "../../workers/filings/src/ownership.js";
 
@@ -71,6 +72,10 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: first disclosure of each results period of one company (§12/§13, daily)", SQL_RESULTS_FIRST, [1, "2025-10-01"], /SEARCH filing USING (COVERING )?INDEX ix_filing_sec \(security_id=\? AND kind=\? AND period_end>\?\)/],
   ["filings: results board meetings of one company from today (§13, daily)", SQL_MEETINGS_FROM, ['["INFY"]', 20261106], /SEARCH board_meeting USING INDEX ix_board_meeting_symbol \(symbol=\? AND meeting_d>\?\)/],
   ["filings: credit ratings of one company (§12, daily)", SQL_RATINGS_OF, ['["INFY"]'], /SEARCH credit_rating USING INDEX ix_credit_rating_symbol \(symbol=\? AND rated_on>\?\)/],
+  ["filings: field readiness, feature table (owner #384, read-only)", SQL_FV_COVERAGE, ['[1,2]'], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\?\)/],
+  ["filings: field readiness, feature-table reasons (read-only)", SQL_FV_REASONS, ['[1,2]'], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\?\)/],
+  ["filings: field readiness, ownership fields (read-only)", SQL_OWN_COVERAGE, ['[1,2]'], /SEARCH ownership_feature USING PRIMARY KEY \(security_id=\?\)/],
+  ["filings: field readiness, event fields (read-only)", SQL_EVT_COVERAGE, ['[1,2]'], /SEARCH event_feature USING PRIMARY KEY \(security_id=\?\)/],
   ["filings: latest P/E of the 250 for the sector median (§4, daily)", SQL_PE_LATEST, ['[1,2]'], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\? AND field=\? AND period_end=\?\)/],
   ["filings: primary basis of the 250 (§4, daily)", SQL_PRIMARY_BASIS_OF, ['[1,2]'], /SEARCH primary_basis USING INTEGER PRIMARY KEY \(rowid=\?\)/],
   ["filings: one company's feature-table values (read-only page)", SQL_FEATURES_OF, [1, ""], /SEARCH feature_value USING PRIMARY KEY \(security_id=\?\)/],
@@ -104,6 +109,13 @@ const cases: [string, string, unknown[], RegExp][] = [
 ];
 
 const M = schema("market");
+describe("market: field readiness, price features (owner #384, read-only)", () => {
+  it("price_feature by primary key", () => {
+    const p = plan(M, SQL_PRICE_COVERAGE, ['[1,2]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /SEARCH price_feature USING PRIMARY KEY \(security_id=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
 describe("market: one security's NSE symbols (§12/§13, daily)", () => {
   it("by ix_sid_security", () => {
     const p = plan(M, SQL_SYMBOLS_OF_SID, [1]);
