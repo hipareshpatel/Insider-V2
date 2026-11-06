@@ -123,7 +123,7 @@ describe("item 6: feature-table values for one company (D171)", () => {
     // EPS doubled while profit stayed 10: the share count halved (×0.5) → withheld, never shown as +100 %
     expect(g("eps_yoy_q", "2024-09-30").reason).toMatch(/share count changed ×0.50/);
     // zero profit to owners in both quarters: 0 ÷ 0 — a reason, never "NaN"
-    const z = companyFeatures(ends.map((en, i) => q(en, { ...lines(i, "1"), pat_owners: "0" })), new Map(), "consolidated", "industrial");
+    const z = companyFeatures(ends.map((en, i) => q(en, { ...lines(i, "1"), pat: "0", pat_owners: "0" })), new Map(), "consolidated", "industrial"); // a true zero profit
     expect(z.find((x) => x.field === "eps_yoy_q" && x.periodEnd === "2026-09-30")!.reason).toMatch(/share-count check not possible/);
     // same share count: plain growth
     const ok2 = companyFeatures(ends.map((en, i) => q(en, { ...lines(i, "1"), pat: String(10 + i), pat_owners: String(10 + i), eps_basic: String((10 + i) / 10) })), new Map(), "consolidated", "industrial");
@@ -295,6 +295,13 @@ describe("gap census fixes (6 Nov)", () => {
     expect(companyFeatures(rounded, bs, "consolidated", "industrial").find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("400100000"); // two filed (100,050,000) + two filled (100,000,000)
     const differs = qs.map((q, i) => ({ ...q, lines: { ...q.lines, pat: "100000000", ...(i < 2 ? { pat_owners: "90000000" } : {}) } })); // a real minority: 10 % to NCI
     expect(companyFeatures(differs, bs, "consolidated", "industrial").find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBeNull();
+  });
+  it("owners' profit filed as 0 with non-zero net profit (NESTLEIND) is not a figure: never used as 0, filled from net profit", () => {
+    const zeros = qs.map((q, i) => (i < 2 ? { ...q, lines: { ...q.lines, pat_owners: "0" } } : q));
+    const bs = new Map([["2026-09-30", { "x:Equity": "500", "x:EquityAttributableToOwnersOfParent": "500" }]]);
+    const r = companyFeatures(zeros, bs, "consolidated", "industrial");
+    expect(r.find((x) => x.field === "pat_owners_ttm" && x.periodEnd === "2026-09-30")!.value).toBe("40");
+    expect(r.find((x) => x.field === "pat_owners_q" && x.periodEnd === "2025-12-31")!.value).toBe("10");
   });
   it("NCI = total equity − equity to owners when no NCI line is filed", () => {
     const r = companyFeatures(qs.map((q) => ({ ...q, lines: { ...q.lines, pat_owners: "9" } })), new Map([["2026-09-30", { "x:Equity": "520", "x:EquityAttributableToOwnersOfParent": "500" }]]), "consolidated", "industrial");

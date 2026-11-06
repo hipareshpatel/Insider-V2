@@ -163,6 +163,10 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
   const ownersKey = basis === "standalone" ? "pat" : ownersLine(layout);
   // (live check 6 Nov: these companies filed an owners' line in older quarters — always equal to net profit — and dropped it)
   const nz = (x: string | null | undefined) => x != null && dec(x).units !== 0n;
+  // live check 6 Nov (NESTLEIND): some consolidated filings carry profit to owners = 0 while net profit is ≈ ₹1,000 crore
+  // and no profit to NCI is filed — a filled-in nil, not a figure; it is read as "not filed" (never used as 0)
+  const zeroOwners = (p: FiledPeriod) => p.lines.pat_owners != null && dec(p.lines.pat_owners).units === 0n && nz(p.lines.pat) && !nz(p.lines.pat_nci);
+  periods = periods.map((p) => (p.basis === basis && zeroOwners(p) ? { ...p, lines: { ...p.lines, pat_owners: undefined } } : p));
   const mine = periods.filter((p) => p.basis === basis);
   const noMinority = basis !== "standalone" && ownersKey === "pat_owners"
     // no period with a non-zero profit to NCI, and every filed owners' line equal to net profit
