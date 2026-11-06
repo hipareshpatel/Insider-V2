@@ -176,8 +176,43 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
   };
   // TTM EBIT = profit before exceptional items + finance costs, four filed quarters
   const ebitTtm = (end: string): View => { let s = dec("0"); const f: string[] = []; let k = end; for (let i = 0; i < 4; i++) { const x = by.get(k); const a = x ? v(x, "pbt_before_exceptional") : null, b = x ? v(x, "finance_cost") : null; if (!a || !b) return no(`quarter ${k} (${basis}): profit before exceptional items and finance costs must be filed`); s = add(s, add(a, b)); f.push(k); k = previousQuarterEnd(k); } return ok(s, f.reverse()); };
+  // year-on-year growth of one line at one quarter (filed quarter vs the same quarter a year before)
+  const yoyAt = (k: string | null, end: string, what: string): View => growth(line(by.get(end), k, end), line(by.get(yearBefore(end)), k, yearBefore(end)), what);
+  // field catalogue §5: latest YoY minus the average YoY of the 8 quarters before it (percentage points); all 8 needed
+  const vsTrend = (k: string | null, end: string, what: string): View => {
+    const now = yoyAt(k, end, what);
+    if (now.value === null) return now;
+    let s = dec("0"), e2 = end; const from = [...now.from];
+    for (let i = 0; i < 8; i++) {
+      e2 = previousQuarterEnd(e2);
+      const g = yoyAt(k, e2, what);
+      if (g.value === null) return no(`needs YoY growth for the 8 quarters before ${end}: ${g.reason}`);
+      s = add(s, dec(g.value)); from.push(...g.from);
+    }
+    return ok(div(sub(dec(now.value), div(s, dec("8"), 6)), dec("1"), 2), [...new Set(from)].sort());
+  };
+  // TTM ratio of two P&L lines in % (2 places); the divisor must be positive (a loss gives no rate)
+  const ttmRatio = (num: string, den: string, end: string, what: string): View => {
+    const n = ttm(qs, num, end, basis), d = ttm(qs, den, end, basis);
+    if (n.value === null) return n;
+    if (d.value === null) return d;
+    if (dec(d.value).units <= 0n) return no(`${what}: TTM ${den} is zero or a loss`);
+    return pct(n, d, what);
+  };
   for (const q of qs) {
     const e = q.periodEnd, ya = yearBefore(e), pq = previousQuarterEnd(e);
+    // §5: EPS growth, only when profit ÷ EPS (the implied share count) moved ≤ 25 % between the two quarters — a split,
+    // bonus or consolidation in between is not restated in the year-ago filing (C55: no comparative columns stored)
+    put("eps_yoy_q", e, epsYoy(q, by.get(ya), owners, e, ya));
+    put("revenue_vs_trend_q", e, vsTrend(rev, e, "revenue YoY"));
+    put("pat_vs_trend_q", e, vsTrend("pat", e, "PAT YoY"));
+    // §6 earnings quality on four filed quarters
+    put("effective_tax_rate_ttm", e, ttmRatio("tax", "pbt", e, "effective tax rate"));
+    put("other_income_share_pbt_ttm", e, layout === "industrial" ? ttmRatio("other_income", "pbt", e, "other income share of PBT")
+      : no(`other income is operating income for ${layout}; the share is used for industrial companies only`));
+    put("exceptional_items_ttm", e, exceptionalTtm(qs, e, basis));
+    // §6 margin flags (D70; owner 6 Nov: 200 bps), on the quarterly EBITDA margin (industrial companies)
+    if (layout === "industrial") for (const f of marginFlags(qs, e, (k) => { const p = by.get(k); return p ? pct(ebitda(p, layout), line(p, rev, k), "EBITDA margin") : no(`quarter ${k} (${basis}) not filed`); })) put(f.field, e, f.view);
     const r = line(q, rev, e), p = line(q, "pat", e), po = line(q, owners, e), eb = ebitda(q, layout);
     put("revenue_q", e, r); put("pat_q", e, p); put("pat_owners_q", e, po); put("ebitda_q", e, eb);
     put("ebitda_margin_q", e, pct(eb, r, "EBITDA margin"));
@@ -203,6 +238,8 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       put("net_debt", e, netDebt(bsEnd, layout, e));
       put("nci", e, bsEnd["x:NonControllingInterest"] != null ? ok(dec(bsEnd["x:NonControllingInterest"]!), [`balance sheet ${e}`]) : basis === "standalone" ? ok(dec("0"), [`balance sheet ${e}`], "standalone: no minority") : no(`balance sheet ${e}: non-controlling interest not filed`));
       put("roe", e, roe(poT, eq(bsStart), eq(bsEnd)));
+      // §6: ROA = TTM net profit (whole group, as the assets are the group's) ÷ average total assets (D52 average capital)
+      put("roa", e, roa(pT, bsStart ?? null, bsEnd));
       if (layout === "industrial") {
         put("roce", e, roce(ebitTtm(e), bsStart ?? null, bsEnd));
         put("debt_to_equity", e, debtToEquity(bsEnd, eq(bsEnd), e));
@@ -219,9 +256,84 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
     const capex = cf["x:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"], cfo = cf.cfo;
     put("capex_fy", end, capex != null ? ok(abs(dec(capex)), [`cash flow FY to ${end}`]) : no(`cash flow FY to ${end}: purchase of property, plant and equipment not filed`));
     put("fcf_fy", end, capex != null && cfo != null ? ok(sub(dec(cfo), abs(dec(capex))), [`cash flow FY to ${end}`]) : no(`cash flow FY to ${end}: operating cash flow or capex not filed`));
+    // §6: operating cash flow ÷ net profit for the full year (cash flow is filed year to date, so full years only)
+    const fyPat = periods.find((p) => p.periodKind === "FY" && p.basis === basis && p.periodEnd === end)?.lines.pat;
+    put("ocf_to_pat_fy", end, cfo == null ? no(`cash flow FY to ${end}: operating cash flow not filed`)
+      : fyPat == null ? no(`full year to ${end}: net profit not filed`)
+      : dec(fyPat).units <= 0n ? no(`full year to ${end}: net profit is zero or a loss`)
+      : ok(div(dec(cfo), dec(fyPat), 2), [`cash flow FY to ${end}`, `P&L FY to ${end}`]));
   }
   if (qs.length) put("layout", "latest", { value: layout, from: [] });
   return out;
+}
+
+/** Field catalogue §5: EPS growth year on year (basic EPS, 2 places). Guard: the implied share count (profit to owners ÷
+ *  EPS) must move by ≤ 25 % between the two quarters; a bigger move means a split, bonus or consolidation that the
+ *  year-ago filing does not reflect, and the comparison is withheld rather than shown wrong. */
+export function epsYoy(now: FiledPeriod, ago: FiledPeriod | undefined, ownersLineKey: string, end: string, agoEnd: string): View {
+  const e1 = v(now, "eps_basic"), e0 = v(ago, "eps_basic");
+  if (!e1) return no(`quarter ${end}: basic EPS not filed`);
+  if (!e0) return no(`quarter ${agoEnd}: basic EPS not filed`);
+  if (e0.units <= 0n) return no("EPS YoY: base quarter EPS is zero or a loss");
+  const p1 = v(now, ownersLineKey), p0 = v(ago, ownersLineKey);
+  if (!p1 || !p0 || e1.units === 0n) return no(`profit to owners and EPS must be filed in both quarters (share-count check)`);
+  const s1 = Number(toText(p1)) / Number(toText(e1)), s0 = Number(toText(p0)) / Number(toText(e0)), r = s1 / s0;
+  if (!(r > 0.8 && r < 1.25)) return no(`implied share count changed ×${r.toFixed(2)} between ${agoEnd} and ${end} (split, bonus or consolidation likely; the earlier EPS is not restated)`);
+  return growth(ok(e1, [end]), ok(e0, [agoEnd]), "EPS YoY");
+}
+
+/** Field catalogue §6 / D70 margin flags (1 = yes, 0 = no), owner 6 Nov: 200 bps.
+ *  erosion: the margin is ≥ 2.00 percentage points below the peak of the 8 quarters before it, or it fell in each of the
+ *  last two quarters. recovery: the margin rose in each of the last two quarters from a quarter that was the low of its
+ *  own trailing four. Quarter-on-quarter, so seasonal businesses can trip them; every quarter used must be filed. */
+export const MARGIN_EROSION_BPS = 200;
+export function marginFlags(_qs: FiledPeriod[], end: string, marginAt: (end: string) => View): { field: string; view: View }[] {
+  const ends: string[] = [end]; for (let i = 0; i < 10; i++) ends.push(previousQuarterEnd(ends[ends.length - 1]!));
+  const m = ends.map((k) => marginAt(k)); // m[0] = this quarter, m[i] = i quarters back
+  const n = (i: number) => (m[i]!.value === null ? null : Number(m[i]!.value));
+  const need = (idx: number[], what: string): View | null => { const bad = idx.find((i) => n(i) === null); return bad === undefined ? null : no(`${what}: margin for ${ends[bad]} not available (${(m[bad] as { reason: string }).reason})`); };
+  const from = (idx: number[]) => idx.map((i) => ends[i]!).sort();
+  const twoDown = () => n(0)! < n(1)! && n(1)! < n(2)!;
+  // erosion
+  const ei = [0, 1, 2, 3, 4, 5, 6, 7, 8], eMiss = need(ei, "margin erosion");
+  const erosion: View = eMiss ?? (() => {
+    const peak = Math.max(...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => n(i)!));
+    const yes = (peak - n(0)!) * 100 >= MARGIN_EROSION_BPS || twoDown();
+    return ok(dec(yes ? "1" : "0"), from(ei), `peak of the 8 quarters before: ${peak.toFixed(2)} %; threshold ${MARGIN_EROSION_BPS} bps or two falls in a row`);
+  })();
+  // recovery: m2 is the low of m2..m5 and m2 < m1 < m0
+  const ri = [0, 1, 2, 3, 4, 5], rMiss = need(ri, "margin recovery");
+  const recovery: View = rMiss ?? (() => {
+    const low = n(2)! <= Math.min(n(3)!, n(4)!, n(5)!);
+    const yes = low && n(2)! < n(1)! && n(1)! < n(0)!;
+    return ok(dec(yes ? "1" : "0"), from(ri), "rose in each of the last two quarters from a trailing-4-quarter low");
+  })();
+  return [{ field: "margin_erosion", view: erosion }, { field: "margin_recovery", view: recovery }];
+}
+
+/** Field catalogue §6: exceptional items over four filed quarters. A quarter that files no exceptional line but files
+ *  profit before tax counts as none (as adjusted PAT does); profit before tax − profit before exceptional items is
+ *  used when only those two are filed. */
+export function exceptionalTtm(qs: FiledPeriod[], end: string, basis: string): View {
+  const by = new Map(qs.filter((q) => q.basis === basis && q.periodKind === "Q").map((q) => [q.periodEnd, q]));
+  let s = dec("0"), k = end, none = 0; const from: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const q = by.get(k), x = v(q, "exceptional_items"), pbt = v(q, "pbt"), pbe = v(q, "pbt_before_exceptional");
+    if (x) s = add(s, x);
+    else if (pbt && pbe) s = add(s, sub(pbt, pbe));
+    else if (pbt) none++;
+    else return no(`quarter ${k} (${basis}): profit before tax not filed`);
+    from.push(k); k = previousQuarterEnd(k);
+  }
+  return ok(s, from.reverse(), none ? `${none} quarter(s) file no exceptional line: taken as none` : undefined);
+}
+
+/** Field catalogue §6: ROA = TTM net profit ÷ average total assets at the start and end of the twelve months (%). */
+export function roa(ttmPat: View, bsStart: Record<string, string | null | undefined> | null, bsEnd: Record<string, string | null | undefined>): View {
+  const ta = (b: Record<string, string | null | undefined> | null) => { const x = b ? b.total_assets ?? b["x:Assets"] : null; return x != null ? dec(x) : null; };
+  const avg = averageOf(ta(bsStart), ta(bsEnd));
+  if (!avg) return no("total assets must be filed at both the start and the end of the twelve months");
+  return pct(ttmPat, ok(avg, []), "ROA");
 }
 
 /** Field catalogue §7: TTM EBIT ÷ TTM finance costs, 2 places; unavailable when there are no finance costs. */
