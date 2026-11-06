@@ -275,6 +275,16 @@ describe("bank pack (owner 6 Nov)", () => {
     expect(g("cd_ratio").value).toBe("83.33");
     expect(companyFeatures(qs, bs, "standalone", "industrial").some((x) => x.field === "nii_q")).toBe(false);
   });
+  it("G14: four NPA zeros on the consolidated basis read 'reported on standalone', never 0 %; standalone zeros are left alone", () => {
+    const qs = ["2026-06-30", "2026-09-30"].map((e) => ({ periodEnd: e, periodKind: "Q", basis: "consolidated", lines: {
+      interest_earned: "100", interest_expended: "60", gross_npa: "0", net_npa: "0", gnpa_pct: "0", nnpa_pct: "0", cet1_ratio: "0.14" } }));
+    const r = companyFeatures(qs, new Map(), "consolidated", "bank");
+    const g = (f: string) => r.find((x) => x.field === f && x.periodEnd === "2026-09-30")!;
+    for (const f of ["gnpa_pct_q", "nnpa_pct_q", "pcr_q"]) expect(g(f), f).toMatchObject({ value: null, reason: expect.stringContaining("reported on the standalone basis") });
+    expect(g("cet1_ratio_q").value).toBe("0.14");
+    const sa = companyFeatures(qs.map((q) => ({ ...q, basis: "standalone" })), new Map(), "standalone", "bank").find((x) => x.field === "gnpa_pct_q" && x.periodEnd === "2026-09-30")!;
+    expect(sa.value).toBe("0");
+  });
 });
 
 describe("NBFC pack (owner #389, Division III lines as filed)", () => {

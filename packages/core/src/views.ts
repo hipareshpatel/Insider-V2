@@ -340,11 +340,15 @@ export function bankFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Recor
     put("nii_yoy_q", e, growth(n, nii(ya), "NII YoY"));
     put("ppop_q", e, lineQ("operating_profit")(e));
     put("ppop_yoy_q", e, growth(lineQ("operating_profit")(e), lineQ("operating_profit")(ya), "operating profit YoY"));
-    put("gnpa_pct_q", e, filedPct("gnpa_pct", e));
-    put("nnpa_pct_q", e, filedPct("nnpa_pct", e));
+    // G14 (log #405): banks report asset quality on the standalone basis; their consolidated file carries 0 in all four
+    // NPA lines (SBIN, HDFCBANK, PNB … Sep 2026). Four zeros on consolidated = not reported there, never "0 % NPA".
+    const npaZeros = basis === "consolidated" && ["gross_npa", "net_npa", "gnpa_pct", "nnpa_pct"].every((k) => { const x = v(q, k); return x !== null && x.units === 0n; });
+    const NPA_SA = no(`quarter ${e}: asset quality is reported on the standalone basis (the consolidated file carries zeros)`);
+    put("gnpa_pct_q", e, npaZeros ? NPA_SA : filedPct("gnpa_pct", e));
+    put("nnpa_pct_q", e, npaZeros ? NPA_SA : filedPct("nnpa_pct", e));
     put("cet1_ratio_q", e, filedPct("cet1_ratio", e));
     const g = v(q, "gross_npa"), nn = v(q, "net_npa");
-    put("pcr_q", e, g && nn ? (g.units > 0n ? ok(div(mul(sub(g, nn), dec("100")), g, 2), [e], "provision coverage = (gross NPA − net NPA) ÷ gross NPA; excludes technical write-offs") : no(`quarter ${e}: gross NPA is zero`)) : no(`quarter ${e} (${basis}): gross and net NPA amounts must be filed`));
+    put("pcr_q", e, npaZeros ? NPA_SA : g && nn ? (g.units > 0n ? ok(div(mul(sub(g, nn), dec("100")), g, 2), [e], "provision coverage = (gross NPA − net NPA) ÷ gross NPA; excludes technical write-offs") : no(`quarter ${e}: gross NPA is zero`)) : no(`quarter ${e} (${basis}): gross and net NPA amounts must be filed`));
     const niiT = sum4(nii, e), oiT = sum4(lineQ("other_income"), e), opexT = sum4(lineQ("operating_expenses"), e), provT = sum4(lineQ("provisions"), e);
     put("nii_ttm", e, niiT);
     put("cost_to_income_ttm", e, niiT.value === null ? niiT : oiT.value === null ? oiT : pct(opexT, ok(add(dec(niiT.value), dec(oiT.value)), [...niiT.from]), "cost to income"));
