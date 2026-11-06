@@ -98,7 +98,13 @@ describe("item 6: feature-table values for one company (D171)", () => {
     expect(g("receivable_days", "2026-09-30").value).toBe("36.5"); // 54 × 365 ÷ 540
     expect(g("inventory_days", "2026-09-30").value).toBe("73");    // 40 × 365 ÷ 200
     expect(g("payable_days", "2026-09-30").value).toBe("36.5");
-    expect(g("working_capital_days", "2026-09-30").value).toBe("73");
+    expect(g("cash_conversion_cycle", "2026-09-30").value).toBe("73"); // 36.5 + 73 − 36.5
+    expect(g("working_capital_days", "2026-09-30").value).toBe("50"); // (54 + 40 − 20) × 365 ÷ 540 = 50.0
+    // services company: no cost of goods → no inventory / payable days or cycle, but working-capital days on revenue
+    const svc = companyFeatures(qs, new Map([...bs].map(([k, v]) => [k, { ...v, "x:TradeReceivablesCurrent": "54", "x:TradePayablesCurrent": "9" }])), "consolidated", "industrial");
+    const sv = (f: string) => svc.find((x) => x.field === f && x.periodEnd === "2026-09-30")!;
+    expect(sv("cash_conversion_cycle").value).toBeNull();
+    expect(sv("working_capital_days").value).toBe("30.4"); // (54 − 9) × 365 ÷ 540
     expect(g("cwip", "2026-09-30").value).toBe("7");
     expect(g("capex_fy", "2026-03-31").value).toBe("30");
     expect(g("fcf_fy", "2026-03-31").value).toBe("70");
