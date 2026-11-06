@@ -277,6 +277,49 @@ describe("bank pack (owner 6 Nov)", () => {
   });
 });
 
+describe("NBFC pack (owner #389, Division III lines as filed)", () => {
+  const ends = ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"];
+  const qs = ends.map((e, i) => ({ periodEnd: e, periodKind: "Q", basis: "standalone", lines: {
+    interest_earned: String(100 + 10 * i), fees_commission_income: "20", total_income: String(135 + 10 * i), finance_cost: "50",
+    impairment_financial_instruments: "6", total_expenses: "90", pbt: "40", tax: "10", pat: "30", debt_equity_ratio: "4.1" } }));
+  const bs = new Map<string, Record<string, string>>([
+    ["2025-09-30", { "x:Loans": "800", "x:Investments": "100", "x:DebtSecurities": "400", "x:Borrowings": "300", "x:FinancialLiabilities": "750", "x:Equity": "200", "x:Assets": "1000" }],
+    ["2026-09-30", { "x:Loans": "1000", "x:Investments": "100", "x:DebtSecurities": "500", "x:Borrowings": "350", "x:Deposits": "50", "x:FinancialLiabilities": "950", "x:Equity": "250", "x:Assets": "1250" }]]);
+  it("NII, net total income, opex, cost to income, credit cost, computed NIM, loan / borrowing growth, debt to equity", () => {
+    const r = companyFeatures(qs, bs, "standalone", "nbfc");
+    const g = (f: string) => r.find((x) => x.field === f && x.periodEnd === "2026-09-30")!;
+    expect(g("nii_q")).toMatchObject({ value: "100", inputs: ["2026-09-30"] }); // 150 − 50
+    expect(g("nii_yoy_q").value).toBe("66.67");                // 100 vs 110 − 50 = 60
+    expect(g("nii_ttm").value).toBe("340");                    // (120 + 130 + 140 + 150) − 4 × 50
+    expect(g("net_total_income_ttm").value).toBe("480");       // (155 + 165 + 175 + 185) − 200
+    expect(g("opex_ttm").value).toBe("136");                   // 4 × (90 − 50 − 6)
+    expect(g("cost_to_income_ttm").value).toBe("28.33");       // 136 ÷ 480
+    expect(g("credit_cost_ttm")).toMatchObject({ value: "2.67", inputs: ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30", "balance sheets 2025-09-30, 2026-09-30"] }); // 24 ÷ avg(800, 1000)
+    expect(g("nim_computed_ttm").value).toBe("34");            // 340 ÷ avg(900, 1100)
+    expect(g("loans_yoy").value).toBe("25");
+    expect(g("borrowings_yoy").value).toBe("28.57");           // 900 vs 700 (deposits / subordinated not filed in 2025: none)
+    expect(g("debt_to_equity").value).toBe("3.6");             // 900 ÷ 250
+    expect(g("debt_equity_filed_q").value).toBe("4.1");
+    expect(r.filter((x) => x.field === "debt_to_equity" && x.periodEnd === "2026-09-30")).toHaveLength(1);
+    // not offered from the results files: no sentinel rows for them
+    for (const f of ["gnpa_pct_q", "nnpa_pct_q", "crar_q", "aum_yoy"]) expect(r.some((x) => x.field === f)).toBe(false);
+    expect(companyFeatures(qs, bs, "standalone", "industrial").some((x) => x.field === "nii_q")).toBe(false);
+  });
+  it("a missing line or balance sheet gives a reason, never a number", () => {
+    const gap = qs.map((q) => (q.periodEnd === "2026-03-31" ? { ...q, lines: { ...q.lines, impairment_financial_instruments: undefined } } : q));
+    const noFl = new Map([...bs].map(([d, b]) => [d, d === "2025-09-30" ? { ...b, "x:FinancialLiabilities": undefined, "x:Loans": undefined } : b]));
+    const r = companyFeatures(gap, noFl, "standalone", "nbfc");
+    const g = (f: string) => r.find((x) => x.field === f && x.periodEnd === "2026-09-30")!;
+    expect(g("opex_ttm")).toMatchObject({ value: null, reason: expect.stringMatching(/2026-03-31.*impairment/) });
+    expect(g("credit_cost_ttm").reason).toMatch(/2026-03-31.*impairment_financial_instruments/);
+    expect(g("nii_ttm").value).toBe("340");
+    expect(g("loans_yoy").reason).toMatch(/loans must be filed at 2025-09-30/);
+    expect(g("borrowings_yoy").reason).toMatch(/2025-09-30: Division III financial liabilities not filed/);
+    expect(g("debt_to_equity").value).toBe("3.6");
+    expect(g("nim_computed_ttm").reason).toMatch(/loans and investments must be filed/);
+  });
+});
+
 describe("gap census fixes (6 Nov)", () => {
   const qs = ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"].map((e) => ({ periodEnd: e, periodKind: "Q", basis: "consolidated", lines: { revenue: "100", pat: "10" } as Record<string, string> }));
   const eqBs = (nci?: string) => new Map(["2025-09-30", "2026-03-31", "2026-09-30"].map((d) => [d, { "x:Equity": nci ? "520" : "500", "x:EquityAttributableToOwnersOfParent": "500", ...(nci ? { "x:NonControllingInterest": nci } : {}) }]));

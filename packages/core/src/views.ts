@@ -292,7 +292,11 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
         const cogs = cogsTtm(qs, e, basis);
         for (const w of workingCapital(bsEnd, rT, cogs, e)) put(w.field, e, w.view);
         put("cwip", e, bsEnd["x:CapitalWorkInProgress"] != null ? ok(dec(bsEnd["x:CapitalWorkInProgress"]!), [`balance sheet ${e}`]) : no(`balance sheet ${e}: capital work in progress not filed`));
-      } else { put("roce", e, no(`ROCE is not used for ${layout}`)); put("debt_to_equity", e, no(`debt to equity is not used for ${layout}`)); }
+      } else {
+        put("roce", e, no(`ROCE is not used for ${layout}`));
+        // NBFCs: debt to equity on Division III borrowed funds, from the NBFC pack (one row per field and date)
+        if (layout !== "nbfc") put("debt_to_equity", e, no(`debt to equity is not used for ${layout}`));
+      }
     }
   }
   // field catalogue §6/§7: capex and free cash flow for each filed full year (cash flow is filed year to date)
@@ -308,6 +312,7 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       : ok(div(dec(cfo), dec(fyPat), 2), [`cash flow FY to ${end}`, `P&L FY to ${end}`]));
   }
   if (layout === "bank") out.push(...bankFeatures(qs, balanceSheets, basis));
+  if (layout === "nbfc") out.push(...nbfcFeatures(qs, balanceSheets, basis));
   if (filledFromIdentity && qs.length) put("owners_profit_identity", "latest", { value: String(filledFromIdentity), from: [], note: "quarter(s) with no owners' figure: profit to owners = net profit − profit to NCI (both filed)" });
   if (noMinority && qs.length) put("owners_profit_source", "latest", { value: "net profit", from: [], note: `${filledFromPat} quarter(s) with no owners' figure and no minority on the balance sheet: profit to owners = net profit` });
   if (qs.length) put("layout", "latest", { value: layout, from: [] });
@@ -352,6 +357,74 @@ export function bankFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Recor
       put("advances_yoy", e, a1 && a0 ? growth(ok(a1, [`balance sheet ${e}`]), ok(a0, [`balance sheet ${ya}`]), "advances YoY") : no(`advances must be filed at ${ya} and ${e}`));
       put("deposits_yoy", e, d1 && d0 ? growth(ok(d1, [`balance sheet ${e}`]), ok(d0, [`balance sheet ${ya}`]), "deposits YoY") : no(`deposits must be filed at ${ya} and ${e}`));
       put("cd_ratio", e, a1 && d1 && d1.units > 0n ? ok(div(mul(a1, dec("100")), d1, 2), [`balance sheet ${e}`]) : no(`advances and deposits must be filed at ${e}`));
+    }
+  }
+  return out;
+}
+
+/** Division III borrowed funds: the four filed debt lines of financial liabilities. */
+export const NBFC_DEBT_LINES = ["x:DebtSecurities", "x:Borrowings", "x:Deposits", "x:SubordinatedLiabilities"];
+/** Borrowed funds at one Division III balance sheet = debt securities + borrowings (other than debt securities) +
+ *  deposits + subordinated liabilities. The detail is stored only when financial liabilities add up to their filed total
+ *  (D154), so with that total stored a part that is not filed is none (noted); without it, unavailable. */
+export function nbfcBorrowedFunds(b: Record<string, string | null | undefined> | undefined, date: string): View {
+  if (!b || b["x:FinancialLiabilities"] == null) return no(`balance sheet ${date}: Division III financial liabilities not filed`);
+  const filed = NBFC_DEBT_LINES.filter((k) => b[k] != null);
+  if (!filed.length) return no(`balance sheet ${date}: none of debt securities, borrowings, deposits, subordinated liabilities filed`);
+  const none = NBFC_DEBT_LINES.filter((k) => b[k] == null).map((k) => k.slice(2));
+  return ok(filed.reduce((a, k) => add(a, dec(b[k]!)), dec("0")), [`balance sheet ${date}`], none.length ? `not filed, taken as none (financial liabilities add up without them): ${none.join(", ")}` : undefined);
+}
+
+/** NBFC pack (owner #389, Part 2 G2). Schedule III Division III lines as filed: P&L interest income (`interest_earned`),
+ *  finance costs (`finance_cost`), impairment on financial instruments (`impairment_financial_instruments`, an expense
+ *  as filed; a write-back is negative), total income and total expenses; balance sheet loans (`x:Loans`), investments
+ *  (`x:Investments`), the debt lines (NBFC_DEBT_LINES) and equity to owners. NII and NIM here are COMPUTED (finance costs
+ *  are all of them, leases included), loans are the balance-sheet loans (net of impairment allowance), not AUM. GNPA /
+ *  NNPA % (stage 3), CRAR, AUM, disbursements and cost of funds are not read from the results files (not offered). */
+export function nbfcFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string): FeatureRow[] {
+  const out: FeatureRow[] = [];
+  const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
+  const by = new Map(qs.map((q) => [q.periodEnd, q]));
+  // a quarter value built from filed lines: first − the rest, every one filed
+  const diff = (keys: string[], what: string) => (e: string): View => {
+    const q = by.get(e), xs = keys.map((k) => v(q, k));
+    if (xs.some((x) => !x)) return no(`quarter ${e} (${basis}): ${what} must be filed`);
+    return ok(xs.slice(1).reduce<Dec>((a, x) => sub(a, x!), xs[0]!), [e]);
+  };
+  const nii = diff(["interest_earned", "finance_cost"], "interest income and finance costs");
+  const nti = diff(["total_income", "finance_cost"], "total income and finance costs");
+  const opex = diff(["total_expenses", "finance_cost", "impairment_financial_instruments"], "total expenses, finance costs and impairment on financial instruments");
+  const lineQ = (k: string) => (e: string): View => { const x = v(by.get(e), k); return x ? ok(x, [e]) : no(`quarter ${e} (${basis}) has no filed ${k}`); };
+  const sum4 = (f: (e: string) => View, end: string): View => { let s = dec("0"), e = end; const from: string[] = []; for (let i = 0; i < 4; i++) { const x = f(e); if (x.value === null) return x; s = add(s, dec(x.value)); from.push(e); e = previousQuarterEnd(e); } return ok(s, from.reverse()); };
+  const bsv = (d: string, k: string) => { const x = balanceSheets.get(d)?.[k]; return x != null ? dec(x) : null; };
+  const note = (x: View, n: string): View => (x.value === null ? x : { ...x, note: x.note ? `${n}; ${x.note}` : n });
+  for (const q of qs) {
+    const e = q.periodEnd, ya = yearBefore(e);
+    const n = nii(e);
+    put("nii_q", e, note(n, "computed: interest income − finance costs"));
+    put("nii_yoy_q", e, growth(n, nii(ya), "NII YoY"));
+    // filed ratio (SEBI LODR Reg 52(4) for listed debt): as the company states it
+    put("debt_equity_filed_q", e, note(lineQ("debt_equity_ratio")(e), "filed: debt-equity ratio as stated by the company"));
+    const niiT = sum4(nii, e), ntiT = sum4(nti, e), opexT = sum4(opex, e), impT = sum4(lineQ("impairment_financial_instruments"), e);
+    put("nii_ttm", e, note(niiT, "computed: interest income − finance costs, four filed quarters"));
+    put("net_total_income_ttm", e, note(ntiT, "computed: total income − finance costs, four filed quarters"));
+    put("opex_ttm", e, note(opexT, "computed: total expenses − finance costs − impairment on financial instruments"));
+    put("cost_to_income_ttm", e, ntiT.value === null ? ntiT : opexT.value === null ? opexT : dec(ntiT.value).units <= 0n ? no("cost to income: TTM net total income is zero or negative")
+      : note(pct(opexT, ntiT, "cost to income"), "computed: (total expenses − finance costs − impairment) ÷ (total income − finance costs)"));
+    // balance-sheet dates (half-year and year end): credit cost, computed NIM, loan and borrowing growth, debt to equity
+    const bsEnd = balanceSheets.get(e);
+    if (bsEnd) {
+      const both = (k: string[]) => { const s = (d: string) => k.reduce<Dec | null>((a, x) => { const y = bsv(d, x); return a && y ? add(a, y) : null; }, dec("0")); return averageOf(s(e), s(ya)); };
+      const loans = both(["x:Loans"]), earning = both(["x:Loans", "x:Investments"]), at = [`balance sheets ${ya}, ${e}`];
+      put("credit_cost_ttm", e, impT.value === null ? impT : loans ? note(pct(impT, ok(loans, at), "credit cost"), "computed: TTM impairment on financial instruments (as filed; write-backs negative) ÷ average loans on balance sheet") : no(`loans must be filed at ${ya} and ${e}`));
+      put("nim_computed_ttm", e, niiT.value === null ? niiT : earning ? note(pct(niiT, ok(earning, at), "NIM"), "computed: TTM (interest income − finance costs) ÷ average of loans + investments; not the company's reported NIM") : no(`loans and investments must be filed at ${ya} and ${e}`));
+      const l1 = bsv(e, "x:Loans"), l0 = bsv(ya, "x:Loans");
+      put("loans_yoy", e, l1 && l0 ? note(growth(ok(l1, [`balance sheet ${e}`]), ok(l0, [`balance sheet ${ya}`]), "loans YoY"), "loans on balance sheet, not AUM") : no(`loans must be filed at ${ya} and ${e}`));
+      const f1 = nbfcBorrowedFunds(bsEnd, e), f0 = nbfcBorrowedFunds(balanceSheets.get(ya), ya);
+      put("borrowings_yoy", e, note(growth(f1, f0, "borrowings YoY"), "borrowed funds = debt securities + borrowings + deposits + subordinated liabilities"));
+      const eo = ownersEquity(bsEnd, basis, "nbfc");
+      put("debt_to_equity", e, f1.value === null ? f1 : eo == null ? no(`balance sheet ${e}: equity to owners not filed`) : dec(eo).units <= 0n ? no(`balance sheet ${e}: equity to owners is zero or negative`)
+        : ok(div(dec(f1.value), dec(eo), 2), [`balance sheet ${e}`], `computed: (debt securities + borrowings + deposits + subordinated liabilities) ÷ equity to owners${f1.note ? `; ${f1.note}` : ""}`));
     }
   }
   return out;
