@@ -5,7 +5,7 @@ name: ops
 #  - status pages: GET once (never in a loop, C56), e.g. worker=filings path=/status
 #  - one-off passes (D163): POST /maint/<name>, repeated until the pass answers done or `minutes` run out; each call is one
 #    bounded batch that saves its position. Names — filings: bscf_backfill, version_backfill, remark_backfill;
-#    prefetch: compress, full_history, structure_history; market: deals_refill, index_history, index_weekends,
+#    prefetch: compress, r2_sizes (read-only R2 size by prefix), full_history, structure_history; market: deals_refill, index_history, index_weekends,
 #    derive_jan2024, repair_factors.
 on:
   workflow_dispatch:

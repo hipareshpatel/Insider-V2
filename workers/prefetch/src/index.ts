@@ -5,6 +5,7 @@ import { attachmentKey, attachments, isResultsKind, resultAttachments } from "./
 import { bulkJobs, companyJobs } from "./jobs.js";
 import { dailyRefresh, dueSlot, requeueCompanyLists, seedFullHistory, seedStructureHistory, seedPitWindows, seedPitAllMonths, seedResultsAllMonths } from "./daily.js";
 import { compressStep } from "./compress.js";
+import { r2PrefixSizes } from "./r2sizes.js";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; PARALLEL?: string; PER_RUN?: string; INGEST_TOKEN?: string; STATUS_TOKEN?: string; FOCUS_INDICES?: string; DAILY_READ_CAP?: string }
 
@@ -220,6 +221,8 @@ export default {
       const db = d1Sql(env.DB_FILINGS), now = new Date(), name = url.pathname.slice(7);
       let out: unknown;
       if (name === "compress") { const r = await compressStep(db, env.RAW, gzip, gunzip); out = r ? { ...r } : { done: true }; }
+      // read-only census of R2 by key prefix (gzip vs plain); lists only, changes nothing
+      else if (name === "r2_sizes") out = await r2PrefixSizes(env.RAW, { depth: Number(url.searchParams.get("depth") ?? 2) || 2 });
       else if (name === "full_history") out = { queued: await seedFullHistory(db, now), done: true };
       else if (name === "structure_history") out = { queued: await seedStructureHistory(db, now), done: true };
       // item 7: insider-trade lists by calendar quarter for the focus companies (NSE's dated list answers ≈ 1 year)
