@@ -100,6 +100,17 @@ describe("life-insurance template (SBILIFE Q2 FY27, trimmed real file)", async (
     expect(r.checks.length).toBe(4);
     expect(r.checks.filter((c) => !c.ok)).toEqual([]);
   });
+  it("reads the filed ratios as filed fractions, shareholders' investment income and NPAs by fund; solvency as filed (1.97)", () => {
+    expect(r.lines).toMatchObject({ expenses_of_management_ratio_filed: "0.1139", persistency_13m: "0.8582", persistency_25m: "0.7775",
+      persistency_37m: "0.7122", persistency_49m: "0.6885", persistency_61m: "0.5801", conservation_ratio: "0.8171",
+      investment_income_shareholders: "3558307000",
+      npa_gross_nonlinked_par: "0", npa_gross_nonlinked_nonpar: "0", npa_gross_linked_par: "0", npa_gross_linked_nonpar: "0", npa_gross_shareholders: "0",
+      npa_net_nonlinked_par: "0", npa_net_nonlinked_nonpar: "0", npa_net_linked_par: "0", npa_net_linked_nonpar: "0", npa_net_shareholders: "0" });
+    // the filed EOM ratio is expenses of management ÷ gross premium as a fraction: 30,874.746 ÷ 2,71,151.274 = 0.11386
+    expect(Number(r.lines.expenses_of_management!) / Number(r.lines.gross_premium!)).toBeCloseTo(0.1139, 4);
+    expect(r.lines.solvency_ratio).toBe("1.97"); // as filed; the feature applies the scale rule (solvencyMultiple)
+    expect(r.missing).toEqual([]);
+  });
 });
 
 describe("full-year figures from March-quarter files (D90, real INFY files)", async () => {
@@ -145,6 +156,14 @@ describe("general-insurer Integrated Filing (GODIGIT Q1 FY27 IFGI, real file)", 
     expect(r.lines.pat).toBe("863900000");
     expect(r.checks.length).toBe(9);
     expect(r.checks.filter((c) => !c.ok)).toEqual([]);
+  });
+  it("reads the filed claims / combined / EOM / net retention ratios as fractions (agree with the computed ones); solvency as filed (0.0243)", () => {
+    expect(r.lines).toMatchObject({ claims_ratio_filed: "0.733", combined_ratio_filed: "1.123", expenses_of_management_ratio_filed: "0.39",
+      net_retention_ratio_filed: "0.767", npa_gross_policyholders: "0", npa_net_policyholders: "0" });
+    const n = (k: string) => Number(r.lines[k]!);
+    expect(n("claims_incurred") / n("premium_earned")).toBeCloseTo(n("claims_ratio_filed"), 3);  // 14,718.7 ÷ 20,069.6 = 0.7334
+    expect(n("net_premium") / n("gross_premium")).toBeCloseTo(n("net_retention_ratio_filed"), 3); // 20,941.9 ÷ 27,308.6 = 0.7669
+    expect(r.lines.solvency_ratio).toBe("0.0243"); // as filed (2.43× ÷ 100); never rescaled by the reader
   });
   it("operating profit: provisions inside or outside both hold (NIACL Q4 FY25 figures); a wrong figure fails", () => {
     const l = { operating_income: "110087400000", total_operating_expenses: "105132600000", provision_doubtful_debts: "-920100000", provision_diminution: "348200000", operating_profit: "4954800000" };

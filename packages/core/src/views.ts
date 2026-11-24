@@ -1,7 +1,7 @@
 // Item 6: computed views (D49, D52, D66). Every value here is worked out from filed figures when it is shown and is
 // never stored (owner #350, D170). Each answer says what it was built from, or why it is unavailable (no sentinel
 // values, D52). Inputs are the stored filed figures exactly as loaded (exact decimals in rupees).
-import { type Dec, add, cmp, dec, div, mul, sub, toText } from "./decimal.js";
+import { type Dec, add, cmp, dec, div, mul, round, sub, toText } from "./decimal.js";
 
 /** One filed period of one company on one basis: the canonical P&L lines (and, where filed, balance-sheet lines). */
 export interface FiledPeriod { periodEnd: string; periodKind: string; basis: string; lines: Record<string, string | null | undefined> }
@@ -132,7 +132,11 @@ export function ownersEquity(b: Record<string, string | null | undefined>, basis
 }
 
 /** One stored row of the feature table (D171). */
-export interface FeatureRow { basis: string; field: string; periodEnd: string; value: string | null; reason: string | null; inputs: string[] }
+export interface FeatureRow { basis: string; field: string; periodEnd: string; value: string | null; reason: string | null; inputs: string[]; note: string | null }
+/** A View as a stored row: the note (how it was computed, what it is not) is kept with a value; an unavailable value has
+ *  its reason only. */
+export const featureRow = (basis: string, field: string, periodEnd: string, x: View): FeatureRow =>
+  ({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from, note: x.value === null ? null : x.note ?? null });
 
 const QUARTER_KIND = "Q";
 const yearBefore = (end: string) => previousQuarterEnd(previousQuarterEnd(previousQuarterEnd(previousQuarterEnd(end))));
@@ -156,11 +160,51 @@ const ownersLine = (layout: string) => (layout === "bank" ? "pat_after_minority"
 
 /** D171: every feature-table value of one company on one basis, from its filed quarters (`periods` with kind Q) and its
  *  balance sheets (`balanceSheets`, by date). `layout` as chosen by chooseLayout. Pure: the caller stores the rows. */
-export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string): FeatureRow[] {
-  const qs = periods.filter((p) => p.periodKind === QUARTER_KIND && p.basis === basis).sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+/** `cashFlows`: full-year cash-flow lines by year end (period kind FY), for capex and free cash flow. */
+export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string, cashFlows: Map<string, Record<string, string | null | undefined>> = new Map(), nbfcSubtype: NbfcSubtype = "lender"): FeatureRow[] {
+  // gap census (6 Nov, 12 companies): a consolidated filer with no minority anywhere — no profit-to-NCI line in any
+  // quarter and no NCI line in any balance sheet — files no owners' line either; its profit to owners is its net profit
+  const ownersKey = basis === "standalone" ? "pat" : ownersLine(layout);
+  // (live check 6 Nov: these companies filed an owners' line in older quarters — always equal to net profit — and dropped it)
+  const nz = (x: string | null | undefined) => x != null && dec(x).units !== 0n;
+  // live check 6 Nov (NESTLEIND): some consolidated filings carry profit to owners = 0 while net profit is ≈ ₹1,000 crore
+  // and no profit to NCI is filed — a filled-in nil, not a figure; it is read as "not filed" (never used as 0)
+  const zeroOwners = (p: FiledPeriod) => p.lines.pat_owners != null && dec(p.lines.pat_owners).units === 0n && nz(p.lines.pat) && !nz(p.lines.pat_nci);
+  periods = periods.map((p) => (p.basis === basis && zeroOwners(p) ? { ...p, lines: { ...p.lines, pat_owners: undefined } } : p));
+  const mine = periods.filter((p) => p.basis === basis);
+  // Per quarter, local evidence (live checks 6 Nov: OBEROIRLTY files owners 0 and NCI 0, its balance sheet has equity =
+  // equity to owners and its EPS matches all of net profit; HDFCLIFE / LICI / GICRE file no owners or NCI line at all): a
+  // quarter with no owners' figure and no non-zero NCI profit takes net profit as profit to owners when the balance sheet
+  // at that date (or the latest one up to ~6 months before) shows no minority — an NCI line of zero, total equity equal to
+  // equity to owners (₹1 lakh / 0.1 %), or, for an insurer's IRDAI format, shareholders' funds with no minority line.
+  const tol = (a: string, b: string) => Math.abs(Number(a) - Number(b)) <= Math.max(1e5, Math.abs(Number(b)) * 0.001);
+  const bsDates = [...balanceSheets.keys()].sort();
+  const bsAt = (e: string) => { const d = bsDates.filter((x) => x <= e).pop(); return d && (Date.parse(e) - Date.parse(d)) / 864e5 <= 200 ? balanceSheets.get(d) : undefined; };
+  const noMinorityAt = (e: string) => {
+    const b = bsAt(e);
+    if (!b) return false;
+    const nciLine = b["x:NonControllingInterest"] ?? b.minority_interest ?? b["x:MinorityInterest"];
+    if (nciLine != null) return !nz(nciLine);
+    const tot = b["x:Equity"] ?? b.total_equity, own = b["x:EquityAttributableToOwnersOfParent"] ?? b.equity_owners;
+    if (tot != null && own != null) return tol(own, tot);
+    return (layout === "life_insurance" || layout === "general_insurance") && b["x:ShareholdersFunds"] != null;
+  };
+  let filledFromPat = 0, filledFromIdentity = 0;
+  const qs = periods.filter((p) => p.periodKind === QUARTER_KIND && p.basis === basis).sort((a, b) => a.periodEnd.localeCompare(b.periodEnd))
+    .map((p) => {
+      // identity: with profit to NCI filed (non-zero) and no owners' figure, profit to owners = net profit − profit to NCI
+      if (basis !== "standalone" && ownersKey === "pat_owners" && p.lines.pat != null && p.lines.pat_owners == null && nz(p.lines.pat_nci)) {
+        filledFromIdentity++;
+        return { ...p, lines: { ...p.lines, pat_owners: toText(sub(dec(p.lines.pat), dec(p.lines.pat_nci!))) } };
+      }
+      if (basis === "standalone" || ownersKey !== "pat_owners" || p.lines.pat == null || p.lines.pat_owners != null || nz(p.lines.pat_nci) || !noMinorityAt(p.periodEnd)) return p;
+      filledFromPat++;
+      return { ...p, lines: { ...p.lines, pat_owners: p.lines.pat } };
+    });
+  const noMinority = filledFromPat > 0;
   const by = new Map(qs.map((q) => [q.periodEnd, q]));
   const out: FeatureRow[] = [];
-  const put = (field: string, periodEnd: string, x: View) => out.push({ basis, field, periodEnd, value: x.value, reason: x.value === null ? x.reason : null, inputs: x.value === null ? [] : x.from });
+  const put = (field: string, periodEnd: string, x: View) => out.push(featureRow(basis, field, periodEnd, x));
   const line = (p: FiledPeriod | undefined, k: string | null, end: string): View => {
     if (!k) return no(`no revenue line is defined for ${layout} yet`);
     const x = p ? v(p, k) : null;
@@ -175,8 +219,43 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
   };
   // TTM EBIT = profit before exceptional items + finance costs, four filed quarters
   const ebitTtm = (end: string): View => { let s = dec("0"); const f: string[] = []; let k = end; for (let i = 0; i < 4; i++) { const x = by.get(k); const a = x ? v(x, "pbt_before_exceptional") : null, b = x ? v(x, "finance_cost") : null; if (!a || !b) return no(`quarter ${k} (${basis}): profit before exceptional items and finance costs must be filed`); s = add(s, add(a, b)); f.push(k); k = previousQuarterEnd(k); } return ok(s, f.reverse()); };
+  // year-on-year growth of one line at one quarter (filed quarter vs the same quarter a year before)
+  const yoyAt = (k: string | null, end: string, what: string): View => growth(line(by.get(end), k, end), line(by.get(yearBefore(end)), k, yearBefore(end)), what);
+  // field catalogue §5: latest YoY minus the average YoY of the 8 quarters before it (percentage points); all 8 needed
+  const vsTrend = (k: string | null, end: string, what: string): View => {
+    const now = yoyAt(k, end, what);
+    if (now.value === null) return now;
+    let s = dec("0"), e2 = end; const from = [...now.from];
+    for (let i = 0; i < 8; i++) {
+      e2 = previousQuarterEnd(e2);
+      const g = yoyAt(k, e2, what);
+      if (g.value === null) return no(`needs YoY growth for the 8 quarters before ${end}: ${g.reason}`);
+      s = add(s, dec(g.value)); from.push(...g.from);
+    }
+    return ok(div(sub(dec(now.value), div(s, dec("8"), 6)), dec("1"), 2), [...new Set(from)].sort());
+  };
+  // TTM ratio of two P&L lines in % (2 places); the divisor must be positive (a loss gives no rate)
+  const ttmRatio = (num: string, den: string, end: string, what: string): View => {
+    const n = ttm(qs, num, end, basis), d = ttm(qs, den, end, basis);
+    if (n.value === null) return n;
+    if (d.value === null) return d;
+    if (dec(d.value).units <= 0n) return no(`${what}: TTM ${den} is zero or a loss`);
+    return pct(n, d, what);
+  };
   for (const q of qs) {
     const e = q.periodEnd, ya = yearBefore(e), pq = previousQuarterEnd(e);
+    // §5: EPS growth, only when profit ÷ EPS (the implied share count) moved ≤ 25 % between the two quarters — a split,
+    // bonus or consolidation in between is not restated in the year-ago filing (C55: no comparative columns stored)
+    put("eps_yoy_q", e, epsYoy(q, by.get(ya), owners, e, ya));
+    put("revenue_vs_trend_q", e, vsTrend(rev, e, "revenue YoY"));
+    put("pat_vs_trend_q", e, vsTrend("pat", e, "PAT YoY"));
+    // §6 earnings quality on four filed quarters
+    put("effective_tax_rate_ttm", e, ttmRatio("tax", "pbt", e, "effective tax rate"));
+    put("other_income_share_pbt_ttm", e, layout === "industrial" ? ttmRatio("other_income", "pbt", e, "other income share of PBT")
+      : no(`other income is operating income for ${layout}; the share is used for industrial companies only`));
+    put("exceptional_items_ttm", e, exceptionalTtm(qs, e, basis));
+    // §6 margin flags (D70; owner 6 Nov: 200 bps), on the quarterly EBITDA margin (industrial companies)
+    if (layout === "industrial") for (const f of marginFlags(qs, e, (k) => { const p = by.get(k); return p ? pct(ebitda(p, layout), line(p, rev, k), "EBITDA margin") : no(`quarter ${k} (${basis}) not filed`); })) put(f.field, e, f.view);
     const r = line(q, rev, e), p = line(q, "pat", e), po = line(q, owners, e), eb = ebitda(q, layout);
     put("revenue_q", e, r); put("pat_q", e, p); put("pat_owners_q", e, po); put("ebitda_q", e, eb);
     put("ebitda_margin_q", e, pct(eb, r, "EBITDA margin"));
@@ -200,16 +279,445 @@ export function companyFeatures(periods: FiledPeriod[], balanceSheets: Map<strin
       const eo = eq(bsEnd);
       put("equity_owners", e, eo != null ? ok(dec(eo), [`balance sheet ${e}`]) : no(`balance sheet ${e}: equity to owners not filed`));
       put("net_debt", e, netDebt(bsEnd, layout, e));
-      put("nci", e, bsEnd["x:NonControllingInterest"] != null ? ok(dec(bsEnd["x:NonControllingInterest"]!), [`balance sheet ${e}`]) : basis === "standalone" ? ok(dec("0"), [`balance sheet ${e}`], "standalone: no minority") : no(`balance sheet ${e}: non-controlling interest not filed`));
+      const totEq = bsEnd["x:Equity"] ?? bsEnd.total_equity, ownEq = bsEnd["x:EquityAttributableToOwnersOfParent"] ?? bsEnd.equity_owners;
+      put("nci", e, bsEnd["x:NonControllingInterest"] != null ? ok(dec(bsEnd["x:NonControllingInterest"]!), [`balance sheet ${e}`])
+        : basis === "standalone" ? ok(dec("0"), [`balance sheet ${e}`], "standalone: no minority")
+        // gap census (6 Nov, 18 companies): no NCI line but both equity lines filed — NCI = total equity − equity to owners
+        : totEq != null && ownEq != null ? ok(sub(dec(totEq), dec(ownEq)), [`balance sheet ${e}`], "total equity − equity to owners (no NCI line filed)")
+        : no(`balance sheet ${e}: non-controlling interest not filed`));
       put("roe", e, roe(poT, eq(bsStart), eq(bsEnd)));
+      // §6: ROA = TTM net profit (whole group, as the assets are the group's) ÷ average total assets (D52 average capital)
+      put("roa", e, roa(pT, bsStart ?? null, bsEnd));
       if (layout === "industrial") {
         put("roce", e, roce(ebitTtm(e), bsStart ?? null, bsEnd));
         put("debt_to_equity", e, debtToEquity(bsEnd, eq(bsEnd), e));
-      } else { put("roce", e, no(`ROCE is not used for ${layout}`)); put("debt_to_equity", e, no(`debt to equity is not used for ${layout}`)); }
+        // field catalogue §7: working capital days on TTM revenue / TTM cost of goods (materials + purchases of stock
+        // in trade + change in inventories; a quarter needs materials or purchases filed), and CWIP as filed
+        const cogs = cogsTtm(qs, e, basis);
+        for (const w of workingCapital(bsEnd, rT, cogs, e)) put(w.field, e, w.view);
+        put("cwip", e, bsEnd["x:CapitalWorkInProgress"] != null ? ok(dec(bsEnd["x:CapitalWorkInProgress"]!), [`balance sheet ${e}`]) : no(`balance sheet ${e}: capital work in progress not filed`));
+      } else {
+        put("roce", e, no(`ROCE is not used for ${layout}`));
+        // NBFCs: debt to equity on Division III borrowed funds, from the NBFC pack (one row per field and date)
+        if (layout !== "nbfc") put("debt_to_equity", e, no(`debt to equity is not used for ${layout}`));
+      }
     }
   }
+  // field catalogue §6/§7: capex and free cash flow for each filed full year (cash flow is filed year to date)
+  if (layout === "industrial") for (const [end, cf] of cashFlows) {
+    const capex = cf["x:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"], cfo = cf.cfo;
+    put("capex_fy", end, capex != null ? ok(abs(dec(capex)), [`cash flow FY to ${end}`]) : no(`cash flow FY to ${end}: purchase of property, plant and equipment not filed`));
+    put("fcf_fy", end, capex != null && cfo != null ? ok(sub(dec(cfo), abs(dec(capex))), [`cash flow FY to ${end}`]) : no(`cash flow FY to ${end}: operating cash flow or capex not filed`));
+    // §6: operating cash flow ÷ net profit for the full year (cash flow is filed year to date, so full years only)
+    const fyPat = periods.find((p) => p.periodKind === "FY" && p.basis === basis && p.periodEnd === end)?.lines.pat;
+    put("ocf_to_pat_fy", end, cfo == null ? no(`cash flow FY to ${end}: operating cash flow not filed`)
+      : fyPat == null ? no(`full year to ${end}: net profit not filed`)
+      : dec(fyPat).units <= 0n ? no(`full year to ${end}: net profit is zero or a loss`)
+      : ok(div(dec(cfo), dec(fyPat), 2), [`cash flow FY to ${end}`, `P&L FY to ${end}`]));
+  }
+  if (layout === "bank") out.push(...bankFeatures(qs, balanceSheets, basis));
+  if (layout === "nbfc") out.push(...nbfcFeatures(qs, balanceSheets, basis, nbfcSubtype));
+  if (layout === "life_insurance" || layout === "general_insurance") out.push(...insurerFeatures(qs, balanceSheets, basis, layout));
+  if (filledFromIdentity && qs.length) put("owners_profit_identity", "latest", { value: String(filledFromIdentity), from: [], note: "quarter(s) with no owners' figure: profit to owners = net profit − profit to NCI (both filed)" });
+  if (noMinority && qs.length) put("owners_profit_source", "latest", { value: "net profit", from: [], note: `${filledFromPat} quarter(s) with no owners' figure and no minority on the balance sheet: profit to owners = net profit` });
   if (qs.length) put("layout", "latest", { value: layout, from: [] });
   return out;
+}
+
+/** Bank pack (owner, 6 Nov: "must have bank specific one for bank"). Third Schedule lines as filed; every ratio says
+ *  what it was built from. Net interest margin here is COMPUTED (TTM NII ÷ average interest-earning assets at the two
+ *  balance-sheet dates a year apart) and is not the bank's own reported NIM; CASA, slippages and restructured book are
+ *  not in the results filings and are not offered. */
+export function bankFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string): FeatureRow[] {
+  const out: FeatureRow[] = [];
+  const put = (field: string, periodEnd: string, x: View) => out.push(featureRow(basis, field, periodEnd, x));
+  const by = new Map(qs.map((q) => [q.periodEnd, q]));
+  const nii = (e: string): View => { const q = by.get(e), a = v(q, "interest_earned"), b = v(q, "interest_expended"); return a && b ? ok(sub(a, b), [e]) : no(`quarter ${e} (${basis}): interest earned and interest expended must be filed`); };
+  const sum4 = (f: (e: string) => View, end: string): View => { let s = dec("0"), e = end; const from: string[] = []; for (let i = 0; i < 4; i++) { const x = f(e); if (x.value === null) return x; s = add(s, dec(x.value)); from.push(e); e = previousQuarterEnd(e); } return ok(s, from.reverse()); };
+  const lineQ = (k: string) => (e: string): View => { const x = v(by.get(e), k); return x ? ok(x, [e]) : no(`quarter ${e} (${basis}) has no filed ${k}`); };
+  const filedPct = (k: string, e: string): View => lineQ(k)(e);
+  const bsv = (d: string, k: string) => { const x = balanceSheets.get(d)?.[k]; return x != null ? dec(x) : null; };
+  for (const q of qs) {
+    const e = q.periodEnd, ya = yearBefore(e);
+    const n = nii(e);
+    put("nii_q", e, n);
+    put("nii_yoy_q", e, growth(n, nii(ya), "NII YoY"));
+    put("ppop_q", e, lineQ("operating_profit")(e));
+    put("ppop_yoy_q", e, growth(lineQ("operating_profit")(e), lineQ("operating_profit")(ya), "operating profit YoY"));
+    // G14 (log #405): banks report asset quality on the standalone basis; their consolidated file carries 0 in all four
+    // NPA lines (SBIN, HDFCBANK, PNB … Sep 2026). Four zeros on consolidated = not reported there, never "0 % NPA".
+    const npaZeros = basis === "consolidated" && ["gross_npa", "net_npa", "gnpa_pct", "nnpa_pct"].every((k) => { const x = v(q, k); return x !== null && x.units === 0n; });
+    const NPA_SA = no(`quarter ${e}: asset quality is reported on the standalone basis (the consolidated file carries zeros)`);
+    put("gnpa_pct_q", e, npaZeros ? NPA_SA : filedPct("gnpa_pct", e));
+    put("nnpa_pct_q", e, npaZeros ? NPA_SA : filedPct("nnpa_pct", e));
+    // a CET1 ratio filed as 0 is not reported for this basis (HDFCBANK consolidated carries zeros, log #408)
+    const capZero = (() => { const c = v(q, "cet1_ratio"); return c !== null && c.units === 0n; })();
+    const CAP_NA = no(`quarter ${e} (${basis}): capital ratios filed as 0 — reported on the other basis`);
+    put("cet1_ratio_q", e, capZero ? CAP_NA : filedPct("cet1_ratio", e));
+    // G1 (log #407): Tier 1 = CET1 + AT1, both filed (as fractions, like CET1); total CRAR (Tier 2) is not in the XBRL
+    { const c = v(q, "cet1_ratio"), a = v(q, "at1_ratio");
+      put("tier1_ratio_q", e, capZero ? CAP_NA : c && a ? ok(add(c, a), [e], "computed: CET1 ratio + additional Tier 1 ratio, both as filed") : no(`quarter ${e} (${basis}): CET1 and additional Tier 1 ratios must both be filed`)); }
+    const g = v(q, "gross_npa"), nn = v(q, "net_npa");
+    put("pcr_q", e, npaZeros ? NPA_SA : g && nn ? (g.units > 0n ? ok(div(mul(sub(g, nn), dec("100")), g, 2), [e], "provision coverage = (gross NPA − net NPA) ÷ gross NPA; excludes technical write-offs") : no(`quarter ${e}: gross NPA is zero`)) : no(`quarter ${e} (${basis}): gross and net NPA amounts must be filed`));
+    const niiT = sum4(nii, e), oiT = sum4(lineQ("other_income"), e), opexT = sum4(lineQ("operating_expenses"), e), provT = sum4(lineQ("provisions"), e);
+    put("nii_ttm", e, niiT);
+    put("cost_to_income_ttm", e, niiT.value === null ? niiT : oiT.value === null ? oiT : pct(opexT, ok(add(dec(niiT.value), dec(oiT.value)), [...niiT.from]), "cost to income"));
+    // balance-sheet dates (half-year and year end): credit cost, computed NIM, loan / deposit growth, CD ratio
+    if (balanceSheets.has(e)) {
+      const avg = (k: string[]) => { const a = k.reduce<Dec | null>((s, x) => { const y = bsv(e, x); return s && y ? add(s, y) : null; }, dec("0")), b = k.reduce<Dec | null>((s, x) => { const y = bsv(ya, x); return s && y ? add(s, y) : null; }, dec("0")); return averageOf(a, b); };
+      const adv = avg(["advances"]), iea = avg(["advances", "investments", "cash_rbi", "balances_banks"]);
+      put("credit_cost_ttm", e, provT.value === null ? provT : adv ? pct(provT, ok(adv, [`balance sheets ${ya}, ${e}`]), "credit cost") : no(`advances must be filed at ${ya} and ${e}`));
+      put("nim_computed_ttm", e, niiT.value === null ? niiT : iea ? { ...pct(niiT, ok(iea, [`balance sheets ${ya}, ${e}`]), "NIM"), note: "computed: TTM NII ÷ average of advances + investments + cash with RBI + balances with banks; not the bank's reported NIM" } as View : no(`advances, investments, cash with RBI and balances with banks must be filed at ${ya} and ${e}`));
+      const a1 = bsv(e, "advances"), a0 = bsv(ya, "advances"), d1 = bsv(e, "deposits"), d0 = bsv(ya, "deposits");
+      put("advances_yoy", e, a1 && a0 ? growth(ok(a1, [`balance sheet ${e}`]), ok(a0, [`balance sheet ${ya}`]), "advances YoY") : no(`advances must be filed at ${ya} and ${e}`));
+      put("deposits_yoy", e, d1 && d0 ? growth(ok(d1, [`balance sheet ${e}`]), ok(d0, [`balance sheet ${ya}`]), "deposits YoY") : no(`deposits must be filed at ${ya} and ${e}`));
+      put("cd_ratio", e, a1 && d1 && d1.units > 0n ? ok(div(mul(a1, dec("100")), d1, 2), [`balance sheet ${e}`]) : no(`advances and deposits must be filed at ${e}`));
+    }
+  }
+  return out;
+}
+
+/** Division III borrowed funds: the four filed debt lines of financial liabilities. */
+export const NBFC_DEBT_LINES = ["x:DebtSecurities", "x:Borrowings", "x:Deposits", "x:SubordinatedLiabilities"];
+/** Borrowed funds at one Division III balance sheet = debt securities + borrowings (other than debt securities) +
+ *  deposits + subordinated liabilities. The detail is stored only when financial liabilities add up to their filed total
+ *  (D154), so with that total stored a part that is not filed is none (noted); without it, unavailable. */
+export function nbfcBorrowedFunds(b: Record<string, string | null | undefined> | undefined, date: string): View {
+  if (!b || b["x:FinancialLiabilities"] == null) return no(`balance sheet ${date}: Division III financial liabilities not filed`);
+  const filed = NBFC_DEBT_LINES.filter((k) => b[k] != null);
+  if (!filed.length) return no(`balance sheet ${date}: none of debt securities, borrowings, deposits, subordinated liabilities filed`);
+  const none = NBFC_DEBT_LINES.filter((k) => b[k] == null).map((k) => k.slice(2));
+  return ok(filed.reduce((a, k) => add(a, dec(b[k]!)), dec("0")), [`balance sheet ${date}`], none.length ? `not filed, taken as none (financial liabilities add up without them): ${none.join(", ")}` : undefined);
+}
+
+/** G18 (log #398): what a Division III filer does. Schedule III Division III puts every non-bank financial company on
+ *  the NBFC layout, but not all of them lend: holding companies, asset managers and a lessor file it too, and for them
+ *  NII, credit cost, NIM and loan / borrowing growth are meaningless (IRFC's income is lease income, its NII negative). */
+export type NbfcSubtype = "lender" | "holding" | "amc" | "lessor" | "other";
+/** The stored classification cannot tell these apart: market.classification.industry_detail is the announcement
+ *  smIndustry (D121 / D150), which files lenders, holding companies and AMCs alike under "Finance" (sector_map has only
+ *  Finance, Finance - Housing, Financial Institution); NSE's basic industry is not stored. So this is an explicit,
+ *  owner-reviewable list by NSE symbol (log #398, Part 2 G18); every other Division III filer is a lender. */
+export const NBFC_SUBTYPE_OVERRIDES: Readonly<Record<string, NbfcSubtype>> = {
+  BAJAJHLDNG: "holding", // Bajaj Holdings & Investment
+  BAJAJFINSV: "holding", // Bajaj Finserv (holds Bajaj Finance, the insurers)
+  TATAINVEST: "holding", // Tata Investment Corporation
+  MFSL: "holding",       // Max Financial Services (holds Axis Max Life)
+  HDFCAMC: "amc",        // HDFC Asset Management
+  "NAM-INDIA": "amc",    // Nippon Life India Asset Management
+  ICICIAMC: "amc",       // ICICI Prudential Asset Management (among the 30 NBFCs, log #398)
+  IRFC: "lessor",        // Indian Railway Finance Corporation: lease income, NII negative
+};
+export const NBFC_SUBTYPE_LABEL: Readonly<Record<NbfcSubtype, string>> = { lender: "lender", holding: "holding company", amc: "asset manager", lessor: "lessor", other: "non-lending financial company" };
+/** The sub-type of a Division III filer from its NSE symbols (any symbol it has traded under); default lender. */
+export function nbfcSubtype(symbols: readonly string[]): NbfcSubtype {
+  for (const s of symbols) { const t = NBFC_SUBTYPE_OVERRIDES[s.trim().toUpperCase()]; if (t) return t; }
+  return "lender";
+}
+/** Lending fields of the NBFC pack, given only for lenders; the rest (net total income, opex, debt ratios) for all. */
+export const NBFC_LENDING_FIELDS = ["nii_q", "nii_yoy_q", "nii_ttm", "credit_cost_ttm", "nim_computed_ttm", "loans_yoy", "borrowings_yoy"];
+
+/** NBFC pack (owner #389, Part 2 G2). Schedule III Division III lines as filed: P&L interest income (`interest_earned`),
+ *  finance costs (`finance_cost`), impairment on financial instruments (`impairment_financial_instruments`, an expense
+ *  as filed; a write-back is negative), total income and total expenses; balance sheet loans (`x:Loans`), investments
+ *  (`x:Investments`), the debt lines (NBFC_DEBT_LINES) and equity to owners. NII and NIM here are COMPUTED (finance costs
+ *  are all of them, leases included), loans are the balance-sheet loans (net of impairment allowance), not AUM. GNPA /
+ *  NNPA % (stage 3), CRAR, AUM, disbursements and cost of funds are not read from the results files (not offered). */
+export function nbfcFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, subtype: NbfcSubtype = "lender"): FeatureRow[] {
+  const out: FeatureRow[] = [];
+  // G18: a non-lender gets the lending fields as a reason, not a number
+  const notUsed = subtype === "lender" ? null : no(`not used for ${NBFC_SUBTYPE_LABEL[subtype]} (Division III filer, not a lender)`);
+  const put = (field: string, periodEnd: string, x0: View) => { const x = notUsed && NBFC_LENDING_FIELDS.includes(field) ? notUsed : x0; out.push(featureRow(basis, field, periodEnd, x)); };
+  if (qs.length) put("nbfc_subtype", "latest", { value: subtype, from: [] });
+  const by = new Map(qs.map((q) => [q.periodEnd, q]));
+  // a quarter value built from filed lines: first − the rest, every one filed
+  const diff = (keys: string[], what: string) => (e: string): View => {
+    const q = by.get(e), xs = keys.map((k) => v(q, k));
+    if (xs.some((x) => !x)) return no(`quarter ${e} (${basis}): ${what} must be filed`);
+    return ok(xs.slice(1).reduce<Dec>((a, x) => sub(a, x!), xs[0]!), [e]);
+  };
+  const nii = diff(["interest_earned", "finance_cost"], "interest income and finance costs");
+  const nti = diff(["total_income", "finance_cost"], "total income and finance costs");
+  const opex = diff(["total_expenses", "finance_cost", "impairment_financial_instruments"], "total expenses, finance costs and impairment on financial instruments");
+  const lineQ = (k: string) => (e: string): View => { const x = v(by.get(e), k); return x ? ok(x, [e]) : no(`quarter ${e} (${basis}) has no filed ${k}`); };
+  const sum4 = (f: (e: string) => View, end: string): View => { let s = dec("0"), e = end; const from: string[] = []; for (let i = 0; i < 4; i++) { const x = f(e); if (x.value === null) return x; s = add(s, dec(x.value)); from.push(e); e = previousQuarterEnd(e); } return ok(s, from.reverse()); };
+  const bsv = (d: string, k: string) => { const x = balanceSheets.get(d)?.[k]; return x != null ? dec(x) : null; };
+  const note = (x: View, n: string): View => (x.value === null ? x : { ...x, note: x.note ? `${n}; ${x.note}` : n });
+  // computed debt to equity at the latest balance sheet on or before a quarter end (≤ 200 days), for the filed-ratio check
+  const deAt = (d: string): Dec | null => { const b = balanceSheets.get(d); if (!b) return null; const f = nbfcBorrowedFunds(b, d), eo = ownersEquity(b, basis, "nbfc");
+    return f.value === null || eo == null || dec(eo).units <= 0n ? null : div(dec(f.value), dec(eo), 4); };
+  const bsDates = [...balanceSheets.keys()].sort();
+  const computedDe = (e: string): { de: Dec; at: string } | null => {
+    for (let i = bsDates.length - 1; i >= 0; i--) { const d = bsDates[i]!; if (d > e) continue; if ((Date.parse(e) - Date.parse(d)) / 864e5 > 200) return null; const de = deAt(d); return de ? { de, at: d } : null; }
+    return null; };
+  for (const q of qs) {
+    const e = q.periodEnd, ya = yearBefore(e);
+    const n = nii(e);
+    put("nii_q", e, note(n, "computed: interest income − finance costs"));
+    put("nii_yoy_q", e, growth(n, nii(ya), "NII YoY"));
+    // filed ratio (SEBI LODR Reg 52(4) for listed debt): its scale is checked against the balance sheet (log #408:
+    // CHOLAFIN files 0.074, SHRIRAMFIN 0.0416, against ≈ 7× and 4× computed) — shown only when it agrees
+    put("debt_equity_filed_q", e, filedDebtEquity(lineQ("debt_equity_ratio")(e), computedDe(e)));
+    const niiT = sum4(nii, e), ntiT = sum4(nti, e), opexT = sum4(opex, e), impT = sum4(lineQ("impairment_financial_instruments"), e);
+    put("nii_ttm", e, note(niiT, "computed: interest income − finance costs, four filed quarters"));
+    put("net_total_income_ttm", e, note(ntiT, "computed: total income − finance costs, four filed quarters"));
+    put("opex_ttm", e, note(opexT, "computed: total expenses − finance costs − impairment on financial instruments"));
+    put("cost_to_income_ttm", e, ntiT.value === null ? ntiT : opexT.value === null ? opexT : dec(ntiT.value).units <= 0n ? no("cost to income: TTM net total income is zero or negative")
+      : note(pct(opexT, ntiT, "cost to income"), "computed: (total expenses − finance costs − impairment) ÷ (total income − finance costs)"));
+    // balance-sheet dates (half-year and year end): credit cost, computed NIM, loan and borrowing growth, debt to equity
+    const bsEnd = balanceSheets.get(e);
+    if (bsEnd) {
+      const both = (k: string[]) => { const s = (d: string) => k.reduce<Dec | null>((a, x) => { const y = bsv(d, x); return a && y ? add(a, y) : null; }, dec("0")); return averageOf(s(e), s(ya)); };
+      const loans = both(["x:Loans"]), earning = both(["x:Loans", "x:Investments"]), at = [`balance sheets ${ya}, ${e}`];
+      put("credit_cost_ttm", e, impT.value === null ? impT : loans ? note(pct(impT, ok(loans, at), "credit cost"), "computed: TTM impairment on financial instruments (as filed; write-backs negative) ÷ average loans on balance sheet") : no(`loans must be filed at ${ya} and ${e}`));
+      put("nim_computed_ttm", e, niiT.value === null ? niiT : earning ? note(pct(niiT, ok(earning, at), "NIM"), "computed: TTM (interest income − finance costs) ÷ average of loans + investments; not the company's reported NIM") : no(`loans and investments must be filed at ${ya} and ${e}`));
+      const l1 = bsv(e, "x:Loans"), l0 = bsv(ya, "x:Loans");
+      put("loans_yoy", e, l1 && l0 ? note(growth(ok(l1, [`balance sheet ${e}`]), ok(l0, [`balance sheet ${ya}`]), "loans YoY"), "loans on balance sheet, not AUM") : no(`loans must be filed at ${ya} and ${e}`));
+      const f1 = nbfcBorrowedFunds(bsEnd, e), f0 = nbfcBorrowedFunds(balanceSheets.get(ya), ya);
+      put("borrowings_yoy", e, note(growth(f1, f0, "borrowings YoY"), "borrowed funds = debt securities + borrowings + deposits + subordinated liabilities"));
+      const eo = ownersEquity(bsEnd, basis, "nbfc");
+      put("debt_to_equity", e, f1.value === null ? f1 : eo == null ? no(`balance sheet ${e}: equity to owners not filed`) : dec(eo).units <= 0n ? no(`balance sheet ${e}: equity to owners is zero or negative`)
+        : ok(div(dec(f1.value), dec(eo), 2), [`balance sheet ${e}`], `computed: (debt securities + borrowings + deposits + subordinated liabilities) ÷ equity to owners${f1.note ? `; ${f1.note}` : ""}`));
+    }
+  }
+  return out;
+}
+
+/** IRDAI application-of-funds investment lines per insurer layout: shareholders' and policyholders' investments, and for a
+ *  life insurer the assets held to cover linked liabilities (unit-linked funds). */
+export const INSURER_INVESTMENT_LINES: Record<string, string[]> = {
+  life_insurance: ["x:InvestmentsShareholders", "x:InvestmentsPolicyholders", "x:AssetsHeldToCoverLinkLiabilities"],
+  general_insurance: ["x:InvestmentsShareholders", "x:InvestmentsPolicyholders"],
+};
+/** Investments at one IRDAI balance sheet = the INSURER_INVESTMENT_LINES of the layout. The detail is stored only when
+ *  every group adds up and sources = application of funds (D154), so with application of funds stored a part that is not
+ *  filed is none (noted); without it, unavailable. */
+export function insurerInvestments(b: Record<string, string | null | undefined> | undefined, date: string, layout: string): View {
+  const keys = INSURER_INVESTMENT_LINES[layout];
+  if (!keys) return no(`no investment lines are defined for ${layout}`);
+  if (!b || b["x:ApplicationOfFunds"] == null) return no(`balance sheet ${date}: IRDAI application of funds not filed`);
+  const filed = keys.filter((k) => b[k] != null);
+  if (!filed.length) return no(`balance sheet ${date}: none of ${keys.map((k) => k.slice(2)).join(", ")} filed`);
+  const none = keys.filter((k) => b[k] == null).map((k) => k.slice(2));
+  return ok(filed.reduce((a, k) => add(a, dec(b[k]!)), dec("0")), [`balance sheet ${date}`], none.length ? `not filed, taken as none (application of funds adds up without them): ${none.join(", ")}` : undefined);
+}
+
+/** Insurer pack (owner #389, Part 2 G3). IRDAI lines as filed (LIFE_TAGS / GI_TAGS; balance sheet BS_GROUPS_INS /
+ *  BS_GROUPS_GI, stored as "x:<tag>"). Life: gross / net premium, first-year / renewal / single premium, expenses of
+ *  management, policyholders' investment income. General: gross premium written, net premium written, premium earned,
+ *  claims incurred, net commission, operating expenses, underwriting result, investment income in both accounts. The
+ *  claims, expense and combined ratios here are COMPUTED from those lines (IRDAI definitions) and are not the company's
+ *  own filed ratios. Profit to shareholders growth is the generic pat_yoy_q / pat_ttm_yoy (IRDAI net profit is the
+ *  shareholders' account) and premium income as revenue is revenue_* (owner #360), so neither is repeated here.
+ *  The company's own filed ratios are given as `*_filed_q` (G3 follow-up): life expenses of management ratio,
+ *  persistency 13/25/37/49/61 month, conservation ratio; general incurred claims, combined, expenses of management and
+ *  net retention ratios. They are the filed fraction, not rescaled (0.733 = 73.3 %), as the bank pack gives
+ *  gnpa_pct_q / cet1_ratio_q; the computed ratios above are in %. NPAs of investments (₹) = the sum of the filed fund
+ *  lines. Life shareholders' account investment income is read (investment_income_shareholders_ttm for both layouts).
+ *  Solvency ratio: `solvency_ratio_filed_q`, a multiple (×) by the scale rule of solvencyMultiple (filed scale differs
+ *  across filers: SBILIFE 1.97, GODIGIT 0.0243 for 2.43×). Not offered: filed NPA percentages (zero in every file seen: scale unproven, not read); VNB, VNB margin,
+ *  embedded value and APE (not in the results files). */
+export function insurerFeatures(qs: FiledPeriod[], balanceSheets: Map<string, Record<string, string | null | undefined>>, basis: string, layout: string): FeatureRow[] {
+  const out: FeatureRow[] = [];
+  if (layout !== "life_insurance" && layout !== "general_insurance") return out;
+  const life = layout === "life_insurance";
+  const put = (field: string, periodEnd: string, x: View) => out.push(featureRow(basis, field, periodEnd, x));
+  const by = new Map(qs.map((q) => [q.periodEnd, q]));
+  // a quarter value: the sum of filed lines, every one filed
+  const sumQ = (keys: string[], what: string) => (e: string): View => {
+    const q = by.get(e), xs = keys.map((k) => v(q, k));
+    if (xs.some((x) => !x)) return no(`quarter ${e} (${basis}): ${what} must be filed`);
+    return ok(xs.reduce<Dec>((a, x) => add(a, x!), dec("0")), [e]);
+  };
+  const lineQ = (k: string) => (e: string): View => { const x = v(by.get(e), k); return x ? ok(x, [e]) : no(`quarter ${e} (${basis}) has no filed ${k}`); };
+  const sum4 = (f: (e: string) => View, end: string): View => { let s = dec("0"), e = end; const from: string[] = []; for (let i = 0; i < 4; i++) { const x = f(e); if (x.value === null) return x; s = add(s, dec(x.value)); from.push(e); e = previousQuarterEnd(e); } return ok(s, from.reverse()); };
+  const note = (x: View, n: string): View => (x.value === null ? x : { ...x, note: x.note ? `${n}; ${x.note}` : n });
+  // a ratio in % to 6 places (rounded to 2 when shown); the divisor must be positive
+  const ratio6 = (a: View, b: View, what: string): View => {
+    if (a.value === null) return a;
+    if (b.value === null) return b;
+    if (dec(b.value).units <= 0n) return no(`${what}: divisor is zero or negative`);
+    return ok(div(mul(dec(a.value), dec("100")), dec(b.value), 6), [...new Set([...a.from, ...b.from])]);
+  };
+  const r2 = (x: View, n: string): View => (x.value === null ? x : note(ok(round(dec(x.value), 2), x.from), n));
+  const plus = (a: View, b: View): View => (a.value === null ? a : b.value === null ? b : ok(add(dec(a.value), dec(b.value)), [...new Set([...a.from, ...b.from])]));
+  const gross = lineQ("gross_premium"), net = lineQ("net_premium");
+  const newBusiness = sumQ(["premium_first_year", "premium_single"], "first-year and single premium");
+  const invPh = lineQ("investment_income_policyholders"), invSh = lineQ("investment_income_shareholders");
+  // general insurers (IRDAI): claims ratio on net premium earned, expense ratio on net premium written
+  const claims = lineQ("claims_incurred"), earned = lineQ("premium_earned");
+  const expenses = sumQ(["commission", "operating_expenses"], "net commission and operating expenses");
+  const eom = lineQ("expenses_of_management");
+  const NB = "computed: first-year + single premium (individual and group, as filed); not APE";
+  const CLAIMS = "computed: claims incurred ÷ net premium earned; not the company's filed ratio";
+  const EXPENSE = "computed: (net commission + operating expenses related to insurance business) ÷ net premium written; not the company's filed ratio";
+  const COMBINED = "computed: claims ratio (on net premium earned) + expense ratio (on net premium written); premium deficiency not included; not the company's filed ratio";
+  const EOM = "computed: expenses of management (commission + operating expenses) ÷ gross premium; not the company's filed ratio";
+  // the company's own ratio as filed: a fraction, not rescaled (the bank pack's gnpa_pct_q / cet1_ratio_q likewise)
+  const filedQ = (k: string, what: string, extra = "") => (e: string): View => note(lineQ(k)(e), `filed: ${what} as stated by the company, a fraction as filed (0.733 = 73.3 %)${extra}`);
+  const NPA_FUNDS = life ? ["nonlinked_par", "nonlinked_nonpar", "linked_par", "linked_nonpar", "shareholders"] : ["policyholders"];
+  const npaQ = (kind: "gross" | "net") => (e: string): View => note(sumQ(NPA_FUNDS.map((f) => `npa_${kind}_${f}`), `${kind} NPA of investments of every fund (${NPA_FUNDS.join(", ")})`)(e),
+    `filed: ${kind} NPAs of investments, sum of the ${life ? "four policyholders' funds and the shareholders' fund" : "policyholders' fund"} (₹)`);
+  for (const q of qs) {
+    const e = q.periodEnd, ya = yearBefore(e);
+    put("gross_premium_yoy_q", e, growth(gross(e), gross(ya), "gross premium YoY"));
+    put("net_premium_yoy_q", e, growth(net(e), net(ya), "net premium YoY"));
+    const gT = sum4(gross, e), nT = sum4(net, e);
+    put("gross_premium_ttm", e, gT);
+    put("net_premium_ttm", e, nT);
+    put("gross_premium_ttm_yoy", e, growth(gT, sum4(gross, ya), "gross premium TTM YoY"));
+    put("net_premium_ttm_yoy", e, growth(nT, sum4(net, ya), "net premium TTM YoY"));
+    const phT = note(sum4(invPh, e), "policyholders' account investment income, as filed (net of losses; can be negative)");
+    put("investment_income_policyholders_ttm", e, phT);
+    const shT = sum4(invSh, e);
+    put("investment_income_shareholders_ttm", e, shT);
+    put("expenses_of_management_ratio_filed_q", e, filedQ("expenses_of_management_ratio_filed", "expenses of management ratio")(e));
+    put("investments_gross_npa_filed_q", e, npaQ("gross")(e));
+    put("investments_net_npa_filed_q", e, npaQ("net")(e));
+    put("solvency_ratio_filed_q", e, solvencyMultiple(lineQ("solvency_ratio")(e)));
+    if (life) {
+      for (const m of ["13", "25", "37", "49", "61"])
+        put(`persistency_${m}m_filed_q`, e, filedQ(`persistency_${m}m`, `${m}${m === "61" ? "st" : "th"}-month persistency ratio`, "; basis (premium or policy count) not stated in the file")(e));
+      put("conservation_ratio_filed_q", e, filedQ("conservation_ratio", "conservation ratio")(e));
+      const nb = newBusiness(e), nbT = sum4(newBusiness, e);
+      put("new_business_premium_q", e, note(nb, NB));
+      put("new_business_premium_yoy_q", e, note(growth(nb, newBusiness(ya), "new business premium YoY"), NB));
+      put("new_business_premium_ttm", e, note(nbT, NB));
+      put("renewal_premium_yoy_q", e, growth(lineQ("premium_renewal")(e), lineQ("premium_renewal")(ya), "renewal premium YoY"));
+      put("expenses_of_management_ratio_computed_q", e, r2(ratio6(eom(e), gross(e), "expenses of management ratio"), EOM));
+      put("expenses_of_management_ratio_computed_ttm", e, r2(ratio6(sum4(eom, e), gT, "expenses of management ratio"), EOM));
+    } else {
+      put("claims_ratio_filed_q", e, filedQ("claims_ratio_filed", "incurred claims ratio")(e));
+      put("combined_ratio_filed_q", e, filedQ("combined_ratio_filed", "combined ratio")(e));
+      put("net_retention_ratio_filed_q", e, filedQ("net_retention_ratio_filed", "net retention ratio")(e));
+      put("investment_income_ttm", e, note(plus(phT, shT), "computed: policyholders' (revenue account) + shareholders' account investment income"));
+      const cQ = ratio6(claims(e), earned(e), "claims ratio"), xQ = ratio6(expenses(e), net(e), "expense ratio");
+      const cT = ratio6(sum4(claims, e), sum4(earned, e), "claims ratio"), xT = ratio6(sum4(expenses, e), nT, "expense ratio");
+      put("claims_ratio_computed_q", e, r2(cQ, CLAIMS));
+      put("expense_ratio_computed_q", e, r2(xQ, EXPENSE));
+      put("combined_ratio_computed_q", e, r2(plus(cQ, xQ), COMBINED));
+      put("claims_ratio_computed_ttm", e, r2(cT, CLAIMS));
+      put("expense_ratio_computed_ttm", e, r2(xT, EXPENSE));
+      put("combined_ratio_computed_ttm", e, r2(plus(cT, xT), COMBINED));
+      put("retention_ratio_computed_ttm", e, r2(ratio6(nT, gT, "retention ratio"), "computed: net premium written ÷ gross premium written"));
+      put("underwriting_result_ttm", e, note(sum4(lineQ("underwriting_result"), e), "filed underwriting profit or loss, four quarters (a loss is negative)"));
+    }
+    // balance-sheet dates (half-year and year end): shareholders' funds and investments a year apart
+    const bsEnd = balanceSheets.get(e);
+    if (bsEnd) {
+      const bs0 = balanceSheets.get(ya);
+      const sf = (b: Record<string, string | null | undefined> | undefined, d: string): View => {
+        const x = b ? ownersEquity(b, basis, layout) : null;
+        return x != null ? ok(dec(x), [`balance sheet ${d}`]) : no(`balance sheet ${d}: shareholders' funds not filed`);
+      };
+      put("shareholders_funds_yoy", e, note(growth(sf(bsEnd, e), sf(bs0, ya), "shareholders' funds YoY"), life ? "filed shareholders' funds (IRDAI L-3)"
+        : "computed: share capital + share application money + reserves and surplus + fair value change account (IRDAI B-BS)"));
+      const i1 = insurerInvestments(bsEnd, e, layout), i0 = insurerInvestments(bs0, ya, layout);
+      const INV = life ? "computed: shareholders' + policyholders' investments + assets held to cover linked liabilities" : "computed: shareholders' + policyholders' investments";
+      put("investments_total", e, note(i1, INV));
+      put("investments_yoy", e, note(growth(i1, i0, "investments YoY"), INV));
+    }
+  }
+  return out;
+}
+
+/** G3 solvency scale rule (owner-approved). The stored line is SolvencyRatio as filed; filers differ in scale: SBILIFE
+ *  files 1.97 for 1.97× (197 %), GODIGIT files 0.0243 for 2.43×. Shown as a multiple (×), deterministically: a filed
+ *  value ≥ 0.5 is a multiple as filed; a value below 0.5 cannot be a solvency multiple of a licensed insurer (the IRDAI
+ *  control level is 1.5×), so it is read as filed scaled by 1/100 and shown × 100 (0.0243 → 2.43), with the note. Zero or
+ *  negative is not shown. A value ≥ 0.5 filed as a percentage (197 for 197 %) would pass as filed; none seen. */
+export const SOLVENCY_SCALED_NOTE = "filed scaled by 1/100 (value < 0.5×, below any possible solvency: IRDAI minimum 1.5×); shown × 100";
+export function solvencyMultiple(filed: View): View {
+  if (filed.value === null) return filed;
+  const x = dec(filed.value);
+  if (x.units <= 0n) return no(`solvency ratio filed as ${filed.value} (zero or negative): not shown`);
+  // a filer giving a percentage (197 for 197 %): no insurer is near 50× (log #407)
+  if (cmp(x, dec("50")) > 0) return ok(div(x, dec("100"), 4), filed.from, "filed as a percentage (value > 50×, beyond any insurer's solvency); shown ÷ 100");
+  if (cmp(x, dec("0.5")) >= 0) return ok(x, filed.from, "filed: solvency ratio as stated by the company, a multiple (×) as filed");
+  return ok(mul(x, dec("100")), filed.from, SOLVENCY_SCALED_NOTE);
+}
+
+/** NBFC filed debt-equity ratio (Reg 52(4)), shown only when its scale agrees with the balance sheet: within ±25 % of the
+ *  computed debt to equity → as filed; filed × 100 within ±25 % → × 100 (filed scaled by 1/100); otherwise not shown. */
+export function filedDebtEquity(filed: View, computed: { de: Dec; at: string } | null): View {
+  if (filed.value === null) return filed;
+  if (!computed) return no("filed debt-equity ratio not shown: no balance sheet within 200 days to check its scale against");
+  const f = dec(filed.value), c = computed.de;
+  const near = (x: Dec) => cmp(x, mul(c, dec("0.75"))) >= 0 && cmp(x, mul(c, dec("1.25"))) <= 0;
+  if (c.units > 0n && near(f)) return ok(f, filed.from, `filed: debt-equity ratio as stated by the company (agrees with the balance sheet ${computed.at})`);
+  const x100 = mul(f, dec("100"));
+  if (c.units > 0n && near(x100)) return ok(x100, filed.from, `filed scaled by 1/100 (${filed.value} filed; balance sheet ${computed.at} gives ${toText(div(c, dec("1"), 2))}×); shown × 100`);
+  return no(`filed debt-equity ratio ${filed.value} does not match the balance sheet ${computed.at} (${toText(div(c, dec("1"), 2))}×): not shown`);
+}
+
+/** Field catalogue §5: EPS growth year on year (basic EPS, 2 places). Guard: the implied share count (profit to owners ÷
+ *  EPS) must move by ≤ 25 % between the two quarters; a bigger move means a split, bonus or consolidation that the
+ *  year-ago filing does not reflect, and the comparison is withheld rather than shown wrong. */
+export function epsYoy(now: FiledPeriod, ago: FiledPeriod | undefined, ownersLineKey: string, end: string, agoEnd: string): View {
+  const e1 = v(now, "eps_basic"), e0 = v(ago, "eps_basic");
+  if (!e1) return no(`quarter ${end}: basic EPS not filed`);
+  if (!e0) return no(`quarter ${agoEnd}: basic EPS not filed`);
+  if (e0.units <= 0n) return no("EPS YoY: base quarter EPS is zero or a loss");
+  const p1 = v(now, ownersLineKey), p0 = v(ago, ownersLineKey);
+  if (!p1 || !p0 || e1.units === 0n) return no(`profit to owners and EPS must be filed in both quarters (share-count check)`);
+  const s1 = Number(toText(p1)) / Number(toText(e1)), s0 = Number(toText(p0)) / Number(toText(e0)), r = s1 / s0;
+  if (!Number.isFinite(r) || r <= 0) return no(`share-count check not possible for ${agoEnd} → ${end}: profit to owners is zero or of the opposite sign to EPS (readiness map, 6 Nov)`);
+  if (!(r > 0.8 && r < 1.25)) return no(`implied share count changed ×${r.toFixed(2)} between ${agoEnd} and ${end} (split, bonus or consolidation likely; the earlier EPS is not restated)`);
+  return growth(ok(e1, [end]), ok(e0, [agoEnd]), "EPS YoY");
+}
+
+/** Field catalogue §6 / D70 margin flags (1 = yes, 0 = no), owner 6 Nov: 200 bps.
+ *  erosion: the margin is ≥ 2.00 percentage points below the peak of the 8 quarters before it, or it fell in each of the
+ *  last two quarters. recovery: the margin rose in each of the last two quarters from a quarter that was the low of its
+ *  own trailing four. Quarter-on-quarter, so seasonal businesses can trip them; every quarter used must be filed. */
+export const MARGIN_EROSION_BPS = 200;
+export function marginFlags(_qs: FiledPeriod[], end: string, marginAt: (end: string) => View): { field: string; view: View }[] {
+  const ends: string[] = [end]; for (let i = 0; i < 10; i++) ends.push(previousQuarterEnd(ends[ends.length - 1]!));
+  const m = ends.map((k) => marginAt(k)); // m[0] = this quarter, m[i] = i quarters back
+  const n = (i: number) => (m[i]!.value === null ? null : Number(m[i]!.value));
+  const need = (idx: number[], what: string): View | null => { const bad = idx.find((i) => n(i) === null); return bad === undefined ? null : no(`${what}: margin for ${ends[bad]} not available (${(m[bad] as { reason: string }).reason})`); };
+  const from = (idx: number[]) => idx.map((i) => ends[i]!).sort();
+  const twoDown = () => n(0)! < n(1)! && n(1)! < n(2)!;
+  // erosion
+  const ei = [0, 1, 2, 3, 4, 5, 6, 7, 8], eMiss = need(ei, "margin erosion");
+  const erosion: View = eMiss ?? (() => {
+    const peak = Math.max(...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => n(i)!));
+    const yes = (peak - n(0)!) * 100 >= MARGIN_EROSION_BPS || twoDown();
+    return ok(dec(yes ? "1" : "0"), from(ei), `peak of the 8 quarters before: ${peak.toFixed(2)} %; threshold ${MARGIN_EROSION_BPS} bps or two falls in a row`);
+  })();
+  // recovery: m2 is the low of m2..m5 and m2 < m1 < m0
+  const ri = [0, 1, 2, 3, 4, 5], rMiss = need(ri, "margin recovery");
+  const recovery: View = rMiss ?? (() => {
+    const low = n(2)! <= Math.min(n(3)!, n(4)!, n(5)!);
+    const yes = low && n(2)! < n(1)! && n(1)! < n(0)!;
+    return ok(dec(yes ? "1" : "0"), from(ri), "rose in each of the last two quarters from a trailing-4-quarter low");
+  })();
+  return [{ field: "margin_erosion", view: erosion }, { field: "margin_recovery", view: recovery }];
+}
+
+/** Field catalogue §6: exceptional items over four filed quarters. A quarter that files no exceptional line but files
+ *  profit before tax counts as none (as adjusted PAT does); profit before tax − profit before exceptional items is
+ *  used when only those two are filed. */
+export function exceptionalTtm(qs: FiledPeriod[], end: string, basis: string): View {
+  const by = new Map(qs.filter((q) => q.basis === basis && q.periodKind === "Q").map((q) => [q.periodEnd, q]));
+  let s = dec("0"), k = end, none = 0; const from: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const q = by.get(k), x = v(q, "exceptional_items"), pbt = v(q, "pbt"), pbe = v(q, "pbt_before_exceptional");
+    if (x) s = add(s, x);
+    else if (pbt && pbe) s = add(s, sub(pbt, pbe));
+    else if (pbt) none++;
+    else return no(`quarter ${k} (${basis}): profit before tax not filed`);
+    from.push(k); k = previousQuarterEnd(k);
+  }
+  return ok(s, from.reverse(), none ? `${none} quarter(s) file no exceptional line: taken as none` : undefined);
+}
+
+/** Field catalogue §6: ROA = TTM net profit ÷ average total assets at the start and end of the twelve months (%). */
+export function roa(ttmPat: View, bsStart: Record<string, string | null | undefined> | null, bsEnd: Record<string, string | null | undefined>): View {
+  const ta = (b: Record<string, string | null | undefined> | null) => { const x = b ? b.total_assets ?? b["x:Assets"] : null; return x != null ? dec(x) : null; };
+  const avg = averageOf(ta(bsStart), ta(bsEnd));
+  if (!avg) return no("total assets must be filed at both the start and the end of the twelve months");
+  return pct(ttmPat, ok(avg, []), "ROA");
 }
 
 /** Field catalogue §7: TTM EBIT ÷ TTM finance costs, 2 places; unavailable when there are no finance costs. */
@@ -228,6 +736,50 @@ export function debtToEquity(b: Record<string, string | null | undefined>, owner
   if (owners == null) return no(`balance sheet ${date}: equity to owners not filed`);
   if (dec(owners).units <= 0n) return no(`balance sheet ${date}: equity to owners is zero or negative`);
   return ok(div(add(dec(b["x:BorrowingsNoncurrent"]!), dec(b["x:BorrowingsCurrent"]!)), dec(owners), 2), [`balance sheet ${date}`]);
+}
+
+const abs = (d: Dec) => (d.units < 0n ? sub(dec("0"), d) : d);
+
+/** TTM cost of goods: four filed quarters of materials + purchases of stock in trade + change in inventories. */
+export function cogsTtm(qs: FiledPeriod[], end: string, basis: string): View {
+  const by = new Map(qs.filter((q) => q.basis === basis && q.periodKind === "Q").map((q) => [q.periodEnd, q]));
+  let s = dec("0"); const from: string[] = []; let k = end;
+  for (let i = 0; i < 4; i++) {
+    const q = by.get(k);
+    if (!q || (q.lines.materials == null && q.lines.purchases_stock_in_trade == null)) return no(`quarter ${k} (${basis}): materials or purchases of stock in trade must be filed`);
+    for (const l of ["materials", "purchases_stock_in_trade", "inventory_change"]) if (q.lines[l] != null) s = add(s, dec(q.lines[l]!));
+    from.push(k); k = previousQuarterEnd(k);
+  }
+  return ok(s, from.reverse());
+}
+
+/** Receivable, inventory and payable days and working-capital days at a balance-sheet date (365-day year, 1 place). */
+export function workingCapital(b: Record<string, string | null | undefined>, revenueTtm: View, cogs: View, date: string): { field: string; view: View }[] {
+  const line = (k: string, what: string): View => (b[k] != null ? ok(dec(b[k]!), [`balance sheet ${date}`]) : no(`balance sheet ${date}: ${what} not filed`));
+  const days = (x: View, base: View, what: string): View => {
+    if (x.value === null) return x;
+    if (base.value === null) return base;
+    if (dec(base.value).units <= 0n) return no(`${what}: TTM base is zero or negative`);
+    return ok(div(mul(dec(x.value), dec("365")), dec(base.value), 1), [...new Set([...x.from, ...base.from])]);
+  };
+  const rec = days(line("x:TradeReceivablesCurrent", "trade receivables"), revenueTtm, "receivable days");
+  const inv = days(line("x:Inventories", "inventories"), cogs, "inventory days");
+  const pay = days(line("x:TradePayablesCurrent", "trade payables"), cogs, "payable days");
+  // cash conversion cycle (catalogue §7): receivable + inventory − payable days, the last two on cost of goods — none for
+  // companies with no cost of goods (services)
+  const ccc: View = rec.value === null ? rec : inv.value === null ? inv : pay.value === null ? pay
+    : ok(sub(add(dec(rec.value), dec(inv.value)), dec(pay.value)), [...new Set([...rec.from, ...inv.from, ...pay.from])]);
+  // working-capital days: (trade receivables + inventories − trade payables) ÷ TTM revenue × 365, so asset-light companies
+  // get one too (INFY check, 6 Nov); an inventories line that is not filed counts as none (noted)
+  let wc: View;
+  if (b["x:TradeReceivablesCurrent"] == null || b["x:TradePayablesCurrent"] == null) wc = no(`balance sheet ${date}: trade receivables and trade payables must be filed`);
+  else if (revenueTtm.value === null) wc = revenueTtm;
+  else if (dec(revenueTtm.value).units <= 0n) wc = no("working-capital days: TTM revenue is zero or negative");
+  else {
+    const net = sub(add(dec(b["x:TradeReceivablesCurrent"]!), dec(b["x:Inventories"] ?? "0")), dec(b["x:TradePayablesCurrent"]!));
+    wc = ok(div(mul(net, dec("365")), dec(revenueTtm.value), 1), [...new Set([`balance sheet ${date}`, ...revenueTtm.from])], b["x:Inventories"] == null ? "no inventories line filed: taken as none" : undefined);
+  }
+  return [{ field: "receivable_days", view: rec }, { field: "inventory_days", view: inv }, { field: "payable_days", view: pay }, { field: "cash_conversion_cycle", view: ccc }, { field: "working_capital_days", view: wc }];
 }
 
 /** Net debt for EV (industrial only): borrowings (current + non-current) − cash and cash equivalents − other bank
@@ -252,7 +804,7 @@ export interface ValuationInputs {
  *  Stored under period_end 'latest'; P/E is also kept per trading day (owner #360) for its own-history comparison. */
 export function valuationFeatures(basis: string, x: ValuationInputs): FeatureRow[] {
   const mcap = dec(x.mcapRs), rows: FeatureRow[] = [];
-  const put = (field: string, r: View, periodEnd = "latest") => rows.push({ basis, field, periodEnd, value: r.value, reason: r.value === null ? r.reason : null, inputs: r.value === null ? [] : r.from });
+  const put = (field: string, r: View, periodEnd = "latest") => rows.push(featureRow(basis, field, periodEnd, r));
   const close = `close ${x.mcapDate}: market cap ₹${x.mcapRs}`;
   const ratio = (num: Dec, den: View, what: string, positive = true): View => {
     if (den.value === null) return den;
@@ -276,4 +828,23 @@ export function valuationFeatures(basis: string, x: ValuationInputs): FeatureRow
     put("ev_ebitda_ttm", r.value === null ? r : { ...r, from: [...new Set([...r.from, ...x.netDebt.from])] });
   }
   return rows;
+}
+
+/** Field catalogue §4: P/E against the median P/E of the company's sector among the companies compared (%: +20 = 20 %
+ *  above). "Industry" is NSE's broad sector (D121): the finer industry text leaves most groups of the 250 with one or two
+ *  companies. Only positive P/Es count (a loss has none); a sector needs at least `minN` of them, else no median. */
+export function peVsSectorMedian(rows: readonly { sid: number; sector: string | null; pe: string | null }[], minN = 5): Map<number, View & { median?: string; n?: number }> {
+  const bySector = new Map<string, number[]>();
+  for (const r of rows) if (r.sector && r.pe != null && Number(r.pe) > 0) (bySector.get(r.sector) ?? bySector.set(r.sector, []).get(r.sector)!).push(Number(r.pe));
+  const med = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b), k = s.length >> 1; return s.length % 2 ? s[k]! : (s[k - 1]! + s[k]!) / 2; };
+  const out = new Map<number, View & { median?: string; n?: number }>();
+  for (const r of rows) {
+    if (!r.sector) { out.set(r.sid, no("no sector stored for this company")); continue; }
+    if (r.pe == null || !(Number(r.pe) > 0)) { out.set(r.sid, no("no P/E (a loss or a missing figure)")); continue; }
+    const xs = bySector.get(r.sector)!;
+    if (xs.length < minN) { out.set(r.sid, no(`sector ${r.sector}: only ${xs.length} companies with a P/E (needs ${minN})`)); continue; }
+    const m = med(xs);
+    out.set(r.sid, { value: (Math.round((Number(r.pe) / m - 1) * 10000) / 100).toFixed(2), from: [`sector ${r.sector}: median P/E ${m.toFixed(2)} of ${xs.length} companies`], median: m.toFixed(2), n: xs.length });
+  }
+  return out;
 }

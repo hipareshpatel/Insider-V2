@@ -33,6 +33,20 @@ export function decideBasis(x: BasisInput): BasisDecision {
 
 const MON: Record<string, string> = { JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06", JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12" };
 const iso = (d: unknown) => { const m = /^(\d{2})-([A-Za-z]{3})-(\d{4})/.exec(String(d ?? "")); return m ? `${m[3]}-${MON[m[2]!.toUpperCase()]}-${m[1]}` : null; };
+/** The period (quarter or year) end of one row of NSE's results lists: Integrated Filing qe_Date, results toDate. */
+export const listRowPeriodEnd = (r: Record<string, unknown>): string | null => iso(r.qe_Date ?? r.qeDate ?? r.toDate ?? r.to_date);
+/** /if-list ?since= (G19): a year ("2026") or a date ("2025-03-31") → the earliest period end kept; null = no filter. */
+export function ifListSince(param: string | null): string | null | "bad" {
+  if (!param) return null;
+  if (/^\d{4}$/.test(param)) return `${param}-01-01`;
+  return /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : "bad";
+}
+/** Keeps a list row when its own period end is on/after `since` (the list's fetch date or any other date never counts). */
+/** /if-list: one company's own results lists, and the all-company monthly results lists (symbol NULL, G19
+ *  /maint/results_all_months; a few dozen rows), both by ix_fetch_symbol_kind (INDEXED BY: without statistics SQLite took the status index, ~300k 'done' rows). */
+export const SQL_IF_LIST_OWN = "SELECT job_id, kind, url, r2_key, fetched_at FROM fetch_job INDEXED BY ix_fetch_symbol_kind WHERE symbol=?1 AND kind IN ('integrated_financials','results_quarterly','results_annual') AND status='done' ORDER BY job_id";
+export const SQL_IF_LIST_ALL = "SELECT job_id, kind, url, r2_key, fetched_at FROM fetch_job INDEXED BY ix_fetch_symbol_kind WHERE symbol IS NULL AND kind IN ('results_quarterly','results_annual') AND status='done' ORDER BY job_id";
+export const ifListKeeps =(r: Record<string, unknown>, since: string | null) => !since || (listRowPeriodEnd(r) ?? "") >= since;
 /** (quarter end, basis) pairs on NSE's own results lists for one company, from the stored lists (quarterly results only). */
 export function nseListed(listJsons: string[]): Set<string> {
   const out = new Set<string>();
@@ -92,7 +106,7 @@ export const SQL_BASIS_LISTS = "SELECT r2_key FROM fetch_job INDEXED BY ix_fetch
 /** One company's stored NSE results lists (every symbol it has had), for runPrimaryBasis. */
 export function basisLists(filings: Sql, market: Sql, getText: (k: string) => Promise<string | null>): (sid: number) => Promise<string[]> {
   return async (sid: number) => {
-    const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND id_type='nse_symbol'", [sid])).map((r) => r.value);
+    const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND +id_type='nse_symbol'", [sid])).map((r) => r.value);
     const keys = await filings.all<{ r2_key: string }>(SQL_BASIS_LISTS, [JSON.stringify(syms)]);
     return (await Promise.all(keys.map((k) => getText(k.r2_key)))).filter((t): t is string => !!t);
   };
@@ -157,7 +171,7 @@ export async function classifyGaps(db: Sql, market: Sql, getText: (k: string) =>
   const cur = st ? JSON.parse(st.detail) as { after: number; companies: number } : { after: 0, companies: 0 };
   const sids = (await db.all<{ security_id: number }>("SELECT DISTINCT security_id FROM coverage_gap WHERE security_id > ? AND period_end >= '2024-01-01' ORDER BY security_id LIMIT ?", [cur.after, perCall])).map((r) => r.security_id);
   for (const sid of sids) {
-    const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND id_type='nse_symbol'", [sid])).map((r) => r.value);
+    const syms = (await market.all<{ value: string }>("SELECT DISTINCT value FROM security_identifier WHERE security_id=? AND +id_type='nse_symbol'", [sid])).map((r) => r.value);
     const keys = await db.all<{ r2_key: string }>(SQL_BASIS_LISTS, [JSON.stringify(syms)]);
     const listed = nseListedFiles((await Promise.all(keys.map((k) => getText(k.r2_key)))).filter((t): t is string => !!t));
     const gaps = await db.all<{ period_end: string; basis: string }>("SELECT period_end, basis FROM coverage_gap WHERE security_id=? AND period_end >= '2024-01-01'", [sid]); // D168

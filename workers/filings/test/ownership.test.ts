@@ -20,3 +20,13 @@ describe("§11 ownership fields from two shareholding snapshots", () => {
     expect(v(ownershipFields({ ...now, pledged: null }, null), "promoter_pledged_pct").reason).toMatch(/promoter pledge not filed/);
   });
 });
+
+describe("no promoter group (gap census, 6 Nov: HDFCBANK, ICICIBANK, ITC, LT …)", () => {
+  it("promoter holding 0, pledge not applicable", () => {
+    const s = { asOf: "2026-09-30", shares: { total: 1000, public: 1000, fii: 500 }, pledged: null };
+    const r = ownershipFields(s, { ...s, asOf: "2026-06-30" });
+    expect(r.find((x) => x.field === "promoter_holding_pct")!.value).toBe("0.00");
+    expect(r.find((x) => x.field === "promoter_holding_change_qoq")!.value).toBe("0.00");
+    expect(r.find((x) => x.field === "promoter_pledged_pct")!.reason).toMatch(/no promoter group/);
+  });
+});

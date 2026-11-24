@@ -1,9 +1,9 @@
 // disclo-prefetch Worker (D128): fetch raw NSE API responses for every company into R2, as fast as NSE allows.
 import { type D1Meter, EQUITY_SERIES, FOCUS_DEFAULT, FORBIDDEN_TEXT, type Sql, batchAll, chargeReads, focusSymbolsOf, insertRows, parseEquityList, readLevel, readsToday, type NseSession, nseSession, sha256Hex, statusAuthorized } from "@disclo/core";
 import { d1Sql } from "./d1.js";
-import { attachmentKey, attachments } from "./discover.js";
+import { attachmentKey, attachments, isResultsKind, resultAttachments } from "./discover.js";
 import { bulkJobs, companyJobs } from "./jobs.js";
-import { dailyRefresh, dueSlot, requeueCompanyLists, seedFullHistory, seedStructureHistory, seedPitWindows } from "./daily.js";
+import { dailyRefresh, dueSlot, requeueCompanyLists, seedFullHistory, seedStructureHistory, seedPitWindows, seedPitAllMonths, seedResultsAllMonths } from "./daily.js";
 import { compressStep } from "./compress.js";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; PARALLEL?: string; PER_RUN?: string; INGEST_TOKEN?: string; STATUS_TOKEN?: string; FOCUS_INDICES?: string; DAILY_READ_CAP?: string }
@@ -30,20 +30,33 @@ async function seed(db: Sql, raw: R2Bucket, today: string, nse: NseSession): Pro
  *  and kinds without attachments are born or marked 1), so this reads only lists still to look at. */
 export const SQL_DISCOVER = "SELECT job_id, kind, symbol, url, r2_key FROM fetch_job WHERE status='done' AND discovered=0 LIMIT 300";
 const NO_ATTACHMENTS = new Set(["announcements", "credit_rating"]);
-async function discover(env: Env, db: Sql): Promise<number> {
+/** G19: all-company results lists (results_quarterly / results_annual with symbol NULL, POST /maint/results_all_months)
+ *  carry every listed company: their XBRL is queued for the focus companies only (D161), under each row's own symbol and
+ *  the per-company kinds (xbrl_results_*), so the loader reads them unchanged (its focus filter and identity use the
+ *  job's symbol; the broadcast time comes from the parent list row that links the file). A file already in the ledger
+ *  is left as it is (unique URL). `focus` is asked only when such a list is due; with no focus list (FOCUS_INDICES=ALL
+ *  or no index snapshot yet) such a list is left undiscovered rather than queueing ~2,000 companies' files. */
+export async function discover(env: Pick<Env, "RAW">, db: Sql, focus: () => Promise<string[] | undefined> = async () => undefined): Promise<number> {
   const lists = await db.all<{ job_id: number; kind: string; symbol: string | null; url: string; r2_key: string }>(SQL_DISCOVER);
-  const rows: unknown[][] = [];
+  const rows: unknown[][] = [], keep: number[] = [];
+  let f: Set<string> | null | undefined;
   for (const l of lists) {
+    const allCompany = l.symbol === null && isResultsKind(l.kind);
+    if (allCompany && f === undefined) { const s = await focus(); f = s ? new Set(s) : null; }
+    if (allCompany && !f) { keep.push(l.job_id); continue; }
     // marked discovered below either way, so a list kind without attachments never stays in this query (C56)
     if (NO_ATTACHMENTS.has(l.kind) || !l.url.startsWith("https://www.nseindia.com/")) continue;
     const obj = await env.RAW.get(l.r2_key);
     if (!obj) continue;
-    for (const u of attachments(l.kind, await readText(obj), "2021-04-01")) rows.push([`xbrl_${l.kind}`, l.symbol, u, attachmentKey(u), l.job_id, 1]);
+    const text = await readText(obj);
+    if (allCompany) { for (const [s, u] of resultAttachments(text, "2021-04-01")) if (f!.has(s)) rows.push([`xbrl_${l.kind}`, s, u, attachmentKey(u), l.job_id, 1]); }
+    else for (const u of attachments(l.kind, text, "2021-04-01")) rows.push([`xbrl_${l.kind}`, l.symbol, u, attachmentKey(u), l.job_id, 1]);
   }
   // attachments are files, not lists: born discovered=1, so this every-minute query only sees lists (C56)
   const stmts = insertRows("INSERT OR IGNORE INTO fetch_job (kind, symbol, url, r2_key, parent_id, discovered)", 6, rows);
-  for (let i = 0; i < lists.length; i += 90) {
-    const ids = lists.slice(i, i + 90).map((l) => l.job_id);
+  const marked = lists.filter((l) => !keep.includes(l.job_id));
+  for (let i = 0; i < marked.length; i += 90) {
+    const ids = marked.slice(i, i + 90).map((l) => l.job_id);
     stmts.push({ sql: `UPDATE fetch_job SET discovered=1 WHERE job_id IN (${ids.map(() => "?").join(",")})`, params: ids }); // D1: <= 100 params
   }
   await batchAll(db, stmts);
@@ -85,7 +98,7 @@ export async function runBatch(env: Env, now = new Date(), meter?: D1Meter, nse:
   const todo = await db.all<Job>(SQL_API_TODO, [perRun]);
   if (todo.length < perRun) todo.push(...await db.all<Job>(SQL_API_RETRY, [perRun - todo.length]));
   let discovered: number | string = 0;
-  try { discovered = await discover(env, db); } catch (e) { discovered = `discover error: ${String(e).slice(0, 120)}`; }
+  try { discovered = await discover(env, db, () => focusSymbolsOf(d1Sql(env.DB_MARKET, meter), env.FOCUS_INDICES ?? FOCUS_DEFAULT)); } catch (e) { discovered = `discover error: ${String(e).slice(0, 120)}`; }
   if (!todo.length) return { seeded, discovered, done: 0 };
   let refusals = 0, ok = 0, empty = 0, failed = 0;
   const results: unknown[][] = [];
@@ -211,8 +224,16 @@ export default {
       else if (name === "structure_history") out = { queued: await seedStructureHistory(db, now), done: true };
       // item 7: insider-trade lists by calendar quarter for the focus companies (NSE's dated list answers ≈ 1 year)
       else if (name === "pit_windows") out = { queued: await seedPitWindows(db, now, (await focusSymbolsOf(d1Sql(env.DB_MARKET), env.FOCUS_INDICES ?? FOCUS_DEFAULT)) ?? []), done: true };
+      // insider gap (6 Nov): all-company PIT list by month, 1 Apr 2025 -> 2 May 2026 (14 calls, once)
+      else if (name === "pit_all_months") out = { queued: await seedPitAllMonths(db, now), done: true };
       // MCX / ABBOTINDIA: re-queue the per-company lists of named focus companies (?symbols=A,B; empty or failed only)
       else if (name === "company_lists") out = { ...(await requeueCompanyLists(db, now, (url.searchParams.get("symbols") ?? "").split(","), await focusSymbolsOf(d1Sql(env.DB_MARKET), env.FOCUS_INDICES ?? FOCUS_DEFAULT))), done: true };
+      // G19: all-company results lists by month (?from=YYYY-MM&to=YYYY-MM&period=Quarterly|Annual; ≤ 15 months, ≥ 2024-01)
+      else if (name === "results_all_months") {
+        const r = await seedResultsAllMonths(db, now, url.searchParams.get("from") ?? "", url.searchParams.get("to") ?? "", url.searchParams.get("period") ?? "Quarterly");
+        if ("error" in r) return Response.json(r, { status: 400, headers: { "cache-control": "no-store" } });
+        out = { ...r, done: true };
+      }
       else return new Response("unknown pass", { status: 404 });
       return Response.json(out, { headers: { "cache-control": "no-store" } });
     }

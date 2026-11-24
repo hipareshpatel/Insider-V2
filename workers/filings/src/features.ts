@@ -1,31 +1,39 @@
 // D171 (owner #358): the feature table — computed values (TTM, EBITDA, adjusted figures, growth, ROE/ROCE) stored in
 // feature_value, never in fin_value. Built company by company from the filed figures; a rebuild writes only values that
 // changed (the upsert's WHERE), so a nightly run over the 250 writes little once the table is filled.
-import { batchAll, chooseLayout, companyFeatures, dec, div, insertRows, toText, valuationFeatures, type FiledPeriod, type View } from "@disclo/core";
+import { batchAll, chooseLayout, companyFeatures, dec, div, insertRows, nbfcSubtype, peVsSectorMedian, toText, valuationFeatures, type FiledPeriod, type View } from "@disclo/core";
 import type { Deps } from "./load.js";
+import { SQL_SYMBOLS_OF_SID } from "./eventfeatures.js";
 
-/** Rows read reach back far enough for a TTM year-on-year of the first stored quarter (2024-03: TTM to 2023-03, whose
- *  quarters start 2022-06); values are stored from the D168 floor on. */
-export const FEATURE_READ_FROM = "2022-06-30";
+/** Rows read reach back far enough for the growth-vs-trend fields of the first stored quarter (2024-03: its YoY and the
+ *  8 quarters' YoY before it need quarters from 2021-03 on); values are stored from the D168 floor on. */
+export const FEATURE_READ_FROM = "2021-03-31";
 export const FEATURE_STORE_FROM = "2024-01-01";
-const BS_LINES = ["x:EquityAttributableToOwnersOfParent", "x:Equity", "x:ShareholdersFunds", "x:ShareCapital", "x:ReservesAndSurplus", "x:ShareApplicationMoneyReceivedPendingAllotmentOfShares", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "equity_owners", "total_equity", "capital", "reserves",
-  "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents", "x:NonControllingInterest"];
+const BS_LINES = ["x:EquityAttributableToOwnersOfParent", "x:Equity", "x:ShareholdersFunds", "x:ShareCapital", "x:ReservesAndSurplus", "x:ShareApplicationMoneyReceivedPendingAllotmentOfShares", "x:BorrowingsNoncurrent", "x:BorrowingsCurrent", "equity_owners", "total_equity", "capital", "reserves", "total_assets", "x:Assets", // §6 ROA
+  "advances", "deposits", "investments", "cash_rbi", "balances_banks", // bank pack
+  "x:Loans", "x:Investments", "x:DebtSecurities", "x:Borrowings", "x:Deposits", "x:SubordinatedLiabilities", "x:FinancialLiabilities", // NBFC pack (Division III)
+  "x:ApplicationOfFunds", "x:InvestmentsShareholders", "x:InvestmentsPolicyholders", "x:AssetsHeldToCoverLinkLiabilities", // insurer pack (IRDAI)
+  "x:CashAndCashEquivalents", "x:BankBalanceOtherThanCashAndCashEquivalents", "x:NonControllingInterest", "x:MinorityInterest", "minority_interest",
+  "x:TradeReceivablesCurrent", "x:Inventories", "x:TradePayablesCurrent", "x:CapitalWorkInProgress", // §7 working capital, CWIP
+  "x:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities", "cfo"]; // §6/§7 capex, free cash flow (statement cf)
 export const SQL_FEATURE_ROWS = `SELECT statement, line, period_end, period_kind, basis, value, template FROM fin_value INDEXED BY ix_fin_value_period
-   WHERE security_id = ?1 AND period_end >= ?2 AND dims = '' AND (statement = 'pl' OR (statement = 'bs' AND line IN (SELECT value FROM json_each(?3))))
+   WHERE security_id = ?1 AND period_end >= ?2 AND dims = '' AND (statement = 'pl' OR (statement IN ('bs', 'cf') AND line IN (SELECT value FROM json_each(?3))))
    ORDER BY disclosed_at`;
-export const SQL_FEATURE_UPSERT_HEAD = "INSERT INTO feature_value (security_id, basis, field, period_end, value, reason, inputs, computed_at)";
+// the note (how a value was computed, what it is not) is stored with it (filings 0045); a changed note is a change
+export const SQL_FEATURE_UPSERT_HEAD = "INSERT INTO feature_value (security_id, basis, field, period_end, value, reason, inputs, computed_at, note)";
 export const SQL_FEATURE_UPSERT_TAIL = `ON CONFLICT (security_id, basis, field, period_end) DO UPDATE SET value = excluded.value, reason = excluded.reason,
-   inputs = excluded.inputs, computed_at = excluded.computed_at
-   WHERE feature_value.value IS NOT excluded.value OR feature_value.reason IS NOT excluded.reason OR feature_value.inputs IS NOT excluded.inputs`;
+   inputs = excluded.inputs, computed_at = excluded.computed_at, note = excluded.note
+   WHERE feature_value.value IS NOT excluded.value OR feature_value.reason IS NOT excluded.reason OR feature_value.inputs IS NOT excluded.inputs
+      OR feature_value.note IS NOT excluded.note`;
 
-export const SQL_FEATURES_OF = "SELECT basis, field, period_end, value, reason, inputs, computed_at FROM feature_value WHERE security_id = ?1 AND (?2 = '' OR field = ?2) ORDER BY basis, field, period_end";
+export const SQL_FEATURES_OF = "SELECT basis, field, period_end, value, reason, inputs, note, computed_at FROM feature_value WHERE security_id = ?1 AND (?2 = '' OR field = ?2) ORDER BY basis, field, period_end";
 
 /** One company: read its filed P&L quarters and the balance-sheet lines needed, compute, upsert. Returns rows offered. */
 export async function buildCompanyFeatures(deps: Deps, sid: number): Promise<{ rows: number; layouts: string[] }> {
   const rows = await deps.filings.all<{ statement: string; line: string; period_end: string; period_kind: string; basis: string; value: string | null; template: string }>(
     SQL_FEATURE_ROWS, [sid, FEATURE_READ_FROM, JSON.stringify(BS_LINES)]);
   // latest disclosed value per (statement, period, kind, basis, line): rows come oldest first (D48: restated is the default)
-  const pl = new Map<string, FiledPeriod>(), bs = new Map<string, Map<string, Record<string, string | null>>>();
+  const pl = new Map<string, FiledPeriod>(), bs = new Map<string, Map<string, Record<string, string | null>>>(), cfy = new Map<string, Map<string, Record<string, string | null>>>();
   let template: string | null = null;
   for (const r of rows) {
     if (r.statement === "pl") {
@@ -33,6 +41,10 @@ export async function buildCompanyFeatures(deps: Deps, sid: number): Promise<{ r
       const k = `${r.basis}|${r.period_end}|${r.period_kind}`;
       const p = pl.get(k) ?? { periodEnd: r.period_end, periodKind: r.period_kind, basis: r.basis, lines: {} };
       p.lines[r.line] = r.value; pl.set(k, p);
+    } else if (r.statement === "cf") {
+      if (r.period_kind !== "FY") continue; // cash flow is year to date: full years only
+      const c = cfy.get(r.basis) ?? new Map(); const d = c.get(r.period_end) ?? {};
+      d[r.line] = r.value; c.set(r.period_end, d); cfy.set(r.basis, c);
     } else {
       const b = bs.get(r.basis) ?? new Map(); const d = b.get(r.period_end) ?? {};
       d[r.line] = r.value; b.set(r.period_end, d); bs.set(r.basis, b);
@@ -40,15 +52,20 @@ export async function buildCompanyFeatures(deps: Deps, sid: number): Promise<{ r
   }
   const periods = [...pl.values()];
   const out: unknown[][] = [], now = deps.now().toISOString(), layouts: string[] = [];
-  for (const basis of ["consolidated", "standalone"]) {
+  const chosen = ["consolidated", "standalone"].flatMap((basis) => {
     const mine = periods.filter((p) => p.basis === basis && p.periodKind === "Q");
-    if (!mine.length) continue;
-    const layout = chooseLayout(template, Object.assign({}, ...mine.map((p) => p.lines))).name;
+    return mine.length ? [{ basis, layout: chooseLayout(template, Object.assign({}, ...mine.map((p) => p.lines))).name }] : [];
+  });
+  // G18: a Division III filer's sub-type (lender / holding / AMC / lessor) from its NSE symbols (NBFC_SUBTYPE_OVERRIDES):
+  // one read by ix_sid_security, only for the NBFC layout (≈ 30 companies)
+  const subtype = chosen.some((c) => c.layout === "nbfc")
+    ? nbfcSubtype((await deps.market.all<{ value: string }>(SQL_SYMBOLS_OF_SID, [sid])).map((r) => r.value)) : "lender";
+  for (const { basis, layout } of chosen) {
     layouts.push(`${basis}:${layout}`);
-    for (const f of companyFeatures(periods, bs.get(basis) ?? new Map(), basis, layout))
-      if (f.periodEnd >= FEATURE_STORE_FROM) out.push([sid, f.basis, f.field, f.periodEnd, f.value, f.reason, JSON.stringify(f.inputs), now]);
+    for (const f of companyFeatures(periods, bs.get(basis) ?? new Map(), basis, layout, cfy.get(basis) ?? new Map(), subtype))
+      if (f.periodEnd >= FEATURE_STORE_FROM) out.push([sid, f.basis, f.field, f.periodEnd, f.value, f.reason, JSON.stringify(f.inputs), now, f.note]);
   }
-  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 8, out, SQL_FEATURE_UPSERT_TAIL));
+  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 9, out, SQL_FEATURE_UPSERT_TAIL));
   return { rows: out.length, layouts };
 }
 
@@ -126,9 +143,9 @@ export async function companyValuations(deps: Deps, sid: number): Promise<number
     const layout = t.find((r) => r.field === "layout")?.value ?? "industrial";
     for (const f of valuationFeatures(basis, { mcapRs, mcapDate, layout, patOwnersTtm: latest("pat_owners_ttm"), revenueTtm: latest("revenue_ttm"), ebitdaTtm: latest("ebitda_ttm"),
       equityOwners: latest("equity_owners"), netDebt: latest("net_debt"), nci: latest("nci") }))
-      out.push([sid, f.basis, f.field, f.periodEnd, f.value, f.reason, JSON.stringify(f.inputs), now]);
+      out.push([sid, f.basis, f.field, f.periodEnd, f.value, f.reason, JSON.stringify(f.inputs), now, f.note]);
   }
-  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 8, out, SQL_FEATURE_UPSERT_TAIL));
+  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 9, out, SQL_FEATURE_UPSERT_TAIL));
   return out.length;
 }
 
@@ -143,7 +160,30 @@ export async function valuationsStep(deps: Deps, focusSids: Set<number>, limit =
   const sids = [...focusSids].filter((x) => x > after).sort((a, b) => a - b).slice(0, limit);
   for (const sid of sids) await companyValuations(deps, sid);
   const done = sids.length < limit;
+  if (done) await sectorPeStep(deps, focusSids); // §4: once all of the day's P/Es are in
   await deps.filings.run("INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','valuations',?,?) ON CONFLICT (day, slot) DO UPDATE SET at=excluded.at, detail=excluded.detail",
     [deps.now().toISOString(), JSON.stringify({ day, after: sids.length ? sids[sids.length - 1] : after, done })]);
   return { day, companies: sids.length, done };
+}
+
+// §4 P/E vs the sector median: each company's latest reported P/E on its primary basis ('both' = consolidated), its
+// latest stored sector (market.classification), one median per sector over the focus companies. ≈ 3 primary-key reads
+// per company once a trading day.
+export const SQL_PE_LATEST = "SELECT security_id, basis, value FROM feature_value WHERE security_id IN (SELECT value FROM json_each(?1)) AND basis IN ('consolidated','standalone') AND field = 'pe_ttm_rep' AND period_end = 'latest'";
+export const SQL_PRIMARY_BASIS_OF = "SELECT security_id, basis FROM primary_basis WHERE security_id IN (SELECT value FROM json_each(?1))";
+export const SQL_SECTOR_LATEST = "SELECT security_id, sector FROM classification WHERE security_id IN (SELECT value FROM json_each(?1)) ORDER BY security_id, as_of";
+export async function sectorPeStep(deps: Deps, focusSids: Set<number>): Promise<number> {
+  const ids = JSON.stringify([...focusSids]);
+  const pe = await deps.filings.all<{ security_id: number; basis: string; value: string | null }>(SQL_PE_LATEST, [ids]);
+  const pb = new Map((await deps.filings.all<{ security_id: number; basis: string }>(SQL_PRIMARY_BASIS_OF, [ids])).map((r) => [r.security_id, r.basis === "standalone" ? "standalone" : "consolidated"]));
+  const sector = new Map<number, string | null>();
+  for (const r of await deps.market.all<{ security_id: number; sector: string | null }>(SQL_SECTOR_LATEST, [ids])) sector.set(r.security_id, r.sector); // latest as_of wins
+  const rows = [...focusSids].map((sid) => {
+    const basis = pb.get(sid) ?? "consolidated";
+    return { sid, basis, sector: sector.get(sid) ?? null, pe: pe.find((r) => r.security_id === sid && r.basis === basis)?.value ?? null };
+  });
+  const res = peVsSectorMedian(rows), now = deps.now().toISOString();
+  const out = rows.map((r) => { const v = res.get(r.sid)!; return [r.sid, r.basis, "pe_vs_industry_median", "latest", v.value, v.value === null ? v.reason : null, JSON.stringify(v.value === null ? [] : v.from), now, v.value === null ? null : v.note ?? null]; });
+  if (out.length) await batchAll(deps.filings, insertRows(SQL_FEATURE_UPSERT_HEAD, 9, out, SQL_FEATURE_UPSERT_TAIL));
+  return out.length;
 }

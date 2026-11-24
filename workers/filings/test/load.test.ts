@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import type { Sql, Stmt } from "@disclo/core";
 import { buildFeatures, featuresStep, valuationsStep } from "../src/features.js";
-import { backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
+import { backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, insurerResultsLines, bankResultsLines, nbfcBalanceSheets, nbfcRevenueLines, broadcastFor, loadBatch, loadQuarterOfHalf, nseIstToUtc, quarterBounds, submissionFor, versionPeriod } from "../src/load.js";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 function sqlite(domain: string): Sql & { raw: DatabaseSync } {
@@ -131,6 +131,11 @@ describe("revised filing of a half year: balance sheet and cash flow versioned a
     const flags = await filings.all<{ statement: string; period_kind: string; change_pct: string }>("SELECT statement, period_kind, change_pct FROM restatement_flag WHERE statement='bs'");
     expect(flags.length).toBeGreaterThan(5);
     expect(flags.every((f) => f.period_kind === "H" && Math.abs(Math.abs(Number(f.change_pct)) - 2) < 0.1)).toBe(true);
+    // G8 phase 2: each loaded filing stores the auditor it names and its audit opinion (inserts only)
+    expect(await filings.all("SELECT filing_id, security_id, basis, period_end, seq, firm FROM auditor_filing ORDER BY filing_id")).toEqual([
+      { filing_id: 1, security_id: 7, basis: "consolidated", period_end: "2026-09-30", seq: 1, firm: "Deloitte Haskins and Sells LLP" },
+      { filing_id: 2, security_id: 7, basis: "consolidated", period_end: "2026-09-30", seq: 1, firm: "Deloitte Haskins and Sells LLP" }]);
+    expect(await filings.all("SELECT filing_id, value FROM governance_fact WHERE key = 'audit_opinion' ORDER BY filing_id")).toEqual([{ filing_id: 1, value: "unmodified" }, { filing_id: 2, value: "unmodified" }]);
   });
 });
 
@@ -347,7 +352,7 @@ describe("item 4 batch (V1 hints #276, D145)", () => {
   });
 });
 
-import { canonicalResult, parseXbrl } from "@disclo/core";
+import { INSURER_LINES_SOLVENCY, canonicalResult, parseXbrl } from "@disclo/core";
 describe("quarter vs year-to-date context with the same dates (C29)", () => {
   it("takes OneD even when FourD comes first in the file", () => {
     const base = readFileSync(join(ROOT, "packages/core/test/fixtures/nse/xbrl_AFFORDABLE_nonIndAS.xml"), "utf8");
@@ -792,6 +797,51 @@ describe("D171: feature table build", () => {
     // fin_value holds filed rows only: the feature build added nothing there (D170)
     expect((filings.raw.prepare("SELECT count(*) AS n FROM fin_value").get() as { n: number }).n).toBe(before + 1);
   });
+  it("stores each value's note; a changed note is written once, an unchanged one never (owner-approved: notes kept)", async () => {
+    const { filings, deps } = setup({});
+    filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (9, 7, 'results_quarterly', '2026-09-30', 'Q', 'consolidated', '2026-10-15T00:00:00Z', 'u9')");
+    const ins = filings.raw.prepare(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'industrial','pl',?,'',?,'Q','consolidated','original',?,NULL,?,9,'t','reported','results-v1')`);
+    for (const e of ["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"]) for (const [k, x] of Object.entries({ revenue: 100, pat: 20, pat_nci: 1, total_expenses: 70, finance_cost: 2, depreciation: 3 })) ins.run(k, e, String(x), `${e}T12:00:00Z`);
+    await buildFeatures({ ...deps, focus: ["INFY"] }, 25, true);
+    // no owners' figure, profit to NCI filed: profit to owners by the identity, said in the note (was dropped before 0045)
+    expect(filings.raw.prepare("SELECT value, note FROM feature_value WHERE field='owners_profit_identity'").get()).toEqual({ value: "4",
+      note: "quarter(s) with no owners' figure: profit to owners = net profit − profit to NCI (both filed)" });
+    const noted = (filings.raw.prepare("SELECT count(*) AS n FROM feature_value WHERE note IS NOT NULL").get() as { n: number }).n;
+    expect(noted).toBeGreaterThan(0);
+    expect(filings.raw.prepare("SELECT count(*) AS n FROM feature_value WHERE value IS NULL AND note IS NOT NULL").get()).toEqual({ n: 0 });
+    // as the table stood before 0045 (no notes): the next rebuild rewrites exactly the rows that gain a note
+    filings.raw.exec("UPDATE feature_value SET note = NULL, computed_at = 'old'");
+    const later = { ...deps, focus: ["INFY"], now: () => new Date("2026-11-07T02:00:00Z") };
+    await buildFeatures(later, 25, true);
+    expect((filings.raw.prepare("SELECT count(*) AS n FROM feature_value WHERE computed_at <> 'old'").get() as { n: number }).n).toBe(noted);
+    // and the one after rewrites nothing
+    await buildFeatures({ ...later, now: () => new Date("2026-11-08T02:00:00Z") }, 25, true);
+    expect(filings.raw.prepare("SELECT count(*) AS n FROM feature_value WHERE computed_at LIKE '2026-11-08%'").get()).toEqual({ n: 0 });
+  });
+});
+
+describe("G18: NBFC sub-type in the feature build", () => {
+  const build = async (symbol: string | null) => {
+    const { filings, market, deps } = setup({});
+    if (symbol) market.raw.exec(`INSERT INTO security_identifier (security_id,id_type,value,valid_from,source) VALUES (7,'nse_symbol','${symbol}','2025-01-01','t')`);
+    filings.raw.exec("INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (9, 7, 'integrated_financials', '2026-09-30', 'Q', 'consolidated', '2026-10-15T00:00:00Z', 'u9')");
+    const ins = filings.raw.prepare(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'industrial','pl',?,'',?,'Q','consolidated','original',?,NULL,?,9,'t','reported','results-v1')`);
+    for (const e of ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"])
+      for (const [k, x] of Object.entries({ interest_earned: 100, total_income: 130, finance_cost: 50, impairment_financial_instruments: 5, total_expenses: 90, pat: 30 })) ins.run(k, e, String(x), `${e}T12:00:00Z`);
+    await buildFeatures({ ...deps, focus: ["INFY"] }, 25, true);
+    return (f: string, e: string) => filings.raw.prepare("SELECT value, reason FROM feature_value WHERE security_id=7 AND field=? AND period_end=?").get(f, e) as { value: string | null; reason: string | null };
+  };
+  it("an AMC symbol (any it traded under) gives reasons for the lending fields; a lender keeps the numbers", async () => {
+    const amc = await build("HDFCAMC");
+    expect(amc("nbfc_subtype", "latest").value).toBe("amc");
+    expect(amc("nii_ttm", "2026-09-30")).toEqual({ value: null, reason: "not used for asset manager (Division III filer, not a lender)" });
+    expect(amc("net_total_income_ttm", "2026-09-30").value).toBe("320");
+    const lender = await build(null);
+    expect(lender("nbfc_subtype", "latest").value).toBe("lender");
+    expect(lender("nii_ttm", "2026-09-30").value).toBe("200");
+  });
 });
 
 describe("D171: feature table kept current by the cron step", () => {
@@ -915,6 +965,74 @@ describe("item 5 leftover 3: NBFC revenue lines pass", () => {
   });
 });
 
+describe("G1: bank results lines pass (bank_rev, additional Tier 1 ratio)", () => {
+  it("HDFCBANK Q2 FY27 (real file): adds only at1_ratio as filed; a second call reads nothing", async () => {
+    const name = "INTEGRATED_FILING_BANK_1_WEB.xml", url = `https://nsearchives.nseindia.com/corporate/xbrl/${name}`;
+    const { filings, deps } = setup({ [`att/xbrl/${name}`]: readFileSync(join(ROOT, "packages/core/test/fixtures/nse", "xbrl_HDFCBANK_IF_Q2FY27_full.xml"), "utf8") });
+    filings.raw.exec(`INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (41, 7, 'integrated_financials', '2026-09-30', 'Q', 'standalone', '2026-10-28T00:00:00Z', '${url}')`);
+    filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'bank','pl','pat','','2026-09-30','Q','standalone','original','1',NULL,'2026-10-28T00:00:00Z',41,'t','reported','results-v1')`);
+    const r = await bankResultsLines({ ...deps, focus: ["INFY"] });
+    const got = filings.raw.prepare("SELECT line, value FROM fin_value WHERE line <> 'pat'").all() as { line: string; value: string }[];
+    expect(r).toMatchObject({ done: true, files: 1 });
+    expect(got.map((x) => x.line)).toEqual(expect.arrayContaining(["at1_ratio"]));
+    expect(got.every((x) => x.line === "at1_ratio")).toBe(true);
+    expect(await bankResultsLines({ ...deps, focus: ["INFY"] })).toMatchObject({ done: true });
+  });
+});
+
+describe("G3 follow-up: insurer results lines pass (ins_rev)", () => {
+  const run = async (file: string, name: string, patFromThisFiling: boolean, end: string) => {
+    const url = `https://nsearchives.nseindia.com/corporate/xbrl/${name}`;
+    const { filings, deps } = setup({ [`att/xbrl/${name}`]: readFileSync(join(ROOT, "packages/core/test/fixtures/nse", file), "utf8") });
+    filings.raw.exec(`INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (41, 7, 'integrated_financials', '${end}', 'Q', 'standalone', '2026-10-28T00:00:00Z', '${url}'),
+      (99, 7, 'results_quarterly', '${end}', 'Q', 'standalone', '2026-10-28T00:00:00Z', 'other')`);
+    filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+      VALUES (7,'insurance','pl','pat','','${end}','Q','standalone','original','1',NULL,'2026-10-28T00:00:00Z',${patFromThisFiling ? 41 : 99},'t','reported','results-v1')`);
+    const r = await insurerResultsLines({ ...deps, focus: ["INFY"] });
+    const got = Object.fromEntries((filings.raw.prepare("SELECT line, value FROM fin_value WHERE line <> 'pat'").all() as { line: string; value: string }[]).map((x) => [x.line, x.value]));
+    const kinds = filings.raw.prepare("SELECT DISTINCT period_kind, version, extractor_version FROM fin_value WHERE line <> 'pat'").all();
+    return { r, got, kinds, again: await insurerResultsLines({ ...deps, focus: ["INFY"] }) };
+  };
+  it("life (SBILIFE Q2 FY27, real file): adds only the new lines as filed, for the quarter this filing loaded", async () => {
+    const { r, got, kinds, again } = await run("xbrl_SBILIFE_IF_Q2FY27_trim.xml", "INTEGRATED_FILING_LI_1_WEB.xml", true, "2026-09-30");
+    expect(r).toMatchObject({ done: true, companies: 1, files: 1, rows: 19 });
+    expect(got).toMatchObject({ expenses_of_management_ratio_filed: "0.1139", persistency_13m: "0.8582", persistency_61m: "0.5801", conservation_ratio: "0.8171",
+      investment_income_shareholders: "3558307000", npa_gross_shareholders: "0", npa_net_linked_nonpar: "0", solvency_ratio: "1.97" });
+    expect(Object.keys(got)).toHaveLength(19);           // nothing but INSURER_LINES_NEW (gross premium etc. not re-offered)
+    expect(got.gross_premium).toBeUndefined();
+    expect(kinds).toEqual([{ period_kind: "Q", version: "original", extractor_version: "results-v1" }]);
+    expect(again).toMatchObject({ done: true, rows: 19 });   // the cursor is done: a second call reads nothing
+  });
+  it("general (GODIGIT Q1 FY27, real file): the four filed ratios and the two NPA lines", async () => {
+    const { r, got } = await run("xbrl_GODIGIT_Q1FY27_gi.xml", "INTEGRATED_FILING_GI_1_WEB.xml", true, "2026-06-30");
+    expect(r).toMatchObject({ done: true, files: 1, rows: 7 });
+    expect(got).toEqual({ claims_ratio_filed: "0.733", combined_ratio_filed: "1.123", expenses_of_management_ratio_filed: "0.39", net_retention_ratio_filed: "0.767",
+      npa_gross_policyholders: "0", npa_net_policyholders: "0", solvency_ratio: "0.0243" });
+  });
+  it("G3 solvency second pass (ins_rev2): after ins_rev is done, re-reads the stored files for the solvency ratio alone", async () => {
+    for (const [file, name, end, filed] of [["xbrl_SBILIFE_IF_Q2FY27_trim.xml", "INTEGRATED_FILING_LI_1_WEB.xml", "2026-09-30", "1.97"],
+      ["xbrl_GODIGIT_Q1FY27_gi.xml", "INTEGRATED_FILING_GI_1_WEB.xml", "2026-06-30", "0.0243"]] as const) {
+      const url = `https://nsearchives.nseindia.com/corporate/xbrl/${name}`;
+      const { filings, deps } = setup({ [`att/xbrl/${name}`]: readFileSync(join(ROOT, "packages/core/test/fixtures/nse", file), "utf8") });
+      filings.raw.exec(`INSERT INTO filing (filing_id, security_id, kind, period_end, period_kind, basis, disclosed_at, source_url) VALUES (41, 7, 'integrated_financials', '${end}', 'Q', 'standalone', '2026-10-28T00:00:00Z', '${url}')`);
+      filings.raw.exec(`INSERT INTO fin_value (security_id,template,statement,line,dims,period_end,period_kind,basis,version,value,null_reason,disclosed_at,filing_id,source_tag,origin,extractor_version)
+        VALUES (7,'insurance','pl','pat','','${end}','Q','standalone','original','1',NULL,'2026-10-28T00:00:00Z',41,'t','reported','results-v1')`);
+      // the first pass as it ran before solvency was read: its cursor is done
+      filings.raw.exec(`INSERT INTO daily_refresh (day, slot, at, detail) VALUES ('once','ins_rev','t','{"sids":[7],"i":1,"after":0,"files":1,"rows":18,"done":true}')`);
+      expect(await insurerResultsLines({ ...deps, focus: ["INFY"] })).toMatchObject({ done: true, rows: 18 }); // done: nothing re-read
+      const r = await insurerResultsLines({ ...deps, focus: ["INFY"] }, 25, 20_000, "ins_rev2", INSURER_LINES_SOLVENCY);
+      expect(r).toMatchObject({ done: true, companies: 1, files: 1, rows: 1 });
+      expect(filings.raw.prepare("SELECT line, value FROM fin_value WHERE line <> 'pat'").all()).toEqual([{ line: "solvency_ratio", value: filed }]);
+    }
+  });
+  it("adds nothing when the period was loaded from another filing", async () => {
+    const { r, got } = await run("xbrl_SBILIFE_IF_Q2FY27_trim.xml", "INTEGRATED_FILING_LI_1_WEB.xml", false, "2026-09-30");
+    expect(got).toEqual({});
+    expect(r.notes.join(" ")).toContain("period not loaded from this filing");
+  });
+});
+
 describe("work list 2.10: credit ratings coverage vs NSE's lists", async () => {
   const { ratingCoverage } = await import("../src/ratingcov.js");
   const { parseCreditRatings } = await import("@disclo/core");
@@ -938,10 +1056,11 @@ describe("work list 2.10: credit ratings coverage vs NSE's lists", async () => {
 
 describe("item 7: credit ratings matched to companies by the issuer part of the ISIN", async () => {
   const { issuerOf, ratingSymbol, ratingsRelink, loadEvents } = await import("../src/events.js");
+  const { buildFocusIssuers } = await import("@disclo/core");
   const row = (isin: string, app: string) => ({ AppID: app, Symbol: app === "1" ? "NOTLISTED" : null, CompanyName: "HDFC Bank Limited", ISIN: isin, NameOfCRAgency: "CRISIL Ratings Limited", CreditRating: "CRISIL AAA",
     RatingAction: "Reaffirmed", DateofCR: "01-10-2026", BroadcastDateTime: "05-OCT-2026 10:00:00" });
   const list = JSON.stringify([row("INE040A08AB1", "1"), row("INE0L6807393", "2")]); // HDFC Bank bond; an unlisted issuer
-  const issuers = new Map([["INE040A", "HDFCBANK"]]);
+  const issuers = buildFocusIssuers([{ symbol: "HDFCBANK", isin: "INE040A01034", name: null }]); // no name: this block tests the issuer code alone
   it("issuer code = first 7 characters of an Indian ISIN; a rating with no symbol takes the matching focus company's", () => {
     expect(issuerOf("INE040A01034")).toBe("INE040A");
     expect(issuerOf("")).toBeNull();
@@ -1002,19 +1121,98 @@ describe("D167 (b): cash-flow detail with untagged adjustments", async () => {
   });
 });
 
-describe("item 7: credit-rating company-name fallback", async () => {
-  const { nameKey, ratingSymbol } = await import("../src/events.js");
-  it("reduces names for an exact match only", () => {
+describe("item 7 / G11: credit-rating company-name fallback, ambiguity and link method", async () => {
+  const { nameKey, ratingSymbol, ratingsRelink, loadEvents } = await import("../src/events.js");
+  const { buildFocusIssuers, ratingLink, ratingLinkVia } = await import("@disclo/core");
+  // Focus rows as SQL_FOCUS_ISSUERS returns them: security.name is the UDiFF bhavcopy's FinInstrmNm (upper case).
+  const focusRows = [
+    { symbol: "SBIN", isin: "INE062A01020", name: "STATE BANK OF INDIA" },
+    { symbol: "HINDZINC", isin: "INE267A01025", name: "HINDUSTAN ZINC LIMITED" },
+    { symbol: "TVSMOTOR", isin: "INE494B01023", name: "TVS MOTOR COMPANY LTD" },
+    // synthetic pair: two focus symbols whose listed names reduce to one key (e.g. a demerged company listed under the
+    // parent's old name for a while) — the name must link neither
+    { symbol: "ALPHA", isin: "INE111X01011", name: "ALPHA INDUSTRIES LIMITED" },
+    { symbol: "ALPHANEW", isin: "INE222Y01012", name: "Alpha Industries Ltd." },
+  ];
+  const fi = buildFocusIssuers(focusRows);
+  it("nameKey equates the feed's spellings with the stored names, and nothing looser", () => {
+    expect(nameKey("TVS Motor Company Ltd.")).toBe(nameKey("TVS MOTOR COMPANY LTD"));
+    expect(nameKey("TVS Motor Company Limited")).toBe("TVS MOTOR CO");
+    expect(nameKey("Hindustan Zinc Limited")).toBe(nameKey("HINDUSTAN ZINC LIMITED"));
+    expect(nameKey("Hindustan Zinc Ltd.")).toBe("HINDUSTAN ZINC");
+    expect(nameKey("State Bank of India")).toBe(nameKey("STATE BANK OF INDIA"));
     expect(nameKey("The Tata Power Company Limited")).toBe(nameKey("TATA POWER CO LTD"));
-    expect(nameKey("State Bank Of India")).toBe("STATE BANK OF INDIA");
-    expect(nameKey("Larsen & Toubro Limited")).toBe("LARSEN AND TOUBRO");
+    expect(nameKey("Larsen & Toubro Limited")).toBe(nameKey("LARSEN AND TOUBRO LTD"));
+    expect(nameKey("  Larsen   &  Toubro, Ltd. ")).toBe("LARSEN AND TOUBRO");
     expect(nameKey("Bank of India")).not.toBe(nameKey("Bank of Maharashtra"));
+    expect(nameKey("Hindustan Zinc Alloys Limited")).not.toBe(nameKey("Hindustan Zinc Limited")); // no prefix / fuzzy match
+    expect(nameKey("SBI Cards and Payment Services Limited")).not.toBe(nameKey("STATE BANK OF INDIA"));
   });
-  it("matches by name only when the issuer code does not (SBI bond under INE651A; TVS Motor with a placeholder ISIN)", () => {
-    const issuers = new Map([["INE062A", "SBIN"], [`name:${nameKey("STATE BANK OF INDIA")}`, "SBIN"], ["INE494B", "TVSMOTOR"], [`name:${nameKey("TVS MOTOR COMPANY LTD")}`, "TVSMOTOR"]]);
-    expect(ratingSymbol({ symbol: "", isin: "INE651A08041", company: "State Bank Of India" }, issuers)).toBe("SBIN");
-    expect(ratingSymbol({ symbol: "", isin: "FFF000F00000", company: "TVS Motor Company Limited" }, issuers)).toBe("TVSMOTOR");
-    expect(ratingSymbol({ symbol: "", isin: "INE530B08144", company: "IIFL Finance Limited" }, issuers)).toBe("");
+  it("links by the issuer code first, then NSE's symbol, then the exact name; says how and why not", () => {
+    expect(ratingLink({ symbol: "", isin: "INE062A08223", company: "State Bank of India" }, fi)).toEqual({ symbol: "SBIN", via: "isin_issuer", reason: null });
+    // SBI bonds issued under INE649A / INE651A (not the shares' INE062A)
+    expect(ratingLink({ symbol: "", isin: "INE649A09092", company: "State Bank of India" }, fi)).toEqual({ symbol: "SBIN", via: "name", reason: null });
+    expect(ratingLink({ symbol: "NOTLISTED", isin: "INE651A08041", company: "State Bank Of India" }, fi)).toEqual({ symbol: "SBIN", via: "name", reason: null });
+    // placeholder ISINs
+    expect(ratingLink({ symbol: "222333", isin: "ZZZ000Z00000", company: "Hindustan Zinc Limited" }, fi)).toEqual({ symbol: "HINDZINC", via: "name", reason: null });
+    expect(ratingLink({ symbol: "", isin: "FFF000F00000", company: "TVS Motor Company Ltd." }, fi)).toEqual({ symbol: "TVSMOTOR", via: "name", reason: null });
+    expect(ratingLink({ symbol: "TVSMOTOR", isin: "FFF000F00000", company: "TVS Motor Co." }, fi)).toEqual({ symbol: "TVSMOTOR", via: "nse_symbol", reason: null });
+    // ambiguous name: no link, with reason
+    const amb = ratingLink({ symbol: "NA", isin: "ZZZ000Z00000", company: "Alpha Industries Limited" }, fi);
+    expect(amb).toMatchObject({ symbol: "", via: null });
+    expect(amb.reason).toBe('ambiguous name: "ALPHA INDUSTRIES" is shared by ALPHA, ALPHANEW');
+    // but the issuer code still decides for a bond of either
+    expect(ratingLink({ symbol: "", isin: "INE222Y07019", company: "Alpha Industries Limited" }, fi).symbol).toBe("ALPHANEW");
+    // non-match: unlisted issuer, not a focus name
+    expect(ratingLink({ symbol: "NOTLISTED", isin: "INE530B08144", company: "IIFL Finance Limited" }, fi)).toMatchObject({ symbol: "", via: null, reason: expect.stringMatching(/^no focus company/) });
+    expect(ratingSymbol({ symbol: "", isin: "INE651A08041", company: "State Bank Of India" }, fi)).toBe("SBIN");
+  });
+  it("an old and a new symbol of one security (rename) are not ambiguous: the first symbol read keeps the link (log #398)", () => {
+    const fi = buildFocusIssuers([
+      { symbol: "L&TFH", isin: "INE498L01015", name: "L&T FINANCE LIMITED" }, { symbol: "LTF", isin: "INE498L01015", name: "L&T FINANCE LIMITED" },
+      { symbol: "ICICIPRULI", isin: "INE726G01019", name: "ICICI PRUDENTIAL LIFE INSURANCE COMPANY LIMITED" },
+      { symbol: "ICICILIFE", isin: "INE726G01019", name: "ICICI PRUDENTIAL LIFE INSURANCE COMPANY LIMITED" }]);
+    expect(ratingLink({ symbol: "NOTLISTED", isin: "INE498L07AB1", company: "L&T Finance Limited" }, fi)).toEqual({ symbol: "L&TFH", via: "isin_issuer", reason: null });
+    expect(ratingLink({ symbol: "", isin: "ZZZ000Z00000", company: "ICICI Prudential Life Insurance Company Ltd" }, fi)).toEqual({ symbol: "ICICIPRULI", via: "name", reason: null });
+  });
+  it("an issuer code shared by two focus symbols links neither by the code", () => {
+    const two = buildFocusIssuers([{ symbol: "OMEGA", isin: "INE333Z01010", name: "OMEGA LIMITED" }, { symbol: "OMEGADVR", isin: "INE333Z01028", name: "OMEGA DVR" }]);
+    const r = ratingLink({ symbol: "", isin: "INE333Z08011", company: "Some Trust" }, two);
+    expect(r).toMatchObject({ symbol: "", via: null });
+    expect(r.reason).toBe('ambiguous issuer code: "INE333Z" is shared by OMEGA, OMEGADVR');
+    expect(ratingLink({ symbol: "", isin: "INE333Z08011", company: "Omega Limited" }, two)).toEqual({ symbol: "OMEGA", via: "name", reason: null }); // the name still decides
+  });
+  it("labels a stored row's link from the company's own ISINs and name (no stored column)", () => {
+    const sbi = { isins: ["INE062A01020"], name: "STATE BANK OF INDIA" };
+    expect(ratingLinkVia({ isin: "INE062A08223", company: "State Bank of India" }, sbi)).toBe("isin_issuer");
+    expect(ratingLinkVia({ isin: "INE651A08041", company: "State Bank of India" }, sbi)).toBe("name");
+    expect(ratingLinkVia({ isin: "FFF000F00000", company: "SBI" }, sbi)).toBe("nse_symbol");
+  });
+  const r = (app: string, isin: string, company: string, symbol: string | null = null) => ({ AppID: app, Symbol: symbol, CompanyName: company, ISIN: isin, NameOfCRAgency: "CRISIL Ratings Limited",
+    CreditRating: "CRISIL AAA", Outlook: "Stable", RatingAction: "Reaffirmed", DateofCR: "01-10-2026", BroadcastDateTime: "05-OCT-2026 10:00:00" });
+  const list = JSON.stringify([
+    r("11", "INE651A08041", "State Bank of India", "NOTLISTED"), r("12", "INE649A09092", "State Bank of India"),
+    r("13", "ZZZ000Z00000", "Hindustan Zinc Limited", "222333"), r("14", "FFF000F00000", "TVS Motor Company Ltd."),
+    r("15", "ZZZ000Z00000", "Alpha Industries Limited", "NA"), r("16", "INE530B08144", "IIFL Finance Limited", "NOTLISTED"),
+    r("17", "INE062A08223", "State Bank of India")]);
+  const key = "api/credit_rating/all/2026-10.json", get = async (k: string) => (k === key ? list : null);
+  const focus = focusRows.map((x) => x.symbol);
+  it("the loader stores the name-matched ratings under their company and drops the ambiguous and unmatched ones", async () => {
+    const { filings } = setup({});
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,url,r2_key,status) VALUES (70,'credit_rating','c','${key}','done')`);
+    await loadEvents(filings, get, 50, { focus, issuers: fi });
+    expect(filings.raw.prepare("SELECT symbol, isin, company FROM credit_rating ORDER BY app_id").all()).toEqual([
+      { symbol: "SBIN", isin: "INE651A08041", company: "State Bank of India" }, { symbol: "SBIN", isin: "INE649A09092", company: "State Bank of India" },
+      { symbol: "HINDZINC", isin: "ZZZ000Z00000", company: "Hindustan Zinc Limited" }, { symbol: "TVSMOTOR", isin: "FFF000F00000", company: "TVS Motor Company Ltd." },
+      { symbol: "SBIN", isin: "INE062A08223", company: "State Bank of India" }]);
+  });
+  it("the relink pass (v4) counts each link method and the ambiguous names", async () => {
+    const { filings } = setup({});
+    filings.raw.exec(`INSERT INTO fetch_job (job_id,kind,url,r2_key,status) VALUES (71,'credit_rating','c','${key}','done')`);
+    const out = await ratingsRelink(filings, get, focus, fi, 12);
+    expect(out).toMatchObject({ done: true, lists: 1, rows: 5, inserted: 5, by_via: { name: 4, isin_issuer: 1 }, ambiguous: 1 });
+    expect(out.ambiguous_sample).toEqual(['ambiguous name: "ALPHA INDUSTRIES" is shared by ALPHA, ALPHANEW']);
+    expect(filings.raw.prepare("SELECT slot FROM daily_refresh WHERE slot LIKE 'ratings_relink%'").all()).toEqual([{ slot: "ratings_relink_v4" }]);
   });
 });
 

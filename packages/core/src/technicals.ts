@@ -45,8 +45,59 @@ export function rsi(xs: readonly number[], n = 14): number | null {
   return l === 0 ? 100 : 100 - 100 / (1 + g / l);
 }
 
+// ---- §3 return vs the sector index (G5) -------------------------------------------------------------------------------
+// Sectoral index closes come from NSE's daily index file (ind_close_all, stored in market.index_daily by the history
+// load and the daily job). Constituents are stored only for the broad indices (snapshot INDEX_LISTS), so a company is
+// compared with a sectoral index it is a stored constituent of when there is one, else with the index NSE publishes for
+// its stored broad sector (classification.sector, D121 / D150). Names as NSE prints them in ind_close_all; matching
+// ignores case (NSE has printed both "Nifty 50" and "NIFTY 50").
+
+/** Sectoral indices a stored constituent membership may name, narrowest first (a bank in both Nifty Bank and Nifty
+ *  Financial Services is compared with Nifty Bank). */
+export const SECTORAL_INDICES = [
+  "Nifty PSU Bank", "Nifty Private Bank", "Nifty Bank", "Nifty Financial Services", "Nifty IT", "Nifty Pharma", "Nifty Healthcare Index",
+  "Nifty Auto", "Nifty FMCG", "Nifty Metal", "Nifty Oil & Gas", "Nifty Energy", "Nifty Realty", "Nifty Media", "Nifty Consumer Durables", "Nifty Chemicals",
+] as const;
+/** NSE broad sector → the NIFTY sectoral index of the same scope. A sector not listed has no NSE sectoral index (Capital
+ *  Goods, Construction, Construction Materials, Consumer Services, Telecommunication, Services, Textiles, Diversified,
+ *  Forest Materials): no comparison, never a thematic or broad index instead. Power → Nifty Energy (NSE's Energy index
+ *  covers the oil, gas, consumable fuels and power sectors; NSE publishes no power-only index). */
+export const SECTOR_INDEX: Readonly<Record<string, string>> = {
+  "Financial Services": "Nifty Financial Services",
+  "Information Technology": "Nifty IT",
+  "Healthcare": "Nifty Healthcare Index",
+  "Automobile and Auto Components": "Nifty Auto",
+  "Fast Moving Consumer Goods": "Nifty FMCG",
+  "Metals & Mining": "Nifty Metal",
+  "Oil Gas & Consumable Fuels": "Nifty Oil & Gas",
+  "Power": "Nifty Energy",
+  "Realty": "Nifty Realty",
+  "Media Entertainment & Publication": "Nifty Media",
+  "Consumer Durables": "Nifty Consumer Durables",
+  "Chemicals": "Nifty Chemicals",
+};
+/** Every index_daily name the sector comparison may read (each as listed and upper-cased), for one bound IN list. */
+export const sectorIndexNames = (): string[] => [...new Set(SECTORAL_INDICES.flatMap((n) => [n, n.toUpperCase()]))];
+
+/** One company's sector inputs: its stored broad sector (undefined = no classification row, null = Unclassified), the
+ *  sectoral indices it is a stored constituent of (any case), and the sectoral closes keyed by upper-cased index name. */
+export interface SectorInput { sector: string | null | undefined; members: readonly string[]; closes: ReadonlyMap<string, readonly { date: string; close: number }[]> }
+
+/** Which sectoral index a company is compared with: a stored constituent membership first, else its sector's index. */
+export function sectorIndexOf(x: SectorInput | undefined): { index: string; basis: string } | { why: string } {
+  if (!x) return { why: "sector index closes not read" };
+  const mine = new Set(x.members.map((m) => m.toUpperCase()));
+  const member = SECTORAL_INDICES.find((n) => mine.has(n.toUpperCase()));
+  if (member) return { index: member, basis: `constituent of ${member}` };
+  if (x.sector === undefined) return { why: "no sector stored for this company (no sectoral index membership stored)" };
+  if (x.sector === null) return { why: "company is Unclassified (no NSE sector; no sectoral index membership stored)" };
+  const index = SECTOR_INDEX[x.sector];
+  if (!index) return { why: `NSE publishes no sectoral index for the sector ${x.sector}` };
+  return { index, basis: `sector map: NSE sector ${x.sector} (no sectoral index membership stored)` };
+}
+
 /** Every §3 field computable from stored sessions (date order, one row per day), as of the last session. */
-export function priceFeatures(sessions: readonly Session[], factors: readonly { exDate: string; factor: number }[], benchmark?: readonly { date: string; close: number }[]): { asOf: string | null; rows: PriceFeature[] } {
+export function priceFeatures(sessions: readonly Session[], factors: readonly { exDate: string; factor: number }[], benchmark?: readonly { date: string; close: number }[], sector?: SectorInput): { asOf: string | null; rows: PriceFeature[] } {
   const out: PriceFeature[] = [];
   const put = (field: string, value: string | null, reason: string | null = null) => out.push({ field, value, reason: value === null ? reason : null });
   if (!sessions.length) return { asOf: null, rows: out };
@@ -72,6 +123,20 @@ export function priceFeatures(sessions: readonly Session[], factors: readonly { 
     if (me === null) put("ret_vs_nifty_3m", null, `no stored close on or before ${base} (3 months)`);
     else if (nb === null || lastB !== asOf) put("ret_vs_nifty_3m", null, lastB ? `Nifty 50 closes end ${lastB}, the stock's ${asOf}` : "no Nifty 50 closes stored");
     else put("ret_vs_nifty_3m", r2(me - nb));
+    // vs the sector index (G5): same base date and as-of session; ret_vs_sector_3m_inputs names the index and the basis
+    const sec = (v: string | null, why: string | null, inputs: string | null = null) => { put("ret_vs_sector_3m", v, why); put("ret_vs_sector_3m_inputs", inputs, why); };
+    const pick = sectorIndexOf(sector);
+    if (me === null) sec(null, `no stored close on or before ${base} (3 months)`);
+    else if ("why" in pick) sec(null, pick.why);
+    else {
+      const cl = sector!.closes.get(pick.index.toUpperCase()) ?? [];
+      const lastI = cl.length ? cl[cl.length - 1]!.date : null;
+      const ib = cl.length ? retOf(cl.map((x) => x.close), cl, base) : null;
+      if (!lastI) sec(null, `no ${pick.index} closes stored (${pick.basis})`);
+      else if (lastI !== asOf) sec(null, `${pick.index} closes end ${lastI}, the stock's ${asOf} (${pick.basis})`);
+      else if (ib === null) sec(null, `no ${pick.index} close on or before ${base} (${pick.basis})`);
+      else sec(r2(me - ib), null, `${pick.index}; ${pick.basis}; company ${r2(me)}%, index ${r2(ib)}% from ${base}`);
+    }
   }
   // 52 weeks: sessions after the same date a year earlier; needs the window covered by stored history
   const from = shift(asOf, 0, -12), first = onOrBefore(sessions, from);
@@ -115,7 +180,7 @@ export function priceFeatures(sessions: readonly Session[], factors: readonly { 
   return { asOf, rows: out };
 }
 
-// ---- §3 surveillance, F&O ban, price band, bulk/block deals, sector-relative return (D67, D76) ----------------------
+// ---- §3 surveillance, F&O ban, price band, bulk/block deals (D67, D76) ----------------------
 // Read from the stored market-structure tables (ms_day ledger, surveillance, fo_ban, price_band, deal), never downloaded
 // here. A flag is "0" only when that source is loaded for the as-of session; otherwise null with the reason.
 
@@ -162,7 +227,7 @@ export function dealsCoverage(ledger: readonly LedgerDay[], asOf: string): strin
   return null;
 }
 
-/** in_asm, in_gsm, in_fo_ban, price_band, bulk_block_deals_90d, bulk_block_net_90d_cr, ret_vs_sector_3m. */
+/** in_asm, in_gsm, in_fo_ban, price_band, bulk_block_deals_90d, bulk_block_net_90d_cr (ret_vs_sector_3m: priceFeatures). */
 export function structureFeatures(x: StructureInput): PriceFeature[] {
   const out: PriceFeature[] = [];
   const put = (field: string, value: string | null, reason: string | null = null) => out.push({ field, value, reason: value === null ? reason : null });
@@ -182,7 +247,45 @@ export function structureFeatures(x: StructureInput): PriceFeature[] {
   const net = x.deals.reduce((a, d) => a + (d.side === "B" ? 1 : -1) * d.qty * d.pricePaise, 0) / 100 / 1e7;
   put("bulk_block_deals_90d", dealGap ? null : String(x.deals.length), dealGap);
   put("bulk_block_net_90d_cr", dealGap ? null : r2(net) === "-0.00" ? "0.00" : r2(net), dealGap);
-  // no stored data maps a company to a sector index (classification holds NSE's broad sector only)
-  put("ret_vs_sector_3m", null, "no sector index mapped for this company (stored classification has the broad sector only)");
   return out;
+}
+
+/** A stored corporate-action purpose that is a buyback: NSE's Bc file writes "BUY BACK" / "BUYBACK" (also inside combined
+ *  purposes such as "DIV RS 5/BUY BACK"), its per-company lists "Buyback" / "Buy Back" / "BUY BACK OF SHARES". */
+export const BUYBACK_PURPOSE = /buy\s*-?\s*back/i;
+/** First day corporate actions are stored (both official sources, D138). */
+export const CORP_ACTIONS_FROM = "2024-01-01";
+
+/** Field catalogue §13 (G10): `buyback_12m` ("1"/"0": a buyback with ex/record date in (asOf − 12 months, asOf]) and
+ *  `last_buyback_date` (latest such date on or before asOf), from `corp_action.raw_purpose` matched by BUYBACK_PURPOSE.
+ *  The stored rows carry no offer price or size (NSE's purpose text is the bare word), so neither is offered. */
+export function buybackFeatures(asOf: string, actions: readonly { exDate: string; purpose: string }[]): { field: string; value: string | null; reason: string | null }[] {
+  const from = shift(asOf, 0, -12);
+  const dates = actions.filter((a) => BUYBACK_PURPOSE.test(a.purpose) && a.exDate <= asOf).map((a) => a.exDate).sort();
+  const last = dates[dates.length - 1] ?? null;
+  const covered = from >= shift(CORP_ACTIONS_FROM, -1); // the window (from, asOf] lies inside the stored span
+  const in12 = dates.some((d) => d > from);
+  return [
+    { field: "buyback_12m", value: in12 ? "1" : covered ? "0" : null, reason: in12 || covered ? null : `12-month window starts before corporate actions are stored (${CORP_ACTIONS_FROM})` },
+    { field: "last_buyback_date", value: last, reason: last ? null : `no buyback stored (corporate actions are stored from ${CORP_ACTIONS_FROM})` },
+  ];
+}
+
+/** Field catalogue §4: dividend yield over the last twelve months, % of the latest unadjusted close. Dividends with an
+ *  ex-date in (asOf − 12 months, asOf] (D7: recorded, never price-adjusted); one paid before a split / bonus inside the
+ *  window is put on today's share basis by the applied factors after it ("multiply prices before ex_date by factor").
+ *  No dividend in the window gives 0 — corporate actions are loaded daily from 2024 (both official sources, D138). */
+export function dividendYieldTtm(asOf: string, closeRaw: number, dividends: readonly { exDate: string; amount: string }[],
+  factors: readonly { exDate: string; factor: number }[]): { value: string | null; reason: string | null; dps: number } {
+  const from = shift(asOf, 0, -12);
+  if (!(closeRaw > 0)) return { value: null, reason: "no close", dps: 0 };
+  let dps = 0;
+  for (const d of dividends) {
+    if (!(d.exDate > from && d.exDate <= asOf)) continue;
+    const amt = d.amount.split("+").reduce((a, x) => a + Number(x), 0);
+    if (!Number.isFinite(amt)) return { value: null, reason: `dividend amount not readable: ex ${d.exDate} "${d.amount}"`, dps: 0 };
+    const k = factors.filter((f) => f.exDate > d.exDate && f.exDate <= asOf).reduce((a, f) => a * f.factor, 1);
+    dps += amt * k;
+  }
+  return { value: r2(dps / closeRaw * 100), reason: null, dps };
 }

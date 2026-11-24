@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC governance XBRL (G8 phase 2 tests). Not a real filing: company and directors are fictitious. Built from the
+     in-bse-cg tag names reported in log #405 (CompositionOfBoardOfDirectorsAxis, NameOftheDirector, Title,
+     PositionOfDirectorInBoardOne/Two/Three, DateOfAppointmentOfDirector, DateOfCessation, CurrentStatusDirector,
+     TenureOfDirector, NoOfInvestorComplaints*). HARD RULE (owner): no PAN, DIN or date of birth facts in this file. -->
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:in-bse-cg="http://www.bseindia.com/xbrl/cg/2024-03-31/in-bse-cg" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:xlink="http://www.w3.org/1999/xlink">
+<link:schemaRef xlink:type="simple" xlink:href="CG-2024-03-31.xsd"/>
+<xbrli:context id="OneD"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">SYNTHCO</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:startDate>2026-07-01</xbrli:startDate><xbrli:endDate>2026-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+<xbrli:context id="OneI"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">SYNTHCO</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>2026-09-30</xbrli:instant></xbrli:period></xbrli:context>
+<xbrli:context id="D_Dir1"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">SYNTHCO</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="in-bse-cg:CompositionOfBoardOfDirectorsAxis">in-bse-cg:Director1Member</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2026-07-01</xbrli:startDate><xbrli:endDate>2026-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+<xbrli:context id="D_Dir2"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">SYNTHCO</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="in-bse-cg:CompositionOfBoardOfDirectorsAxis">in-bse-cg:Director2Member</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2026-07-01</xbrli:startDate><xbrli:endDate>2026-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+<xbrli:context id="D_Dir3"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">SYNTHCO</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="in-bse-cg:CompositionOfBoardOfDirectorsAxis">in-bse-cg:Director3Member</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2026-07-01</xbrli:startDate><xbrli:endDate>2026-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+<xbrli:context id="D_Dir4"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">SYNTHCO</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="in-bse-cg:CompositionOfBoardOfDirectorsAxis">in-bse-cg:Director4Member</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2026-07-01</xbrli:startDate><xbrli:endDate>2026-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+<xbrli:context id="D_Dir5"><xbrli:entity><xbrli:identifier scheme="http://www.bseindia.com">SYNTHCO</xbrli:identifier><xbrli:segment><xbrldi:explicitMember dimension="in-bse-cg:CompositionOfBoardOfDirectorsAxis">in-bse-cg:Director5Member</xbrldi:explicitMember></xbrli:segment></xbrli:entity><xbrli:period><xbrli:startDate>2026-07-01</xbrli:startDate><xbrli:endDate>2026-09-30</xbrli:endDate></xbrli:period></xbrli:context>
+<xbrli:unit id="pure"><xbrli:measure>xbrli:pure</xbrli:measure></xbrli:unit>
+<in-bse-cg:Symbol contextRef="OneD">SYNTHCO</in-bse-cg:Symbol>
+<in-bse-cg:NameOfTheCompany contextRef="OneD">SYNTHETIC COMPANY LIMITED</in-bse-cg:NameOfTheCompany>
+<in-bse-cg:DateOfStartOfReportingPeriod contextRef="OneD">2026-07-01</in-bse-cg:DateOfStartOfReportingPeriod>
+<in-bse-cg:DateOfEndOfReportingPeriod contextRef="OneD">2026-09-30</in-bse-cg:DateOfEndOfReportingPeriod>
+<in-bse-cg:Title contextRef="D_Dir1">Ms</in-bse-cg:Title>
+<in-bse-cg:NameOftheDirector contextRef="D_Dir1">Asha  Rao</in-bse-cg:NameOftheDirector>
+<in-bse-cg:PositionOfDirectorInBoardOne contextRef="D_Dir1">Executive Director</in-bse-cg:PositionOfDirectorInBoardOne>
+<in-bse-cg:PositionOfDirectorInBoardTwo contextRef="D_Dir1">Chairperson</in-bse-cg:PositionOfDirectorInBoardTwo>
+<in-bse-cg:PositionOfDirectorInBoardThree contextRef="D_Dir1">Promoter</in-bse-cg:PositionOfDirectorInBoardThree>
+<in-bse-cg:DateOfAppointmentOfDirector contextRef="D_Dir1">2015-04-01</in-bse-cg:DateOfAppointmentOfDirector>
+<in-bse-cg:CurrentStatusDirector contextRef="D_Dir1">Active</in-bse-cg:CurrentStatusDirector>
+<in-bse-cg:TenureOfDirector contextRef="D_Dir1" unitRef="pure" decimals="0">138</in-bse-cg:TenureOfDirector>
+<in-bse-cg:Title contextRef="D_Dir2">Mr</in-bse-cg:Title>
+<in-bse-cg:NameOftheDirector contextRef="D_Dir2">Vikram Sen</in-bse-cg:NameOftheDirector>
+<in-bse-cg:PositionOfDirectorInBoardOne contextRef="D_Dir2">Non-Executive - Independent Director</in-bse-cg:PositionOfDirectorInBoardOne>
+<in-bse-cg:PositionOfDirectorInBoardTwo contextRef="D_Dir2">Not Applicable</in-bse-cg:PositionOfDirectorInBoardTwo>
+<in-bse-cg:DateOfAppointmentOfDirector contextRef="D_Dir2">2021-08-01</in-bse-cg:DateOfAppointmentOfDirector>
+<in-bse-cg:CurrentStatusDirector contextRef="D_Dir2">Active</in-bse-cg:CurrentStatusDirector>
+<in-bse-cg:TenureOfDirector contextRef="D_Dir2" unitRef="pure" decimals="0">62</in-bse-cg:TenureOfDirector>
+<in-bse-cg:Title contextRef="D_Dir3">Dr</in-bse-cg:Title>
+<in-bse-cg:NameOftheDirector contextRef="D_Dir3">Meera Iyer</in-bse-cg:NameOftheDirector>
+<in-bse-cg:PositionOfDirectorInBoardOne contextRef="D_Dir3">Non-Executive - Independent Director</in-bse-cg:PositionOfDirectorInBoardOne>
+<in-bse-cg:DateOfAppointmentOfDirector contextRef="D_Dir3">2026-08-15</in-bse-cg:DateOfAppointmentOfDirector>
+<in-bse-cg:CurrentStatusDirector contextRef="D_Dir3">Active</in-bse-cg:CurrentStatusDirector>
+<in-bse-cg:TenureOfDirector contextRef="D_Dir3" unitRef="pure" decimals="0">1</in-bse-cg:TenureOfDirector>
+<in-bse-cg:Title contextRef="D_Dir4">Mr</in-bse-cg:Title>
+<in-bse-cg:NameOftheDirector contextRef="D_Dir4">Rohan Das</in-bse-cg:NameOftheDirector>
+<in-bse-cg:PositionOfDirectorInBoardOne contextRef="D_Dir4">Non-Executive - Non Independent Director</in-bse-cg:PositionOfDirectorInBoardOne>
+<in-bse-cg:DateOfAppointmentOfDirector contextRef="D_Dir4">2019-01-10</in-bse-cg:DateOfAppointmentOfDirector>
+<in-bse-cg:DateOfCessation contextRef="D_Dir4">2026-09-01</in-bse-cg:DateOfCessation>
+<in-bse-cg:CurrentStatusDirector contextRef="D_Dir4">Ceased</in-bse-cg:CurrentStatusDirector>
+<in-bse-cg:TenureOfDirector contextRef="D_Dir4" unitRef="pure" decimals="0">92</in-bse-cg:TenureOfDirector>
+<in-bse-cg:Title contextRef="D_Dir5">Mr</in-bse-cg:Title>
+<in-bse-cg:NameOftheDirector contextRef="D_Dir5">Karan Shah</in-bse-cg:NameOftheDirector>
+<in-bse-cg:PositionOfDirectorInBoardOne contextRef="D_Dir5">Non-Executive - Independent Director</in-bse-cg:PositionOfDirectorInBoardOne>
+<in-bse-cg:DateOfAppointmentOfDirector contextRef="D_Dir5">2022-02-01</in-bse-cg:DateOfAppointmentOfDirector>
+<in-bse-cg:CurrentStatusDirector contextRef="D_Dir5">Active</in-bse-cg:CurrentStatusDirector>
+<in-bse-cg:TenureOfDirector contextRef="D_Dir5" unitRef="pure" decimals="0">56</in-bse-cg:TenureOfDirector>
+<in-bse-cg:NoOfInvestorComplaintsPendingAtTheBeginningOfThePeriod contextRef="OneD" unitRef="pure" decimals="0">2</in-bse-cg:NoOfInvestorComplaintsPendingAtTheBeginningOfThePeriod>
+<in-bse-cg:NoOfInvestorComplaintsReceivedDuringThePeriod contextRef="OneD" unitRef="pure" decimals="0">10</in-bse-cg:NoOfInvestorComplaintsReceivedDuringThePeriod>
+<in-bse-cg:NoOfInvestorComplaintsDisposedOffDuringThePeriod contextRef="OneD" unitRef="pure" decimals="0">9</in-bse-cg:NoOfInvestorComplaintsDisposedOffDuringThePeriod>
+<in-bse-cg:NoOfInvestorComplaintsRemainingUnresolvedAtTheEndOfThePeriod contextRef="OneD" unitRef="pure" decimals="0">3</in-bse-cg:NoOfInvestorComplaintsRemainingUnresolvedAtTheEndOfThePeriod>
+</xbrli:xbrl>

@@ -8,15 +8,20 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetch/src/index.js";
-import { SQL_REQUEUE_LISTS } from "../../workers/prefetch/src/daily.js";
-import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, SQL_ORPHAN_RESTATED } from "../../workers/filings/src/load.js";
-import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS } from "../../workers/filings/src/events.js";
-import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM } from "../../workers/filings/src/features.js";
+import { SQL_REQUEUE_LISTS, SQL_URLS_HELD } from "../../workers/prefetch/src/daily.js";
+import { SQL_IF_LIST_ALL, SQL_IF_LIST_OWN } from "../../workers/filings/src/basis.js";
+import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_FILING_PERIOD_LOADED_PAT, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, SQL_ORPHAN_RESTATED } from "../../workers/filings/src/load.js";
+import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_INSIDER_ROWS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS } from "../../workers/filings/src/events.js";
+import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM, SQL_PE_LATEST, SQL_PRIMARY_BASIS_OF, SQL_SECTOR_LATEST } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
 import { SQL_SHP_FILES, SQL_SHP_LISTS, SQL_PROMOTER_HOLDERS, SQL_LATEST_SHP, SQL_JOB_BY_URL, SQL_SET_PROMOTER, SQL_SHP_FILINGS_FROM, SQL_SHP_UNFLAGGED } from "../../workers/filings/src/shpcov.js";
 import { SQL_SECTOR_LISTS } from "../../workers/market/src/sectors.js";
 import { SQL_FOCUS } from "../../packages/core/src/focus.js";
+import { SQL_TWO_LATEST_SHP_URL } from "../../workers/filings/src/shpcov.js";
+import { SQL_GAP_LINES, SQL_GAP_SHP, SQL_SYMBOL_OF_SIDS } from "../../workers/filings/src/readiness.js";
+import { SQL_FV_COVERAGE, SQL_FV_REASONS, SQL_OWN_COVERAGE, SQL_EVT_COVERAGE, SQL_PRICE_COVERAGE } from "../../workers/filings/src/readiness.js";
+import { SQL_RESULTS_FIRST, SQL_MEETINGS_FROM, SQL_RATINGS_OF, SQL_SYMBOLS_OF_SID } from "../../workers/filings/src/eventfeatures.js";
 import { SQL_TWO_LATEST_SHP, SQL_SHP_CATEGORIES, SQL_SHP_PLEDGE, SQL_GROUP_PLEDGES } from "../../workers/filings/src/ownership.js";
 
 const root = join(import.meta.dirname, "..", "migrations");
@@ -53,6 +58,9 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: filings stored under another company than their list (C61, manual)", SQL_MISATTR, ['["INFY"]'], /ix_filing_source_url \(source_url=\?\)/],
   ["filings: move one filing's rows to the linking company (C61, manual)", SQL_MOVE_FIN_VALUE, [783, 2215, 22294], /SEARCH fin_value USING INDEX \w+ \(security_id=\?\)/],
   ["prefetch: re-queue named focus companies' empty / failed lists (manual, bounded)", SQL_REQUEUE_LISTS, ['["u"]'], /SEARCH fetch_job USING INDEX sqlite_autoindex_fetch_job_1 \(url=\?\)/],
+  ["prefetch: all-company results months already held (G19, manual, ≤ 15 URLs)", SQL_URLS_HELD, ['["u"]'], /SEARCH fetch_job USING COVERING INDEX sqlite_autoindex_fetch_job_1 \(url=\?\)/],
+  ["filings: /if-list one company's results lists (read-only)", SQL_IF_LIST_OWN, ["INFY"], /ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/],
+  ["filings: /if-list all-company monthly results lists (G19, read-only)", SQL_IF_LIST_ALL, [], /ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/],
   ["filings: re-queue named 404 jobs (manual, bounded)", SQL_REQUEUE_404, ["[1,2]", '["INFY"]'], /SEARCH fetch_job USING INTEGER PRIMARY KEY \(rowid=\?\)/],
   ["filings: earlier filed quarters of the year (C62 proof, per half-year file)", SQL_EARLIER_Q, [1, '["2026-06-30"]', "consolidated", '["revenue","pat"]'], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
   ["filings: relabel a proven quarter (C62, per half-year file)", SQL_RELABEL_Q, [1, "2026-09-30", "consolidated", 50], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
@@ -67,9 +75,22 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: one company's filed figures for the feature table (D171)", SQL_FEATURE_ROWS, [1, "2022-06-30", '["x:Equity"]'], /ix_fin_value_period \(security_id=\? AND period_end>\?\)/],
   ["filings: results filings since the feature cursor (cron, D171)", SQL_FEATURE_NEW, [0, 2000], /SEARCH filing USING INTEGER PRIMARY KEY \(rowid>\?\)/],
   ["filings: latest TTM values for valuations (D171)", SQL_LATEST_TTM, [1, "consolidated"], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\? AND field=\?\)/],
+  ["filings: first disclosure of each results period of one company (§12/§13, daily)", SQL_RESULTS_FIRST, [1, "2025-10-01"], /SEARCH filing USING (COVERING )?INDEX ix_filing_sec \(security_id=\? AND kind=\? AND period_end>\?\)/],
+  ["filings: results board meetings of one company from today (§13, daily)", SQL_MEETINGS_FROM, ['["INFY"]', 20261106], /SEARCH board_meeting USING INDEX ix_board_meeting_symbol \(symbol=\? AND meeting_d>\?\)/],
+  ["filings: credit ratings of one company (§12, daily)", SQL_RATINGS_OF, ['["INFY"]'], /SEARCH credit_rating USING INDEX ix_credit_rating_symbol \(symbol=\? AND rated_on>\?\)/],
+  ["filings: two latest shareholding filings with their stored pledge (defect 2, one-off)", SQL_TWO_LATEST_SHP_URL, [1], /SEARCH f USING (COVERING )?INDEX ix_filing_sec \(security_id=\? AND kind=\?\)/],
+  ["filings: one company's lines at one quarter end (gap census, read-only)", SQL_GAP_LINES, [1, "2026-09-30"], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\? AND period_end=\?\)/],
+  ["filings: latest shareholding categories of one company (gap census, read-only)", SQL_GAP_SHP, [1], /SEARCH f USING (COVERING )?INDEX ix_filing_sec \(security_id=\? AND kind=\?/],
+  ["filings: field readiness, feature table (owner #384, read-only)", SQL_FV_COVERAGE, ['[1,2]'], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\?\)/],
+  ["filings: field readiness, feature-table reasons (read-only)", SQL_FV_REASONS, ['[1,2]'], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\?\)/],
+  ["filings: field readiness, ownership fields (read-only)", SQL_OWN_COVERAGE, ['[1,2]'], /SEARCH ownership_feature USING PRIMARY KEY \(security_id=\?\)/],
+  ["filings: field readiness, event fields (read-only)", SQL_EVT_COVERAGE, ['[1,2]'], /SEARCH event_feature USING PRIMARY KEY \(security_id=\?\)/],
+  ["filings: latest P/E of the 250 for the sector median (§4, daily)", SQL_PE_LATEST, ['[1,2]'], /SEARCH feature_value USING PRIMARY KEY \(security_id=\? AND basis=\? AND field=\? AND period_end=\?\)/],
+  ["filings: primary basis of the 250 (§4, daily)", SQL_PRIMARY_BASIS_OF, ['[1,2]'], /SEARCH primary_basis USING INTEGER PRIMARY KEY \(rowid=\?\)/],
   ["filings: one company's feature-table values (read-only page)", SQL_FEATURES_OF, [1, ""], /SEARCH feature_value USING PRIMARY KEY \(security_id=\?\)/],
   ["filings: one company's stored P&L template (bank / insurer cash-flow pass, item 5)", SQL_SID_TEMPLATE, [1], /ix_fin_value_period \(security_id=\? AND period_end>\?\)/],
   ["filings: one company's filings with a given cash-flow line (D167 b pass)", SQL_CF_TOTALS_FILINGS, [1, "cfo"], /USING (PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\? AND line=\?\)/],
+  ["filings: is this period loaded from this filing (insurer results-lines pass ins_rev, G3)", SQL_FILING_PERIOD_LOADED_PAT, [1, "2026-09-30", "Q", "standalone", 9], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
   ["filings: is this period loaded from this filing (NBFC revenue pass, item 5)", SQL_FILING_PERIOD_LOADED, [1, "2026-09-30", "Q", "consolidated", 9], /ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\? AND basis=\?\)/],
   ["filings: one company's stored segments for one period (D47 live check, read-only)", SQL_SEGMENT_ROWS, [1, "2026-09-30", "consolidated"], /USING (PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\?\)/],
   ["filings: one company's periods with stored segments (D47 live check, read-only)", SQL_SEGMENT_PERIODS, [1], /USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_fin_value_1) \(security_id=\? AND statement=\? AND line=\?\)/],
@@ -83,6 +104,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: the 250's credit ratings from 2026 (owner #365, read-only)", SQL_RATINGS_SINCE, ['["INFY"]', 20260101], /ix_credit_rating_symbol \(symbol=\? AND rated_on>\?\)/],
   ["filings: the 250's insider trades per year (owner #365, read-only)", SQL_INSIDER_YEARS, ['["INFY"]'], /ix_insider_symbol \(symbol=\? AND from_d>\?\)/],
   ["filings: new-system insider rows, all companies (owner #365, read-only)", SQL_PITX_SYMBOLS, [], /SEARCH insider_trade USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_insider_trade_1) \(key>\? AND key<\?\)/],
+  ["filings: one company's cleaned insider trades (C53b /insider-clean, read-only)", SQL_INSIDER_ROWS, ["INFY", 20260101, 2000], /ix_insider_symbol \(symbol=\?\)/],
   ["filings: named promoter holders of the 250, latest filing (D40, read-only)", SQL_PROMOTER_HOLDERS, ['[1,2]'], /ix_shareholding_sec \(security_id=\?/],
   ["filings: latest shareholding filing of one company (D40 one-off)", SQL_LATEST_SHP, [1], /ix_filing_sec \(security_id=\? AND kind=\?\)/],
   ["filings: download of one file by URL (D40 one-off)", SQL_JOB_BY_URL, ["u"], /sqlite_autoindex_fetch_job_1 \(url=\?\)/],
@@ -98,6 +120,34 @@ const cases: [string, string, unknown[], RegExp][] = [
 ];
 
 const M = schema("market");
+describe("market: symbols of named securities (readiness reasons, read-only)", () => {
+  it("by ix_sid_security", () => {
+    const p = plan(M, SQL_SYMBOL_OF_SIDS, ['[1,2]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_sid_security \(security_id=\?/.test(l)), p.join("\n")).toBe(true);
+  });
+});
+describe("market: field readiness, price features (owner #384, read-only)", () => {
+  it("price_feature by primary key", () => {
+    const p = plan(M, SQL_PRICE_COVERAGE, ['[1,2]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /SEARCH price_feature USING PRIMARY KEY \(security_id=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
+describe("market: one security's NSE symbols (§12/§13, daily)", () => {
+  it("by ix_sid_security", () => {
+    const p = plan(M, SQL_SYMBOLS_OF_SID, [1]);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_sid_security \(security_id=\?/.test(l)), p.join("\n")).toBe(true);
+  });
+});
+describe("market: latest sector of the 250 (§4 P/E vs sector median, daily)", () => {
+  it("classification by primary key", () => {
+    const p = plan(M, SQL_SECTOR_LATEST, ['[1,2]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /SEARCH classification USING (PRIMARY KEY|INDEX sqlite_autoindex_classification_1) \(security_id=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
 describe("market: the focus list (every filings run) starts from the index members", () => {
   it("index_membership by index, then identifiers by security (not every identifier)", () => {
     const p = plan(M, SQL_FOCUS, ['["NIFTY 50"]']);
@@ -107,6 +157,43 @@ describe("market: the focus list (every filings run) starts from the index membe
   });
 });
 
+describe("market: one security's name and ISINs to label how its latest rating was linked (§12, daily; G11)", () => {
+  it("security by primary key, its ISINs by ix_sid_security", async () => {
+    const { SQL_LINK_OF_SID } = await import("../../workers/filings/src/eventfeatures.js");
+    const p = plan(M, SQL_LINK_OF_SID, [1]);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /SEARCH s USING INTEGER PRIMARY KEY \(rowid=\?\)/.test(l)), p.join("\n")).toBe(true);
+    expect(p.some((l) => /ix_sid_security \(security_id=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
+describe("filings: stored credit-rating lists after the relink cursor (maint ratings_relink v4, G11)", () => {
+  it("by the (kind, job_id) range", async () => {
+    const { SQL_RATING_LISTS_AFTER } = await import("../../workers/filings/src/events.js");
+    const p = plan(F, SQL_RATING_LISTS_AFTER, [0, 12]);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_fetch_kind_job \(kind=\? AND job_id>\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
+describe("/ratings-coverage?symbols= (G11 per-company check, read-only)", () => {
+  it("market: named symbols to securities by ix_sid_lookup", async () => {
+    const { SQL_SIDS_OF_SYMBOLS } = await import("../../workers/filings/src/ratingcov.js");
+    const p = plan(M, SQL_SIDS_OF_SYMBOLS, ['["SBIN"]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_sid_lookup \(id_type=\? AND value=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+  it("filings: one company's stored ratings by ix_credit_rating_symbol", async () => {
+    const { SQL_CR_OF_SYMBOLS } = await import("../../workers/filings/src/ratingcov.js");
+    const p = plan(F, SQL_CR_OF_SYMBOLS, ['["SBIN"]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /SEARCH credit_rating USING INDEX ix_credit_rating_symbol \(symbol=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+  it("filings: the stored credit-rating lists from the floor by kind", async () => {
+    const { SQL_CR_LISTS } = await import("../../workers/filings/src/ratingcov.js");
+    const p = plan(F, SQL_CR_LISTS, ["api/credit_rating/all/2024-01"]);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /SEARCH fetch_job USING .*\(kind=\?/.test(l)), p.join("\n")).toBe(true);
+  });
+});
 describe("market: the focus companies' ISINs for the credit-rating issuer match (every filings run, item 7)", () => {
   it("identifiers by symbol (ix_sid_lookup), then that security's ISINs (ix_sid_security)", async () => {
     const { SQL_FOCUS_ISSUERS } = await import("../../workers/filings/src/events.js");
@@ -120,9 +207,15 @@ describe("market: price features of the focus companies (field catalogue §3, on
   const t = await import("../../workers/market/src/technicals.js");
   it.each([
     ["sessions of one security in a date range", t.SQL_SESSIONS, [1, 20250101, 20260101], /SEARCH price_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
+    ["last split / bonus of one security", t.SQL_LAST_SPLIT_BONUS, [1], /SEARCH corp_action USING INDEX sqlite_autoindex_corp_action_1 \(security_id=\?\)/],
+    ["dividends of one security over a year", t.SQL_DIVIDENDS, [1, "2025-11-05", "2026-11-05"], /SEARCH corp_action USING INDEX sqlite_autoindex_corp_action_1 \(security_id=\? AND ex_date>\? AND ex_date<\?\)/],
+    ["buyback purposes of the step's securities (G10, once per step)", t.SQL_BUYBACKS_OF, ["[1,2]"], /SEARCH corp_action USING INDEX sqlite_autoindex_corp_action_1 \(security_id=\?\)/],
     ["applied factors of one security", t.SQL_APPLIED_FACTORS, [1], /USING (PRIMARY KEY|INDEX sqlite_autoindex_adj_factor_1) \(security_id=\?\)/],
     ["delivery of one security in a date range", t.SQL_DELIVERY, [1, 20250101, 20260101], /SEARCH delivery_daily USING PRIMARY KEY \(security_id=\? AND d>\? AND d<\?\)/],
     ["Nifty 50 closes in a date range", t.SQL_NIFTY, [20250101, 20260101], /SEARCH index_daily USING PRIMARY KEY \(index_name=\? AND d>\? AND d<\?\)/],
+    ["sectoral index closes over the 3-month window (G5, once per step)", t.SQL_SECTOR_CLOSES, ['["Nifty IT","NIFTY IT"]', 20260718, 20261105], /SEARCH index_daily USING PRIMARY KEY \(index_name=\? AND d>\? AND d<\?\)/],
+    ["stored sectoral index memberships (G5, once per step)", t.SQL_SECTORAL_MEMBERS, ['["Nifty Bank","NIFTY BANK"]'], /SEARCH index_membership USING (PRIMARY KEY|INDEX sqlite_autoindex_index_membership_1) \(index_name=\?\)/],
+    ["latest sectors of the step's companies (G5, once per step)", t.SQL_SECTORS_OF, ["[1,2]"], /SEARCH classification USING (PRIMARY KEY|INDEX sqlite_autoindex_classification_1) \(security_id=\?\)/],
     ["focus symbols to securities", t.SQL_FOCUS_SIDS, ['["INFY"]'], /ix_sid_lookup \(id_type=\? AND value=\?\)/],
     ["structure ledger of the as-of session", t.SQL_LEDGER_DAY, [20261105], /SEARCH ms_day USING PRIMARY KEY \(source=\? AND d=\?\)/],
     ["deal ledger over the 90-day window", t.SQL_LEDGER_DEALS, [20260808, 20261105], /SEARCH ms_day USING PRIMARY KEY \(source=\? AND d>\? AND d<\?\)/],
@@ -160,5 +253,81 @@ describe("recurring queries read only what they need (C56)", () => {
       "SELECT count(*) FROM fin_value GROUP BY basis",
     ];
     for (const sql of old) expect(plan(F, sql, Array((sql.match(/\?/g) ?? []).length).fill(null)).some(bad), sql).toBe(true);
+  });
+});
+
+describe("/tags (G2, read-only)", async () => {
+  const t = await import("../../workers/filings/src/tagprobe.js");
+  it("one company's latest results files by symbol and kind", () => {
+    expect(plan(F, t.SQL_TAG_FILES, ["BAJFINANCE", '["xbrl_results_quarterly"]', 2]).some((l) => /SEARCH fetch_job USING INDEX ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/.test(l))).toBe(true);
+  });
+});
+
+describe("/gap-census late_start (G19, read-only): index-backed per company", async () => {
+  const r = await import("../../workers/filings/src/readiness.js");
+  it.each([
+    ["filings: /lines, one company's named lines from a period end (G14)", F, r.SQL_LINES_OF, [1, "2025-06-30", '["gross_npa"]'], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\? AND period_end>\?\)/],
+    ["filings: a quarterly P&L row at the first quarter end", F, r.SQL_LATE_Q_AT, [1, "2024-03-31"], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\? AND period_end=\? AND period_kind=\?\)/],
+    ["filings: the earliest stored quarterly P&L (index order, no sort)", F, r.SQL_LATE_FIRST_Q, [1], /SEARCH fin_value USING INDEX ix_fin_value_period \(security_id=\?\)/],
+    ["filings: the company's per-company results lists in the ledger", F, r.SQL_LATE_LISTS, ['["INFY"]'], /SEARCH fetch_job USING INDEX ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/],
+    ["market: listing date by primary key", M, r.SQL_LISTED_ON, [1], /SEARCH security USING INTEGER PRIMARY KEY \(rowid=\?\)/],
+    ["market: the first stored daily price by primary key", M, r.SQL_FIRST_PRICE, [1], /SEARCH price_daily USING PRIMARY KEY \(security_id=\?\)/],
+  ] as [string, DatabaseSync, string, unknown[], RegExp][])("%s", (_n, db, sql, params, want) => {
+    const p = plan(db, sql, params);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /TEMP B-TREE/.test(l)), p.join("\n")).toBe(false);
+    expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
+  });
+});
+
+describe("market: /maint/listed_on (log #402, one-off): security.listed_on from the stored EQUITY_L", async () => {
+  const l = await import("../../workers/market/src/listedon.js");
+  it.each([
+    ["listed ISINs to securities by ix_sid_lookup", l.SQL_IDS_BY_ISIN, ['["INE009A01021"]'], /SEARCH security_identifier USING INDEX ix_sid_lookup \(id_type=\? AND value=\?\)/],
+    ["listed symbols to current securities by ix_sid_lookup", l.SQL_IDS_BY_SYMBOL, ['["INFY"]'], /SEARCH security_identifier USING INDEX ix_sid_lookup \(id_type=\? AND value=\?\)/],
+    ["stored listing dates by primary key", l.SQL_LISTED_CUR, ["[1,2]"], /SEARCH security USING INTEGER PRIMARY KEY \(rowid=\?\)/],
+    ["set changed listing dates by primary key", l.SQL_SET_LISTED, ['[[1,"1995-02-08"]]'], /SEARCH security USING INTEGER PRIMARY KEY \(rowid=\?\)/],
+  ] as [string, string, unknown[], RegExp][])("%s", (_n, sql, params, want) => {
+    const p = plan(M, sql, params);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
+  });
+});
+describe("G8 phase 2: auditor and board passes and event fields (index-backed, no scan)", async () => {
+  const g = await import("../../workers/filings/src/governance.js");
+  const e = await import("../../workers/filings/src/eventfeatures.js");
+  it.each([
+    ["governance XBRL after the board cursor, per kind (board_backfill / cron board step)", g.SQL_GOV_NEXT, ["xbrl_governance", 0, 400], /SEARCH fetch_job USING INDEX ix_fetch_kind_job \(kind=\? AND job_id>\?\)/],
+    ["one company's stored auditors with their filing's disclosure (event fields, daily)", e.SQL_AUDITORS_OF, [1, "2000-01-01"], /SEARCH a USING INDEX ix_auditor_filing_sec \(security_id=\? AND period_end>\?\)/],
+    ["... the filing of each auditor row by primary key", e.SQL_AUDITORS_OF, [1, "2000-01-01"], /SEARCH f USING INTEGER PRIMARY KEY \(rowid=\?\)/],
+    ["one company's stored audit opinions (event fields, daily)", e.SQL_OPINIONS_OF, [1, "2024-09-01"], /SEARCH f USING (COVERING )?INDEX ix_filing_sec \(security_id=\? AND kind=\? AND period_end>\?\)/],
+    ["... the opinion fact of each filing by primary key", e.SQL_OPINIONS_OF, [1, "2024-09-01"], /SEARCH g USING INDEX sqlite_autoindex_governance_fact_1 \(filing_id=\? AND key=\?\)/],
+    ["one company's board rows from a period end (event fields, daily)", e.SQL_BOARD_OF, [1, "2025-06-01"], /SEARCH board_member USING PRIMARY KEY \(security_id=\? AND period_end>\?\)/],
+    ["one company's governance files read (event fields, daily)", e.SQL_GOV_FILINGS_OF, [1, "2025-06-01"], /SEARCH governance_filing USING PRIMARY KEY \(security_id=\? AND period_end>\?\)/],
+  ] as [string, string, unknown[], RegExp][])("filings: %s", (_n, sql, params, want) => {
+    const p = plan(F, sql, params);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => want.test(l)), p.join("\n")).toBe(true);
+  });
+  it("market: the batch's symbols to securities by ix_sid_lookup (board pass)", async () => {
+    const { SQL_SIDS_OF_SYMBOLS } = await import("../../workers/filings/src/ratingcov.js");
+    const p = plan(M, SQL_SIDS_OF_SYMBOLS, ['["INFY"]']);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_sid_lookup \(id_type=\? AND value=\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+  it("filings: auditors_backfill reads one company's results filings from 2024 (rereadPass, SQL_NBFC_FILINGS with period_end)", () => {
+    const p = plan(F, SQL_NBFC_FILINGS, [1, 0, 40]);
+    expect(p.filter(bad), p.join("\n")).toEqual([]);
+    expect(p.some((l) => /ix_filing_sec \(security_id=\? AND kind=\? AND period_end>\?\)/.test(l)), p.join("\n")).toBe(true);
+  });
+});
+describe("/governance-census (G8 phase 1, read-only, ≤ 5 companies per call)", () => {
+  it("filings: stored governance / results jobs of named companies by ix_fetch_symbol_kind (counts and files)", async () => {
+    const { SQL_GOV_COUNTS, SQL_GOV_FILES } = await import("../../workers/filings/src/governance.js");
+    for (const sql of [SQL_GOV_COUNTS, SQL_GOV_FILES]) {
+      const p = plan(F, sql, ['["INFY"]', '["governance","xbrl_integrated_financials"]']);
+      expect(p.filter(bad), p.join("\n")).toEqual([]);
+      expect(p.some((l) => /SEARCH fetch_job USING INDEX ix_fetch_symbol_kind \(symbol=\? AND kind=\?\)/.test(l)), p.join("\n")).toBe(true);
+    }
   });
 });

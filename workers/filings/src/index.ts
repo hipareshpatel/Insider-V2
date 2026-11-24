@@ -2,17 +2,20 @@
 import { d1Sql } from "./d1.js";
 import { auditJumps } from "./audit.js";
 import { SQL_FEATURES_OF, buildFeatures, featuresStep, valuationsStep } from "./features.js";
-import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
+import { COVERAGE_FLOOR, RESULT_KINDS, SQL_STATEMENT_ROWS, backfillBsCf, bankInsurerCashFlows, insurerBalanceSheets, insurerResultsLines, bankResultsLines, nbfcBalanceSheets, nbfcRevenueLines, cfUntaggedPass, segmentPass, fyReread, versionFix, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, halfYearGaps, misattributed, reloadJobs, requeue404, loadBatch, remarkBackfill, versionBackfillFocus } from "./load.js";
 import { census, tagCensus } from "./census.js";
+import { tagProbe } from "./tagprobe.js";
 import { focusIssuers, loadEvents, loadPitXbrl, ratingsRelink, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_INSIDER_ROWS, cleanStoredInsider, type StoredInsiderRow, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS, isPitAnnouncement } from "./events.js";
-import { shpCoverage, promoterGroups, shpPromoterPass, shpPromoterHistory, storeGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
+import { shpCoverage, pledgeCensus, pledgeDeclaredPass, promoterGroups, shpPromoterPass, shpPromoterHistory, storeGroups, SQL_PROMOTER_HOLDERS } from "./shpcov.js";
 import type { Sql } from "@disclo/core";
 import { ownershipStep } from "./ownership.js";
-import { ratingCoverage } from "./ratingcov.js";
-import { readiness } from "./readiness.js";
-import { SQL_BASIS_LISTS, basisLists, classifyGaps, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
+import { eventStep } from "./eventfeatures.js";
+import { parseSymbolsParam, ratingCoverage, ratingsOfSymbols } from "./ratingcov.js";
+import { GOV_CENSUS_MAX, auditorsBackfill, boardPass, governanceCensus } from "./governance.js";
+import { SQL_LINES_OF, fieldReadiness, gapCensus, linkAudit, readiness } from "./readiness.js";
+import { SQL_BASIS_LISTS, SQL_IF_LIST_ALL, SQL_IF_LIST_OWN, basisLists, classifyGaps, ifListKeeps, ifListSince, nseListedFiles, primaryBasisStep, runPrimaryBasis } from "./basis.js";
 import { caLists } from "./calists.js";
-import { CF_INDUSTRIAL, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
+import { CF_INDUSTRIAL, INSURER_LINES_SOLVENCY, CF_SUMMARY, chooseLayout, derivedPl, layoutStatement, withAdjustmentGap, BS_LINES, CF_LINES, type D1Meter, FOCUS_DEFAULT, FORBIDDEN_TEXT, balanceAndCash, chargeReads, staleness, writeCaps, writeLevel, writesThisMonth, focusSymbolsOf, parsePit, parseXbrl, readLevel, readsToday, statementDetail, statusAuthorized } from "@disclo/core";
 
 export interface Env { DB_FILINGS: D1Database; DB_MARKET: D1Database; RAW: R2Bucket; ENVIRONMENT: string; MONTHLY_WRITE_CAP?: string; WRITE_SOFT_CAP?: string; WRITE_HARD_CAP?: string; WRITE_CAP_MONTH?: string; BSCF_LOAD?: string; FOCUS_INDICES?: string; STATUS_TOKEN?: string; DAILY_READ_CAP?: string }
 
@@ -106,6 +109,11 @@ export default {
           });
           // §11: ownership and pledge fields, once per IST day, 50 companies a run (after the groups, for the group pledge)
           await step("ownership", () => ownershipStep(ldeps.filings, [...sids], new Date(), 50));
+          // G8 phase 2: newly arriving governance XBRL → board_member (≤ 10 files a run, same cursor as
+          // /maint/board_backfill; does nothing until that backfill has caught up)
+          await step("board", () => boardPass(ldeps, { files: 10, scan: 200, budgetMs: 10_000, cron: true }));
+          // §12/§13: results timing, filing timeliness, credit rating, G8 governance — once per IST day, 50 companies a run
+          await step("event_features", () => eventStep(ldeps.filings, market, [...sids], new Date(), 50));
         }
       } finally {
         await env.DB_FILINGS.prepare("DELETE FROM job_lock WHERE name='filings' AND holder=?1").bind(holder).run();
@@ -152,6 +160,14 @@ export default {
         const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
         r = await ownershipStep(db, sids, new Date(), 50, new URL(req.url).searchParams.get("restart") === "1");
       }
+      else if (name === "pledge_declared") {
+        const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
+        r = await pledgeDeclaredPass(db, (k) => getText(env.RAW, k), sids, new Date(), 25, new URL(req.url).searchParams.get("restart") === "1");
+      }
+      else if (name === "event_features") {
+        const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
+        r = await eventStep(db, mk, sids, new Date(), 50, new URL(req.url).searchParams.get("restart") === "1");
+      }
       else if (name === "groups") { const g = await groupInputs(db, mk, focus ?? []); r = { ...(await storeGroups(db, g.rows, g.sym, g.names, new Date())), done: true }; }
       else if (name === "shp_promoter") {
         const sids = (await mk.all<{ security_id: number }>("SELECT DISTINCT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))", [JSON.stringify(focus ?? [])])).map((x) => x.security_id);
@@ -164,6 +180,16 @@ export default {
       else if (name === "ins_bs") r = await insurerBalanceSheets(ldeps, 40, 20_000); // item 5: insurers' IRDAI balance sheet
       // second run after general insurers got their own groups (B-BS); life rows already stored are left as they are
       else if (name === "ins_bs_gi") r = await insurerBalanceSheets(ldeps, 40, 20_000, "ins_bs_gi");
+      // G3 follow-up: the new insurer results lines (filed ratios, NPAs, life shareholders' investment income), stored files
+      else if (name === "ins_rev") r = await insurerResultsLines(ldeps, 25, 20_000);
+      // G3 solvency: ins_rev is done, so a second pass in its own slot re-reads the stored files for the solvency ratio only
+      else if (name === "ins_rev2") r = await insurerResultsLines(ldeps, 25, 20_000, "ins_rev2", INSURER_LINES_SOLVENCY);
+      // G1 (log #407): the additional Tier 1 ratio for the banks' stored results files
+      else if (name === "bank_rev") r = await bankResultsLines(ldeps, 25, 20_000);
+      // G8 phase 2 (owner, log #405): auditor firm(s) + audit opinion of the stored results files from 2024 (40 files a
+      // call), and board composition of the stored governance XBRL from 2024 (30 files a call); inserts only
+      else if (name === "auditors_backfill") r = await auditorsBackfill(ldeps, 40, 20_000);
+      else if (name === "board_backfill") r = await boardPass(ldeps, { files: 30, scan: 400, budgetMs: 20_000 });
       else if (name === "features") r = await buildFeatures(ldeps, 25, new URL(req.url).searchParams.get("restart") === "1"); // D171 feature table
       else if (name === "valuations") {
         // D171: today's valuations again (e.g. after a fix); ?restart=1 resets today's cursor first, then 50 per call
@@ -223,10 +249,15 @@ export default {
       // type, revision remarks, dates, XBRL link) — to see whether a revised/restated filing exists for a period.
       const q = new URL(req.url).searchParams, sym = q.get("symbol") ?? "";
       // optional filters (the full answer passes the 20 kB ops print limit): ?kind=integrated_financials, ?since=2026
-      // keeps rows that carry a date in that year or later
-      const onlyKind = q.get("kind"), since = Number(q.get("since") ?? 0);
-      const lists = (await env.DB_FILINGS.prepare("SELECT job_id, kind, url, r2_key, fetched_at FROM fetch_job WHERE symbol=?1 AND kind IN ('integrated_financials','results_quarterly','results_annual') AND status='done' ORDER BY job_id").bind(sym).all<{ job_id: number; kind: string; url: string; r2_key: string; fetched_at: string }>()).results
-        .filter((l) => !onlyKind || l.kind === onlyKind);
+      // (or ?since=2025-03-31) keeps rows whose own period end (qe_Date / toDate) is on or after it (G19: it used to
+      // keep any row carrying a year that late anywhere, and every row's list_fetched date did)
+      const onlyKind = q.get("kind"), since = ifListSince(q.get("since"));
+      if (since === "bad") return new Response("since: a year (2026) or a date (2025-03-31)", { status: 400 });
+      type L = { job_id: number; kind: string; url: string; r2_key: string; fetched_at: string; all?: boolean };
+      // G19: also the all-company monthly results lists (symbol NULL, /maint/results_all_months), this company's rows only
+      const own = (await env.DB_FILINGS.prepare(SQL_IF_LIST_OWN).bind(sym).all<L>()).results;
+      const all = (await env.DB_FILINGS.prepare(SQL_IF_LIST_ALL).all<L>()).results.map((l) => ({ ...l, all: true }));
+      const lists = [...own, ...all].filter((l) => !onlyKind || l.kind === onlyKind);
       const rows: Record<string, unknown>[] = [];
       for (const l of lists) {
         const text = await getText(env.RAW, l.r2_key);
@@ -234,9 +265,10 @@ export default {
         let o: unknown; try { o = JSON.parse(text); } catch { continue; }
         const arr = (Array.isArray(o) ? o : ((o as Record<string, unknown>).data ?? [])) as Record<string, unknown>[];
         for (const r of arr) {
-          const pick: Record<string, unknown> = { list: l.kind, list_fetched: l.fetched_at?.slice(0, 10) };
+          if (l.all && String(r.symbol ?? "").trim() !== sym) continue;
+          const pick: Record<string, unknown> = { list: l.all ? `${l.kind} (all companies, ${l.r2_key.split("/").pop()?.replace(/\.json$/, "")})` : l.kind, list_fetched: l.fetched_at?.slice(0, 10) };
           for (const [k, v] of Object.entries(r)) if (v !== null && v !== "" && /period|qe_?date|todate|fromdate|audited|consol|cumulative|type|revis|remark|broadcast|filingdate|xbrl|date|nature|seq|relating/i.test(k)) pick[k] = typeof v === "string" ? v.slice(0, 140) : v;
-          if (since && !Object.values(pick).some((v) => typeof v === "string" && [...v.matchAll(/\b(20\d\d)\b/g)].some((m) => Number(m[1]) >= since))) continue;
+          if (!ifListKeeps(r, since)) continue;
           rows.push(pick);
         }
       }
@@ -293,6 +325,31 @@ export default {
       }
       return Response.json(out, { headers: { "cache-control": "no-store" } });
     }
+    if (path === "/pledge-census") {
+      // log #385 defect 2 (read-only): pledge / encumbrance facts in the focus companies' latest shareholding files
+      const u = new URL(req.url), offset = Math.max(0, Number(u.searchParams.get("offset") ?? 0)), limit = Math.min(60, Math.max(1, Number(u.searchParams.get("limit") ?? 50)));
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      const sids = [...new Set((await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(focus ?? [])).all<{ security_id: number }>()).results.map((r) => r.security_id))].sort((a, b) => a - b);
+      return Response.json({ total: sids.length, offset, ...(await pledgeCensus(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), sids.slice(offset, offset + limit))) }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/link-audit") {
+      // owner #388 (read-only): rows in symbol-keyed tables whose symbol links to no company
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      return Response.json(await linkAudit(d1Sql(env.DB_FILINGS), d1Sql(env.DB_MARKET), focus ?? []), { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/gap-census") {
+      // log #385/#386 (read-only): what is stored where owners' profit, NCI or promoter holding is missing; late_start (G19): focus companies whose stored quarterly results begin after the coverage floor
+      const u = new URL(req.url), period = u.searchParams.get("period") ?? "2026-09-30", offset = Math.max(0, Number(u.searchParams.get("offset") ?? 0)), limit = Math.min(125, Math.max(1, Number(u.searchParams.get("limit") ?? 125)));
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      const ids = (await env.DB_MARKET.prepare("SELECT security_id, min(value) AS symbol FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1)) GROUP BY security_id ORDER BY security_id").bind(JSON.stringify(focus ?? [])).all<{ security_id: number; symbol: string }>()).results;
+      return Response.json(await gapCensus(d1Sql(env.DB_FILINGS), ids.slice(offset, offset + limit).map((r) => ({ sid: r.security_id, symbol: r.symbol })), period, d1Sql(env.DB_MARKET)), { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/readiness-fields") {
+      // owner #384 (read-only): every computed field across the 250 — with a value, latest period with a value, top reasons
+      const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
+      const sids = [...new Set((await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(focus ?? [])).all<{ security_id: number }>()).results.map((r) => r.security_id))];
+      return Response.json(await fieldReadiness(d1Sql(env.DB_FILINGS), d1Sql(env.DB_MARKET), sids), { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/readiness") {
       // D123 / D152 data-readiness map (read-only): companies of the 250 with each data area from the D168 floor, and
       // per feature-table field how many have a value. One indexed probe per company and area.
@@ -305,12 +362,39 @@ export default {
       const all = [...bySid].map(([sid, symbols]) => ({ sid, symbols }));
       return Response.json({ companies_total: all.length, offset, ...(await readiness(d1Sql(env.DB_FILINGS), all.slice(offset, offset + limit), COVERAGE_FLOOR, offset === 0)) }, { headers: { "cache-control": "no-store" } });
     }
+    if (path === "/governance-census") {
+      // G8 phase 1 (read-only): stored governance lists / XBRL and results files naming their auditors, for a page of the
+      // focus companies (?offset=&limit= ≤ 5, sorted by symbol) or named ones (?symbols=, ≤ 5); &shapes=0 skips the
+      // field-name samples of one governance file per kind.
+      const q = new URL(req.url).searchParams, sp = q.get("symbols"), meter: D1Meter = { rows: 0, reads: 0 };
+      const limit = Math.min(GOV_CENSUS_MAX, Math.max(1, Number(q.get("limit") ?? 3) || 3)), offset = Math.max(0, Number(q.get("offset") ?? 0) || 0);
+      let symbols: string[], total: number | null = null;
+      if (sp !== null) {
+        const s = parseSymbolsParam(sp);
+        if (typeof s === "string" || s.length > GOV_CENSUS_MAX) return Response.json({ error: typeof s === "string" ? s : `symbols: at most ${GOV_CENSUS_MAX}` }, { status: 400, headers: { "cache-control": "no-store" } });
+        symbols = s;
+      } else {
+        const all = [...((await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES, meter)) ?? [])].sort();
+        total = all.length; symbols = all.slice(offset, offset + limit);
+      }
+      const r = await governanceCensus(d1Sql(env.DB_FILINGS, meter), (k) => getText(env.RAW, k), symbols, { shapes: q.get("shapes") !== "0" });
+      return Response.json({ companies_total: total, offset: sp === null ? offset : null, next_offset: total !== null && offset + limit < total ? offset + limit : null, ...r, rows_read: meter.reads }, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/ratings-coverage") {
       // Work list 2.10 (item 7, read-only): credit ratings of the focus companies from the D168 floor vs NSE's stored
       // lists, by month (lists listed / loaded / stored-but-not-listed), with the first 40 missing.
       const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
       const issuers = await focusIssuers(d1Sql(env.DB_MARKET), focus ?? []);
-      return Response.json({ issuers: issuers.size, ...(await ratingCoverage(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), focus ?? [], COVERAGE_FLOOR, issuers)) }, { headers: { "cache-control": "no-store" } });
+      // G11: ?symbols=SBIN,HINDZINC,TVSMOTOR (≤ 20) — per company instead of the totals (&lists=0: stored rows only)
+      const q = new URL(req.url).searchParams, sp = q.get("symbols");
+      if (sp !== null) {
+        const symbols = parseSymbolsParam(sp);
+        if (typeof symbols === "string") return Response.json({ error: symbols }, { status: 400, headers: { "cache-control": "no-store" } });
+        const meter: D1Meter = { rows: 0, reads: 0 };
+        const r = await ratingsOfSymbols(d1Sql(env.DB_FILINGS, meter), d1Sql(env.DB_MARKET, meter), (k) => getText(env.RAW, k), symbols, COVERAGE_FLOOR, issuers, { lists: q.get("lists") !== "0" });
+        return Response.json({ ...r, rows_read: meter.reads }, { headers: { "cache-control": "no-store" } });
+      }
+      return Response.json({ issuers: issuers.issuer.size, names: issuers.names.size, ...(await ratingCoverage(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), focus ?? [], COVERAGE_FLOOR, issuers)) }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/shp-coverage") {
       // Work list 2.8 (read-only): shareholding filings NSE lists for the focus companies (from the D168 floor) vs those
@@ -421,6 +505,14 @@ export default {
       const group = await env.DB_FILINGS.prepare("SELECT group_name, members FROM company_group WHERE security_id=?1").bind(sid).first();
       return Response.json({ symbol: sym, group, rows }, { headers: { "cache-control": "no-store" } });
     }
+    if (path === "/event-features") {
+      // §12/§13 (read-only): one company's results timing, filing timeliness and credit-rating fields
+      const sym = new URL(req.url).searchParams.get("symbol") ?? "";
+      const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
+      if (!sid) return Response.json({ error: "symbol" }, { status: 400 });
+      const rows = (await env.DB_FILINGS.prepare("SELECT field, value, reason, as_of FROM event_feature WHERE security_id=?1 ORDER BY field").bind(sid).all()).results;
+      return Response.json({ symbol: sym, rows }, { headers: { "cache-control": "no-store" } });
+    }
     if (path === "/promoter-groups") {
       // D40 (read-only): companies of the 250 that name the same promoter entity in their latest shareholding filing.
       const focus = await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES);
@@ -485,6 +577,24 @@ export default {
           pl_revenue_cr: pl.filter((r) => r.period_kind === k).map((r) => Number(r.value) / 1e7)[0] ?? null };
       });
       return Response.json({ symbol: sym, sid, period, basis, periods_stored: periods, kinds }, { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/tags") {
+      // Read-only (G2, log #407): tags matching ?grep= in one company's latest ≤ 4 stored results files, with values
+      const u = new URL(req.url), sym = u.searchParams.get("symbol") ?? "", grep = (u.searchParams.get("grep") ?? "Npa|Capital|Stage|Crar|Ratio").slice(0, 120);
+      let re: RegExp; try { re = new RegExp(grep, "i"); } catch { return Response.json({ error: "grep" }, { status: 400 }); }
+      if (!/^[A-Z0-9&-]{1,20}$/.test(sym)) return Response.json({ error: "symbol" }, { status: 400 });
+      return Response.json(await tagProbe(d1Sql(env.DB_FILINGS), (k) => getText(env.RAW, k), sym, RESULT_KINDS, re, Number(u.searchParams.get("files") ?? 2)), { headers: { "cache-control": "no-store" } });
+    }
+    if (path === "/lines") {
+      // Read-only (G14): one company's stored figures for up to 12 named lines, from a period end on, every basis and
+      // version, e.g. /lines?symbol=CANBK&lines=gross_npa,net_npa,gnpa_pct&since=2025-06-30
+      const u = new URL(req.url), sym = u.searchParams.get("symbol") ?? "", since = u.searchParams.get("since") ?? "2025-01-01";
+      const lines = (u.searchParams.get("lines") ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 12);
+      if (!lines.length || !/^\d{4}-\d{2}-\d{2}$/.test(since)) return Response.json({ error: "lines=a,b&since=YYYY-MM-DD" }, { status: 400 });
+      const sid = (await env.DB_MARKET.prepare("SELECT security_id FROM security_identifier WHERE id_type='nse_symbol' AND value=?1 LIMIT 1").bind(sym).first<{ security_id: number }>())?.security_id;
+      if (!sid) return Response.json({ error: "unknown symbol" }, { status: 404 });
+      const rows = (await env.DB_FILINGS.prepare(SQL_LINES_OF).bind(sid, since, JSON.stringify(lines)).all()).results;
+      return Response.json({ symbol: sym, security_id: sid, since, lines, rows }, { headers: { "cache-control": "no-store" } });
     }
     if (path === "/features") {
       // D171 (read-only): one company's stored feature-table values (computed from filed figures, with their inputs)
@@ -644,15 +754,24 @@ export default {
       // Read-only diagnosis: every stored insider-trade (PIT) list for one company — request, status, rows, date range.
       const sym = new URL(req.url).searchParams.get("symbol") ?? "";
       const jobs = (await env.DB_FILINGS.prepare(sym === "ALL" ? "SELECT job_id, url, r2_key, status, http_status, fetched_at, bytes FROM fetch_job WHERE kind='pit' AND symbol IS NULL ORDER BY job_id" : "SELECT job_id, url, r2_key, status, http_status, fetched_at, bytes FROM fetch_job WHERE kind='pit' AND symbol=?1 ORDER BY job_id").bind(...(sym === "ALL" ? [] : [sym])).all<{ job_id: number; url: string; r2_key: string; status: string; http_status: number | null; fetched_at: string | null; bytes: number | null }>()).results;
+      const focusSet = new Set(sym === "ALL" ? (await focusSymbols(env.DB_MARKET, env.FOCUS_INDICES)) ?? [] : []);
       const out = [];
       for (const j of jobs.slice(0, 20)) {
         const text = j.status === "done" ? await getText(env.RAW, j.r2_key) : null;
         let rows = null as number | null, min = null as string | null, max = null as string | null, err = null as string | null;
+        let inFocus = null as number | null, top = null as [string, number][] | null;
         if (text) try {
           const r = parsePit(text); rows = r.length;
           const ds = r.map((t) => t.disclosedAt).filter((x): x is string => !!x).sort(); min = ds[0] ?? null; max = ds[ds.length - 1] ?? null;
+          // all-company lists (6 Nov insider gap): how many rows are the 250's, and which symbols carry the most rows
+          if (sym === "ALL") {
+            const n = new Map<string, number>();
+            for (const t of r) n.set(t.symbol!, (n.get(t.symbol!) ?? 0) + 1);
+            inFocus = r.filter((t) => focusSet.has(t.symbol!)).length;
+            top = [...n].filter(([k]) => focusSet.has(k)).sort((a, b) => b[1] - a[1]).slice(0, 8);
+          }
         } catch (e) { err = String(e).slice(0, 80); }
-        out.push({ job: j.job_id, url: j.url.replace(/^https:\/\/[^/]+\/api\//, ""), status: j.status, http: j.http_status, fetched_at: j.fetched_at, bytes: j.bytes, rows, disclosed_min: min, disclosed_max: max, err });
+        out.push({ job: j.job_id, url: j.url.replace(/^https:\/\/[^/]+\/api\//, ""), status: j.status, http: j.http_status, fetched_at: j.fetched_at, bytes: j.bytes, rows, disclosed_min: min, disclosed_max: max, err, ...(sym === "ALL" ? { in_focus: inFocus, top_focus: top } : {}) });
       }
       return Response.json(out, { headers: { "cache-control": "no-store" } });
     }
