@@ -1,0 +1,29 @@
+name: nse-inpage-probe
+
+# Manual only. Answers one question with a measurement: from GitHub's runners, does NSE answer (1) a plain request,
+# (2) a request made from inside an nseindia.com page in stock headless Chrome? Read-only: it GETs NSE's public insider
+# (PIT) filing list and up to a few of its XBRL files, and writes nothing to R2 or D1. If NSE refuses both routes the tool
+# stops at once (exit 2) and tries nothing else. Logs of a public repo are public: the tool prints counts and statuses only.
+on:
+  workflow_dispatch:
+    inputs:
+      max_xml: { description: "how many XBRL files to fetch after the list", default: "5" }
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install playwright && python -m playwright install --with-deps chromium
+      - name: Fetch (plain first, in-page if refused)
+        run: python3 tools/nse_pit_fetch.py out --max-xml "${{ github.event.inputs.max_xml || '0' }}" --symbols HDFCBANK,TCS,ICICIBANK,KOTAKBANK,RELIANCE
+      - name: Keep the manifest and the filing list (no XBRL bodies are ever written; they carry PAN / DIN / CIN)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: nse-inpage-probe, path: out, if-no-files-found: ignore, retention-days: 3 }

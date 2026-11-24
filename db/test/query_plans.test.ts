@@ -11,7 +11,7 @@ import { SQL_API_RETRY, SQL_API_TODO, SQL_DISCOVER } from "../../workers/prefetc
 import { SQL_REQUEUE_LISTS, SQL_URLS_HELD } from "../../workers/prefetch/src/daily.js";
 import { SQL_IF_LIST_ALL, SQL_IF_LIST_OWN } from "../../workers/filings/src/basis.js";
 import { SQL_LOADER_NEW, SQL_LOADER_RETRY, SQL_MISATTR, SQL_MOVE_FIN_VALUE, SQL_EARLIER_Q, SQL_Q_EXISTS, SQL_RELABEL_Q, SQL_RELOAD, SQL_REQUEUE_404, SQL_RETRY_OFF, SQL_STATEMENT_ROWS, SQL_VERSION_ROWS, SQL_NBFC_SIDS, SQL_NBFC_FILINGS, SQL_SID_TEMPLATE, SQL_FILING_PERIOD_LOADED, SQL_FILING_PERIOD_LOADED_PAT, SQL_CF_TOTALS_FILINGS, SQL_SEGMENT_ROWS, SQL_SEGMENT_PERIODS, SQL_NEAREST_PAT_EPS, SQL_REVENUE_KINDS, SQL_PERIOD_LOADS, SQL_ORPHAN_RESTATED } from "../../workers/filings/src/load.js";
-import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS } from "../../workers/filings/src/events.js";
+import { SQL_EVENTS_NEXT, SQL_PITX_NEXT, SQL_INSIDER_SINCE, SQL_INSIDER_UNDATED, SQL_PIT_JOBS, SQL_INSIDER_ROWS, SQL_RATINGS_SINCE, SQL_INSIDER_YEARS, SQL_PITX_SYMBOLS, SQL_ANNOUNCE_LISTS } from "../../workers/filings/src/events.js";
 import { SQL_FEATURE_NEW, SQL_FEATURE_ROWS, SQL_FEATURES_OF, SQL_LATEST_TTM, SQL_PE_LATEST, SQL_PRIMARY_BASIS_OF, SQL_SECTOR_LATEST } from "../../workers/filings/src/features.js";
 import { SQL_BASIS_LISTS, SQL_BASIS_NEW } from "../../workers/filings/src/basis.js";
 import { SQL_REMARK_LISTS } from "../../workers/filings/src/load.js";
@@ -104,6 +104,7 @@ const cases: [string, string, unknown[], RegExp][] = [
   ["filings: the 250's credit ratings from 2026 (owner #365, read-only)", SQL_RATINGS_SINCE, ['["INFY"]', 20260101], /ix_credit_rating_symbol \(symbol=\? AND rated_on>\?\)/],
   ["filings: the 250's insider trades per year (owner #365, read-only)", SQL_INSIDER_YEARS, ['["INFY"]'], /ix_insider_symbol \(symbol=\? AND from_d>\?\)/],
   ["filings: new-system insider rows, all companies (owner #365, read-only)", SQL_PITX_SYMBOLS, [], /SEARCH insider_trade USING (COVERING )?(PRIMARY KEY|INDEX sqlite_autoindex_insider_trade_1) \(key>\? AND key<\?\)/],
+  ["filings: one company's cleaned insider trades (C53b /insider-clean, read-only)", SQL_INSIDER_ROWS, ["INFY", 20260101, 2000], /ix_insider_symbol \(symbol=\?\)/],
   ["filings: named promoter holders of the 250, latest filing (D40, read-only)", SQL_PROMOTER_HOLDERS, ['[1,2]'], /ix_shareholding_sec \(security_id=\?/],
   ["filings: latest shareholding filing of one company (D40 one-off)", SQL_LATEST_SHP, [1], /ix_filing_sec \(security_id=\? AND kind=\?\)/],
   ["filings: download of one file by URL (D40 one-off)", SQL_JOB_BY_URL, ["u"], /sqlite_autoindex_fetch_job_1 \(url=\?\)/],

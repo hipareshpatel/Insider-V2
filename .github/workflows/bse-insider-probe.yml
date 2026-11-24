@@ -1,0 +1,24 @@
+name: bse-insider-probe
+
+# Manual dispatch (once this file is on the default branch). Read-only cross-check: does BSE's insider CSV hold filings for
+# HDFCBANK, ICICIBANK, KOTAKBANK, TCS and RELIANCE, for which NSE's list holds 0, 0, 0, 0 and 2 since 3 May 2026?
+# Rules: identifiable user-agent (DiscloBot/1.0), fixed 5 s interval, stop at once on any refusal or challenge (nothing else is
+# tried). robots.txt is not read (owner decision D172, 6 Nov). 7 requests in all. Prints company-level counts only: no person
+# names, and NOTHING is uploaded or stored. Terms of use are not checked by the tool; that reading is the owner's.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install playwright && python -m playwright install --with-deps chromium
+      - name: Probe BSE (robots.txt first; stops on any refusal)
+        run: python3 tools/bse_insider_probe.py

@@ -2,7 +2,7 @@
 // ratings into their tables. Walks the ledger by a (kind, job_id) cursor over ix_fetch_kind_job (P0, 4 Nov: the former
 // "+kind" form scanned the whole table tail from the cursor on every run, since no new event list sits there) and stops at a
 // list that is not downloaded yet, so nothing is skipped. Rows are keyed; INSERT OR IGNORE makes re-reads harmless.
-import { type FocusIssuers, type Sql, batchAll, buildFocusIssuers, byKindAfter, ratingLink, markFresh, insertRows, parseBoardMeetings, parseCreditRatings, parsePit, parsePitXbrl, parseSast, parseXbrl } from "@disclo/core";
+import { type FocusIssuers, type Sql, type InsiderInput, cleanInsiderTrades, batchAll, buildFocusIssuers, byKindAfter, ratingLink, markFresh, insertRows, parseBoardMeetings, parseCreditRatings, parsePit, parsePitXbrl, parseSast, parseXbrl } from "@disclo/core";
 
 /** Newest of a set of ISO timestamps (null when none). */
 const newestOf = (xs: (string | null | undefined)[]) => xs.reduce<string | null>((a, x) => (x && (!a || x > a) ? x : a), null);
@@ -13,6 +13,15 @@ const KINDS = ["pit", "sast29", "board_meetings", "credit_rating"];
 export const SQL_INSIDER_SINCE = "SELECT symbol, count(*) AS trades, sum(key >= 'pitx:' AND key < 'pitx;') AS new_system, min(from_d) AS first_d, max(from_d) AS last_d FROM insider_trade WHERE symbol IN (SELECT value FROM json_each(?1)) AND from_d >= ?2 GROUP BY symbol";
 /** #314 rule: a trade with no trade date counts by its disclosure date. */
 export const SQL_INSIDER_UNDATED = "SELECT symbol, count(*) AS trades FROM insider_trade WHERE symbol IN (SELECT value FROM json_each(?1)) AND from_d IS NULL AND disclosed_at >= ?2 GROUP BY symbol";
+/** C53b (read-only /insider-clean): one company's stored insider trades, newest first, capped. Read cost = at most ?limit rows. */
+export const SQL_INSIDER_ROWS = "SELECT key, symbol, person, category, sec_type, txn, mode, qty, value_rs, before_qty, after_qty, from_d, to_d, intimated, disclosed_at, did FROM insider_trade WHERE symbol = ?1 AND coalesce(to_d, from_d, 0) >= ?2 ORDER BY disclosed_at DESC LIMIT ?3";
+export interface StoredInsiderRow { key: string; symbol: string; person: string | null; category: string | null; sec_type: string | null; txn: string | null; mode: string | null; qty: number | null; value_rs: string | null;
+  before_qty: number | null; after_qty: number | null; from_d: number | null; to_d: number | null; intimated: number | null; disclosed_at: string | null; did: string | null }
+const isoD = (d: number | null) => { const t = d ? String(d) : ""; return /^\d{8}$/.test(t) ? `${t.slice(0, 4)}-${t.slice(4, 6)}-${t.slice(6)}` : null; };
+/** A stored row as the cleaner reads it (dates back to ISO; the filing number is `did`). prevAppId / submissionType are not stored. */
+export const insiderInputOf = (r: StoredInsiderRow): InsiderInput => ({ key: r.key, symbol: r.symbol, person: r.person ?? "", category: r.category ?? "", secType: r.sec_type ?? "", txn: r.txn ?? "", mode: r.mode ?? "",
+  qty: r.qty, valueRs: r.value_rs ?? "", beforeQty: r.before_qty, afterQty: r.after_qty, fromDate: isoD(r.from_d), toDate: isoD(r.to_d), intimated: isoD(r.intimated), disclosedAt: r.disclosed_at, ...(r.did ? { appId: r.did } : {}) });
+export const cleanStoredInsider = (rows: readonly StoredInsiderRow[], runDate: string) => cleanInsiderTrades(rows.map(insiderInputOf), { runDate });
 /** The per-company PIT list downloads (quarterly windows and full lists) — kind range of the ledger. */
 export const SQL_PIT_JOBS = "SELECT symbol, r2_key, status, http_status FROM fetch_job WHERE kind = 'pit' AND job_id > 0";
 /** Shape check (read-only): the 250's insider trades per trade year and source (old list vs new system). */
